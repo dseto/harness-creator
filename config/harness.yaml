@@ -1,0 +1,86 @@
+# harness-init — configuração operacional
+# Toda política de governança vive aqui, nunca hard-coded.
+
+governance:
+  # paranoid  -> aprova literalmente tudo, inclusive leituras (produção)
+  # balanced  -> aprova tudo que muda estado: edit/execute/network (protótipos)
+  # auto      -> auto-aprova edit/execute (NÃO é read-only); só network e
+  #              edit_test seguem gateados. Use só com autonomia total confiada.
+  approval_policy: balanced
+
+  budget:
+    max_tokens_per_task: 500_000      # teto rígido — estourou, aborta
+    max_tokens_per_session: 2_000_000
+    max_tool_calls_per_task: 120       # backstop contra runaway loops
+    max_green_iterations: 12           # tentativas de autocorreção na fase GREEN
+
+sandbox:
+  image: "harness-sandbox:latest"      # ver sandbox/Dockerfile
+  network_mode: "none"                 # sem rede por padrão (anti-exfiltração)
+  mem_limit: "2g"
+  cpu_quota: 200000                    # 2 vCPU
+  pids_limit: 256
+  workspace_mount: "/workspace"
+  ephemeral: true                      # contêiner destruído ao fim da tarefa
+
+verification:
+  enforce_tdd: true                  # TDDGuard bloqueia atalhos (Camada 2)
+  test_command: "pytest -x --tb=short"
+  test_glob: "tests/**/*.py"
+
+routing:
+  # tier -> model id. Tarefas simples em modelo barato, raciocínio profundo em fronteira.
+  tiers:
+    trivial:  "claude-haiku-4-5-20251001"   # navegação de arquivos, leitura
+    simple:   "claude-haiku-4-5-20251001"   # pequenas edições, renomes
+    standard: "claude-sonnet-5"             # implementação de features
+    complex:  "claude-opus-4-8"             # coordenação, arquitetura, débito estrutural
+  default_tier: standard
+
+generation:
+  max_tokens: 8192      # limite de tokens de saída por turn do modelo
+
+eet:
+  enabled: true
+  confidence_threshold: 0.25        # abaixo disso -> terminar cedo
+  escalate_confidence_threshold: 0.45  # abaixo disso (mas acima do hard) -> escala tier de modelo
+  min_turns_before_eval: 4          # não avaliar trajetórias muito curtas
+  repeated_failure_limit: 3         # mesma falha N vezes -> sinal forte de impossibilidade
+
+context:
+  governance_files: ["AGENTS.md", "CLAUDE.md"]
+  memory_dir: ".harness/memory"
+  index:
+    include: ["**/*.py", "**/*.ts", "**/*.md"]
+    exclude: ["**/node_modules/**", "**/.venv/**", "**/.git/**"]
+
+telemetry:
+  trace_dir: ".harness/traces"
+  capture_reasoning: true          # histórico completo do raciocínio do modelo
+  cost_table:                      # USD por 1M tokens (input/output) p/ ROI
+    claude-haiku-4-5-20251001: { input: 1.00, output: 5.00 }
+    claude-sonnet-5:            { input: 3.00, output: 15.00 }
+    claude-opus-4-8:            { input: 15.00, output: 75.00 }
+
+mcp:
+  # Servidores MCP stdio hoje rodam como subprocesso NO HOST — fora do
+  # isolamento do sandbox sem rede (limitação conhecida, ver ARCHITECTURE.md
+  # e REDESIGN_PLAN.md B2). Por isso ficam DESLIGADOS por default:
+  allow_host_execution: false
+
+  # Exemplo de servidores (inativos enquanto allow_host_execution=false).
+  # Ajuste os paths/comandos para o HOST real antes de habilitar — e saiba
+  # que toda tool MCP é sempre gateada (risk_class="network"), mesmo em
+  # modo "auto".
+  servers: []
+  # servers:
+  #   - name: filesystem
+  #     transport: stdio
+  #     command: "npx"
+  #     args: ["-y", "@modelcontextprotocol/server-filesystem", "C:\\Projetos\\Harness-creator"]
+  #   - name: postgres
+  #     transport: stdio
+  #     command: "npx"
+  #     args: ["-y", "@modelcontextprotocol/server-postgres"]
+  #     env:
+  #       DATABASE_URL: "${HARNESS_DB_URL}"

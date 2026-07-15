@@ -1,0 +1,31 @@
+[project]
+name = "harness-creator"
+version = "0.10.0"
+description = "Plugin do Claude Code que cria, avalia e compila governança de harness (permissions/hooks/AGENTS.md nativos) — Agente = Modelo + Harness"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.40.0",
+    "mcp>=1.2.0",
+    "docker>=7.0.0",
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.4"]
+
+[project.scripts]
+harness = "harness.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/harness"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
