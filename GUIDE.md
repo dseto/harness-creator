@@ -130,7 +130,46 @@ harness compile-contract --dir <alvo> --slug <slug>
 
 Sem aprovação, `compile-contract` sai com erro e nada é gerado.
 
-## 6. Verificar se está tudo consistente
+## 6. Contrato aprovado → sessão autônoma no raio de impacto
+
+Depois do contrato aprovado (seção anterior), rode:
+
+```
+harness compile-session --dir <alvo>
+```
+
+Isso compila a **Fase 2** do roadmap (Execução Autônoma no Raio de Impacto):
+
+- **Permissions da sessão** (`session_permissions.py`) — `allow` enumerado
+  (nunca genérico) para exatamente a superfície que o contrato aprovado usa:
+  `Edit`/`Write` nos `files[]` das tarefas, os `verify_cmd` e comandos de
+  lint/build do profile, instalação de dependência do `package_manager`
+  detectado, e git local do ritual (`status/log/diff/add/commit`).
+- **`boundary_guard.py`** — hook `PreToolUse` único que substitui (e remove,
+  quando presente) o hook antigo `guard_tests.py`: cobre Edit/Write/Bash numa
+  só passada em vez de N guards por ação, decidindo `allow`/`deny` a partir
+  da superfície do contrato ativo. Traz proteção contra enfraquecimento de
+  teste — só edita arquivo de teste se a tarefa ativa o declarar em
+  `files[]`.
+- **Lifecycle de 16 passos** — bloco gerenciado adicional no `AGENTS.md`
+  (ler AGENTS.md → rodar `init.*` → ler progresso → escolher UMA feature →
+  implementar → verificar → autocorrigir → registrar evidência → commit em
+  estado retomável → deixar a working tree limpa).
+- **Templates de sessão** (`templates.py`) — `claude-progress.md` (esqueleto
+  runtime, gerado só se ainda não existir) e `init.sh`/`init.ps1`
+  (determinísticos a partir do `repo-profile.json`).
+- **Hook SessionStart** — injeta no início da sessão o resumo do progresso,
+  a feature ativa e o `git log` recente, para a sessão nascer sabendo onde
+  parou.
+
+**O runtime floor nunca vira `allow`**, com ou sem contrato ativo: leitura de
+segredos (`.env`, `.pem`, `id_rsa`, `*credentials*`), rede/publicação não
+planejada (`curl`, `wget`, `npm publish`, `pip upload`, `twine upload`, `gh
+release`) e `git push` continuam fora da superfície liberada — são
+verificados incondicionalmente, antes de qualquer outra checagem do
+`boundary_guard.py`.
+
+## 7. Verificar se está tudo consistente
 
 ```
 /harness-creator:audit
@@ -140,7 +179,7 @@ Score 0–100. Rode depois de qualquer edição manual em `settings.json`,
 `AGENTS.md` ou nos hooks — ele detecta *drift* (alguém editou à mão e
 divergiu do que o `harness.yaml` geraria) e sugere recompilar.
 
-## 7. Deixar o plugin sempre disponível (opcional)
+## 8. Deixar o plugin sempre disponível (opcional)
 
 Em vez de repetir `--plugin-dir` toda sessão, adicione a
 `~/.claude/settings.json` do seu usuário (não do projeto):
@@ -173,6 +212,11 @@ trabalhar normal — prompts de aprovação aparecem sozinhos conforme a políti
         ├─ mudou o yaml? ──► /harness-creator:compile ──► reabrir sessão
         │
         ├─ demanda específica? ──► /harness-creator:plan ──► aprovar contrato ──► compile-contract
+        │                                                           │
+        │                                                           ▼
+        │                                            compile-session (Fase 2: permissions do
+        │                                            raio de impacto + boundary_guard + lifecycle
+        │                                            + templates + SessionStart)
         │
         └─ quer conferir? ──► /harness-creator:audit
 ```

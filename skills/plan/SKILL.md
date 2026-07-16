@@ -147,6 +147,35 @@ Passo 5** — não tente contornar o gate de nenhuma forma (não edite o
 frontmatter sem aprovação real, não ignore o erro, não escreva o
 `feature_list.json` manualmente).
 
+## Passo 7 — Compilar a sessão autônoma (Fase 2)
+
+Logo depois do `feature_list.json` compilado com sucesso (Passo 6), rode:
+
+```
+python -m harness.cli compile-session --dir <alvo>
+```
+
+Isso compila, em sequência, os 5 artefatos da Fase 2 a partir do contrato
+recém-aprovado e do `repo-profile.json` (se já existir): `.claude/settings.json`
+com a superfície `allow` ENUMERADA do contrato, `boundary_guard.py` ativo
+como hook `PreToolUse` único de Edit/Write/Bash, `AGENTS.md` com o Agent
+Session Lifecycle de 16 passos (mais o detalhe em `.harness/LIFECYCLE.md`),
+`claude-progress.md`/`init.sh`/`init.ps1` gerados a partir do profile, e o
+hook `SessionStart` registrado (injeta o estado da sessão anterior no
+início da próxima sessão).
+
+Mostre ao usuário os artefatos gerados (a saída JSON do comando lista os
+paths reais). Deixe explícito que o runtime floor — segredos (`.env`,
+`.pem`, `id_rsa`, `*credentials*`), rede não planejada (`curl`, `wget`,
+`npm publish`, `pip upload`, `twine upload`, `gh release`) e `git push` —
+**nunca** vira `allow`, nem mesmo depois desta compilação: o
+`boundary_guard.py` bloqueia essas ações incondicionalmente, com ou sem
+contrato ativo.
+
+Se o comando sair com **exit 1** por `.harness/feature_list.json` ausente,
+volte ao Passo 6 — `compile-session` nunca roda sem um contrato já
+compilado.
+
 ## Regras
 
 - Nunca auto-aprove o contrato: `approved_by`/`approved_at` só são

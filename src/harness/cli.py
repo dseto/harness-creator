@@ -34,6 +34,12 @@ def main() -> None:
     cc.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
     cc.add_argument("--slug", required=True, help="Identificador do contrato em .harness/work/<slug>")
 
+    cs = sub.add_parser(
+        "compile-session",
+        help="Compila a sessão autônoma (Fase 2): permissions, boundary guard, lifecycle, templates, SessionStart",
+    )
+    cs.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+
     args = parser.parse_args()
 
     if args.command == "run":
@@ -93,6 +99,45 @@ def main() -> None:
             "feature_list": str(result),
             "features": len(data.get("features", [])),
             "contract": args.slug,
+        }, indent=2, ensure_ascii=False))
+        sys.exit(0)
+
+    if args.command == "compile-session":
+        from harness.boundary_guard import install_boundary_guard
+        from harness.lifecycle import install_lifecycle
+        from harness.session_permissions import (
+            FEATURE_LIST_FILE,
+            REPO_PROFILE_FILE,
+            compile_session_permissions,
+        )
+        from harness.session_start import install_session_start
+        from harness.templates import install_templates
+
+        target_dir = Path(args.dir)
+
+        try:
+            settings_path = compile_session_permissions(target_dir)
+        except FileNotFoundError as exc:
+            print(f"erro: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        resolved_dir = target_dir.resolve()
+        feature_list = json.loads((resolved_dir / FEATURE_LIST_FILE).read_text(encoding="utf-8"))
+        profile_path = resolved_dir / REPO_PROFILE_FILE
+        profile = json.loads(profile_path.read_text(encoding="utf-8")) if profile_path.is_file() else {}
+
+        boundary_guard_path = install_boundary_guard(target_dir)
+        agents_path, lifecycle_detail_path = install_lifecycle(target_dir)
+        templates_written = install_templates(target_dir, feature_list, profile)
+        session_start_path = install_session_start(target_dir)
+
+        print(json.dumps({
+            "settings": str(settings_path),
+            "boundary_guard": str(boundary_guard_path),
+            "agents_md": str(agents_path),
+            "lifecycle_detail": str(lifecycle_detail_path),
+            "templates": [str(p) for p in templates_written],
+            "session_start_hook": str(session_start_path),
         }, indent=2, ensure_ascii=False))
         sys.exit(0)
 

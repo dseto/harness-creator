@@ -1,5 +1,68 @@
 # Changelog
 
+## 0.12.0 — 2026-07-16
+
+Fase 2 do roadmap (Execução Autônoma no Raio de Impacto): dentro do contrato
+já aprovado (Fase 1), o agente passa a trabalhar sem interromper o humano —
+o microgerenciamento por `ask`/`deny` por ação dá lugar a uma superfície de
+`allow` enumerada e compilada do próprio contrato.
+
+### Adicionado
+- `src/harness/session_permissions.py` — compila `.harness/feature_list.json`
+  + `.harness/repo-profile.json` para `allow` ENUMERADO (nunca genérico) em
+  `.claude/settings.json`: `Edit`/`Write` nos `files[]` de todas as tarefas,
+  `Bash` dos `verify_cmd` e extras de lint/build do profile, e o comando de
+  instalação de dependências derivado do `package_manager` detectado (ex.:
+  `npm ci`) — a instalação roda na aprovação do contrato, não no meio da
+  sessão. Git local do ritual (`status/log/diff/add/commit`) fixo. Estado
+  gerenciado em `.harness/compiled-state-session.json`, chave
+  `managed_session_permissions`.
+- `src/harness/boundary_guard.py` — dispatcher único de hook `PreToolUse`
+  cobrindo `Edit`/`Write`/`Bash` numa passada só (resolve a latência de N
+  subprocessos por tool call do design anterior). Duas garantias, nesta
+  ordem, sempre: (1) **runtime floor** avaliado incondicionalmente antes de
+  qualquer outra checagem — `git push`, rede/publicação não planejada
+  (`curl`, `wget`, `npm publish`, `pip upload`, `twine upload`, `gh
+  release`) e escrita em arquivo de segredo (`.env`, `.pem`, `id_rsa`,
+  `*credentials*`) nunca viram `allow`, com ou sem contrato ativo; (2)
+  **proteção contra enfraquecimento de teste** — arquivo que casa
+  `test_glob` só é editável se alguma tarefa do contrato ativo o declarar em
+  `files[]`. Remove o hook legado `guard_tests.py` (sempre-`ask` estático)
+  quando presente, substituindo-o pela decisão por-tarefa.
+- `src/harness/lifecycle.py` — compila o Agent Session Lifecycle de 16
+  passos como bloco gerenciado adicional no `AGENTS.md` (progressive
+  disclosure, detalhe em `.harness/LIFECYCLE.md`). **[Design próprio]**:
+  diverge deliberadamente do texto literal do ROADMAP.md, que descrevia a
+  entrega como seções `state`/`lifecycle` no `harness.yaml`; implementado em
+  vez disso via bloco em `AGENTS.md` + arquivo de detalhe, sem estender o
+  schema do yaml, por ser essencialmente texto/instrução e não configuração.
+- `src/harness/templates.py` — gera `claude-progress.md` (esqueleto runtime,
+  só se ainda não existir — recompilar nunca sobrescreve progresso já
+  registrado) e `init.sh`/`init.ps1` (determinísticos a partir do
+  `repo-profile.json`, sempre regenerados).
+- `src/harness/session_start.py` — hook `SessionStart` (schema
+  `hookSpecificOutput.additionalContext`, confirmado contra a documentação
+  oficial, distinto do schema de `PreToolUse`) que injeta no início da
+  sessão o resumo do progresso, a feature ativa/pendente e o `git log`
+  recente.
+- `harness compile-session --dir` na CLI — orquestra os cinco módulos acima
+  numa única compilação da sessão de trabalho autônoma.
+
+### Corrigido (achados da revisão plan-critic + judge)
+- Bypass do runtime floor sem contrato ativo: uma primeira versão do
+  `boundary_guard.py` só aplicava o runtime floor depois de confirmar que
+  havia contrato ativo, o que liberaria `git push`/segredos por omissão em
+  qualquer repo sem `feature_list.json`. Corrigido — o runtime floor agora
+  roda incondicionalmente, antes de qualquer checagem de contrato.
+- Colisão de estado com o mecanismo antigo: os novos hooks de sessão
+  (`session_permissions.py`, `boundary_guard.py`, `session_start.py`)
+  gravavam risco de colidir com `.harness/compiled-state.json`, que
+  `compiler.py::_write_state` reconstrói do zero a cada `harness compile` —
+  uma chave nova ali seria apagada silenciosamente na próxima compilação do
+  mecanismo antigo. Resolvido com arquivo próprio,
+  `.harness/compiled-state-session.json`, compartilhado só entre os três
+  hooks de sessão, cada um sob sua própria chave.
+
 ## 0.11.0 — 2026-07-15
 
 Fase 1 do roadmap (Delegação Baseada em Contratos): move a autoridade humana
