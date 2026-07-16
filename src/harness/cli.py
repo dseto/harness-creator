@@ -27,6 +27,13 @@ def main() -> None:
     aud = sub.add_parser("audit", help="Avalia a estrutura de harness do projeto (score + findings JSON)")
     aud.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
 
+    ana = sub.add_parser("analyze", help="Analisa o repo-alvo e grava .harness/repo-profile.json")
+    ana.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+
+    cc = sub.add_parser("compile-contract", help="Compila .harness/work/<slug> -> .harness/feature_list.json")
+    cc.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+    cc.add_argument("--slug", required=True, help="Identificador do contrato em .harness/work/<slug>")
+
     args = parser.parse_args()
 
     if args.command == "run":
@@ -64,6 +71,30 @@ def main() -> None:
         print(report.to_json())
         # score < 60 = estrutura comprometida (algum critical) -> exit 1
         sys.exit(0 if report.score >= 60 else 1)
+
+    if args.command == "analyze":
+        from harness.analyzer import analyze_project, write_profile
+
+        profile = analyze_project(Path(args.dir))
+        write_profile(profile, Path(args.dir))
+        print(json.dumps(profile.to_dict(), indent=2, ensure_ascii=False))
+        sys.exit(0)
+
+    if args.command == "compile-contract":
+        from harness.contract import ContractError, compile_contract
+
+        try:
+            result = compile_contract(Path(args.dir), args.slug)
+        except ContractError as exc:
+            print(f"erro: {exc}", file=sys.stderr)
+            sys.exit(1)
+        data = json.loads(result.read_text(encoding="utf-8"))
+        print(json.dumps({
+            "feature_list": str(result),
+            "features": len(data.get("features", [])),
+            "contract": args.slug,
+        }, indent=2, ensure_ascii=False))
+        sys.exit(0)
 
 
 if __name__ == "__main__":

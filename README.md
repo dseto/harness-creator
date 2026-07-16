@@ -1,6 +1,6 @@
 # harness-creator
 
-**v0.10.0** · [CHANGELOG](CHANGELOG.md)
+**v0.11.0** · [CHANGELOG](CHANGELOG.md)
 
 Plugin do Claude Code que **cria, avalia e compila** estrutura de harness
 (governança de agentes) para projetos.
@@ -45,8 +45,10 @@ claude --plugin-dir C:\Projetos\Harness-creator
 | `/harness-creator:init` | Entrevista curta → gera `.harness/harness.yaml` → compila |
 | `/harness-creator:audit` | Score 0-100 + findings (drift, hooks ausentes, política arriscada) |
 | `/harness-creator:compile` | Recompila após edição manual do yaml (idempotente, preserva settings manuais) |
+| `/harness-creator:plan` | Demanda em linguagem natural → `spec.md` + `Plans.md` → aprovação humana → `feature_list.json` |
 
-CLI equivalente: `harness compile --dir <alvo>` · `harness audit --dir <alvo>`.
+CLI equivalente: `harness compile --dir <alvo>` · `harness audit --dir <alvo>` ·
+`harness analyze --dir <alvo>` · `harness compile-contract --dir <alvo> --slug <slug>`.
 
 ## Estrutura do repo
 

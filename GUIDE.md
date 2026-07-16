@@ -13,12 +13,13 @@ pip install -e .
 claude --plugin-dir C:\Projetos\Harness-creator
 ```
 
-Isso abre uma sessão do Claude Code com as 3 skills disponíveis:
-`/harness-creator:init`, `/harness-creator:audit`, `/harness-creator:compile`.
+Isso abre uma sessão do Claude Code com as 4 skills disponíveis:
+`/harness-creator:init`, `/harness-creator:audit`, `/harness-creator:compile`,
+`/harness-creator:plan`.
 
 > Repita `claude --plugin-dir ...` toda vez que abrir o Claude Code para
 > trabalhar com harness — não é uma instalação permanente do Claude Code em
-> si, é um flag de sessão. (Se preferir permanente, ver seção 6.)
+> si, é um flag de sessão. (Se preferir permanente, ver seção 7.)
 
 ## 2. Criar o harness no projeto-alvo (uma vez, por repositório)
 
@@ -102,7 +103,34 @@ rodar mais solto.
 o diff do `settings.json` — o que entrou/saiu. **Reabra a sessão** de novo
 para valer.
 
-## 5. Verificar se está tudo consistente
+## 5. Trabalhar por contrato
+
+Para uma demanda específica (uma feature, uma mudança maior), em vez de pedir
+direto e aprovar cada edição uma por uma, use:
+
+```
+/harness-creator:plan
+```
+
+A skill lê (ou gera) o `repo-profile.json`, faz uma entrevista mínima sobre a
+demanda e escreve um contrato em `.harness/work/<slug>/`:
+- **`spec.md`** — o quê: escopo, critérios de aceitação executáveis,
+  unknowns, stop conditions.
+- **`Plans.md`** — o como: tarefas com arquivos afetados e comando de
+  verificação de cada uma.
+
+Você revisa e aprova (ou pede ajuste) esse contrato. **O gate exige
+`approved_by`/`approved_at` preenchidos no frontmatter do `spec.md` — a skill
+nunca aprova sozinha**, aprovação é sempre um ato explícito seu. Só depois de
+aprovado o contrato compila para `.harness/feature_list.json`:
+
+```
+harness compile-contract --dir <alvo> --slug <slug>
+```
+
+Sem aprovação, `compile-contract` sai com erro e nada é gerado.
+
+## 6. Verificar se está tudo consistente
 
 ```
 /harness-creator:audit
@@ -112,7 +140,7 @@ Score 0–100. Rode depois de qualquer edição manual em `settings.json`,
 `AGENTS.md` ou nos hooks — ele detecta *drift* (alguém editou à mão e
 divergiu do que o `harness.yaml` geraria) e sugere recompilar.
 
-## 6. Deixar o plugin sempre disponível (opcional)
+## 7. Deixar o plugin sempre disponível (opcional)
 
 Em vez de repetir `--plugin-dir` toda sessão, adicione a
 `~/.claude/settings.json` do seu usuário (não do projeto):
@@ -143,6 +171,8 @@ reabrir sessão do Claude Code nesse repo
 trabalhar normal — prompts de aprovação aparecem sozinhos conforme a política
         │
         ├─ mudou o yaml? ──► /harness-creator:compile ──► reabrir sessão
+        │
+        ├─ demanda específica? ──► /harness-creator:plan ──► aprovar contrato ──► compile-contract
         │
         └─ quer conferir? ──► /harness-creator:audit
 ```
