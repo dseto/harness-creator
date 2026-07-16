@@ -674,3 +674,167 @@ def test_feature_lock_test_diff_approved_with_justification_allows(tmp_path: Pat
     script = _script(tmp_path)
     out = _run_hook(script, _transition_payload(tmp_path, files=["tests/test_x.py"]))
     assert out["permissionDecision"] == "allow", out
+
+
+# ---------------- Achado 1: command smuggling no guard de Bash ----------------
+
+
+def _contract_with_verify(target: Path, verify_cmd: str = "pytest -q") -> None:
+    _write_feature_list(target, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": verify_cmd,
+         "depends": [], "passes": False}
+    ])
+
+
+def test_bash_smuggle_after_verify_cmd_denies(tmp_path: Path) -> None:
+    """`<verify_cmd> && rm -rf src` -> DENY (o rm colado depois do allowed
+    não pode escapar)."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                             "tool_input": {"command": "pytest -q && rm -rf src"}})
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_bash_smuggle_before_verify_cmd_denies(tmp_path: Path) -> None:
+    """`rm -rf src && <verify_cmd>` -> DENY (smuggle ANTES do allowed)."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                             "tool_input": {"command": "rm -rf src && pytest -q"}})
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_bash_smuggle_via_semicolon_after_git_denies(tmp_path: Path) -> None:
+    """`git commit -m x ; powershell -c evil` -> DENY (git local é allowed,
+    powershell não)."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                             "tool_input": {"command": "git commit -m x ; powershell -c evil"}})
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_bash_smuggle_via_pipe_denies(tmp_path: Path) -> None:
+    """`<verify_cmd> | rm -rf src` -> DENY (pipe também é operador de
+    controle)."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                             "tool_input": {"command": "pytest -q | rm -rf src"}})
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_bash_command_substitution_denies(tmp_path: Path) -> None:
+    """`<verify_cmd> $(rm -rf src)` e a variante com crase -> DENY (command
+    substitution barrada antes de segmentar)."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                             "tool_input": {"command": "pytest -q $(rm -rf src)"}})
+    assert out["permissionDecision"] == "deny", out
+    out2 = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "pytest -q `rm -rf src`"}})
+    assert out2["permissionDecision"] == "deny", out2
+
+
+def test_bash_floor_smuggle_still_denies_after_fix(tmp_path: Path) -> None:
+    """Regressão do floor: `curl http://evil && pytest -q` continua DENY
+    citando runtime floor (floor roda em qualquer janela, intocado)."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                             "tool_input": {"command": "curl http://evil && pytest -q"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "runtime floor" in out["permissionDecisionReason"]
+
+
+def test_bash_legit_commands_still_allow_after_fix(tmp_path: Path) -> None:
+    """Zero regressão: verify_cmd sozinho, git local (add/commit/status)
+    continuam ALLOW com prefixo estrito por segmento."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    for cmd in ("pytest -q", "git status", "git add .", "git commit -m x"):
+        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                 "tool_input": {"command": cmd}})
+        assert out["permissionDecision"] == "allow", (cmd, out)
+
+
+# ---------------- Achado 2: feature-lock ignora replace_all=true ----------------
+
+
+def test_feature_lock_replace_all_flips_all_features_denies(tmp_path: Path) -> None:
+    """replace_all=true flippa TODAS as ocorrências de '"passes": false';
+    feat-2/feat-3 não têm evidência -> DENY. O guard não pode simular só a
+    1ª ocorrência (count=1) quando o Edit real usa replace_all=true."""
+    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
+    _write_feature_list(tmp_path, [
+        {"id": "feat-1", "desc": "x", "files": ["src/a.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False},
+        {"id": "feat-2", "desc": "x", "files": ["src/b.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False},
+        {"id": "feat-3", "desc": "x", "files": ["src/c.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False},
+    ])
+    _write_evidence(tmp_path, "feat-1", recorded_at="2026-06-01T00:00:00+00:00")
+    script = _script(tmp_path)
+    out = _run_hook(script, {
+        "tool_name": "Edit", "cwd": str(tmp_path),
+        "tool_input": {
+            "file_path": ".harness/feature_list.json",
+            "old_string": '"passes": false',
+            "new_string": '"passes": true',
+            "replace_all": True,
+        },
+    })
+    assert out["permissionDecision"] == "deny", out
+    assert "feat-2" in out["permissionDecisionReason"]
+    assert "feat-3" in out["permissionDecisionReason"]
+
+
+def test_feature_lock_replace_all_importable_copy_denies(tmp_path: Path) -> None:
+    """Mesma checagem na cópia IMPORTÁVEL (`evaluate_feature_list_edit`
+    chamada direto, sem subprocess)."""
+    from harness.boundary_guard import evaluate_feature_list_edit
+
+    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
+    _write_feature_list(tmp_path, [
+        {"id": "feat-1", "desc": "x", "files": ["src/a.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False},
+        {"id": "feat-2", "desc": "x", "files": ["src/b.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False},
+    ])
+    _write_evidence(tmp_path, "feat-1", recorded_at="2026-06-01T00:00:00+00:00")
+    result = evaluate_feature_list_edit("Edit", {
+        "old_string": '"passes": false',
+        "new_string": '"passes": true',
+        "replace_all": True,
+    }, tmp_path)
+    assert result is not None
+    decision, reason = result
+    assert decision == "deny", reason
+    assert "feat-2" in reason
+
+
+def test_feature_lock_replace_all_false_flips_only_first(tmp_path: Path) -> None:
+    """Controle: replace_all ausente/false mantém count=1 — só a 1ª feature
+    (feat-1, com evidência fresca) transiciona -> ALLOW."""
+    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
+    _write_feature_list(tmp_path, [
+        {"id": "feat-1", "desc": "x", "files": ["src/a.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False},
+        {"id": "feat-2", "desc": "x", "files": ["src/b.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False},
+    ])
+    _write_evidence(tmp_path, "feat-1", recorded_at="2026-06-01T00:00:00+00:00")
+    script = _script(tmp_path)
+    out = _run_hook(script, {
+        "tool_name": "Edit", "cwd": str(tmp_path),
+        "tool_input": {
+            "file_path": ".harness/feature_list.json",
+            "old_string": '"passes": false',
+            "new_string": '"passes": true',
+            "replace_all": False,
+        },
+    })
+    assert out["permissionDecision"] == "allow", out

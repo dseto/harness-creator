@@ -357,7 +357,10 @@ def evaluate_feature_list_edit(
     else:  # Edit
         old_string = tool_input.get("old_string") or ""
         new_string = tool_input.get("new_string") or ""
-        proposed_text = current_text.replace(old_string, new_string, 1)
+        if tool_input.get("replace_all"):
+            proposed_text = current_text.replace(old_string, new_string)
+        else:
+            proposed_text = current_text.replace(old_string, new_string, 1)
 
     try:
         old_data = json.loads(current_text) if current_text.strip() else {}
@@ -528,6 +531,24 @@ def _has_sequence(tokens, seq):
 
 def _matches_any_sequence(tokens, sequences):
     return any(_has_sequence(tokens, seq) for seq in sequences)
+
+
+def _split_shell_segments(command):
+    """Segmenta a string do comando nos operadores de controle de shell
+    (`;`, `&&`, `||`, `|`, `&` de background), devolvendo a lista de
+    sub-comandos nao-vazios. `&&`/`||` sao casados ANTES de `&`/`|` isolados
+    (ordem da alternacao) para nao quebrar um `&&` em dois `&`."""
+    parts = re.split(r"&&|\\|\\||[;&|]", command or "")
+    return [p for p in (seg.strip() for seg in parts) if p]
+
+
+def _segment_prefixes_any(seg_tokens, sequences):
+    """True se os tokens do segmento PREFIXAM (tokens[:n] == seq, nao mais
+    'aparece em qualquer janela') alguma das sequencias permitidas."""
+    for seq in sequences:
+        if seq and seg_tokens[:len(seq)] == seq:
+            return True
+    return False
 
 
 def _load_json(cwd, relative):
@@ -774,7 +795,10 @@ def _evaluate_feature_list_edit(tool_name, tool_input, cwd):
     else:
         old_string = tool_input.get("old_string") or ""
         new_string = tool_input.get("new_string") or ""
-        proposed_text = current_text.replace(old_string, new_string, 1)
+        if tool_input.get("replace_all"):
+            proposed_text = current_text.replace(old_string, new_string)
+        else:
+            proposed_text = current_text.replace(old_string, new_string, 1)
 
     try:
         old_data = json.loads(current_text) if current_text.strip() else {}
@@ -877,11 +901,24 @@ def _evaluate_bash(command, cwd):
     if feature_list is None:
         return "allow", "sem contrato ativo — boundary_guard não gateia fora de uma sessão de contrato"
 
+    if "$(" in command or "`" in command:
+        return "deny", (
+            "command substitution ($(...) ou crase) nao permitido - cada "
+            "sub-comando precisa ser declarado explicitamente na superficie do contrato"
+        )
+
     profile = _load_json(cwd, PROFILE_PATH)
     allowed_commands = _collect_allowed_bash_commands(feature_list, profile)
     allowed_sequences = FIXED_GIT_SEQUENCES + [_tokenize(c) for c in allowed_commands]
 
-    if _matches_any_sequence(tokens, allowed_sequences):
+    # Allow assimetrico ao floor: o floor casa 'aparece em qualquer janela'
+    # (intocado, acima); o allow segmenta o comando nos operadores de controle
+    # e exige que CADA segmento prefixe alguma allowed_sequence - senao um
+    # comando arbitrario colado com &&/;/| a um declarado escaparia.
+    segments = _split_shell_segments(command)
+    if segments and all(
+        _segment_prefixes_any(_tokenize(seg), allowed_sequences) for seg in segments
+    ):
         return "allow", (
             "comando declarado na superficie compilada do contrato "
             "(verify_cmd/lint/typecheck/build/install/git local)"
