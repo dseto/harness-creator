@@ -1,0 +1,10 @@
+name: hierarchical-delegation
+description: "Agente de topo decompoe o objetivo em sub-objetivos e delega a agentes-gerente intermediarios, que por sua vez delegam a agentes-executores."
+when_to_use: "Projeto tem um objetivo complexo demais para um unico nivel de delegacao, exigindo decomposicao em multiplos niveis de responsabilidade."
+roles:
+  - name: lead
+    responsibilities: "Decompoe o objetivo geral em sub-objetivos e delega cada um a um manager."
+  - name: manager
+    responsibilities: "Recebe um sub-objetivo do lead, decompoe em tarefas concretas e delega a executors."
+  - name: executor
+    responsibilities: "Executa a tarefa concreta delegada pelo manager e reporta o resultado."

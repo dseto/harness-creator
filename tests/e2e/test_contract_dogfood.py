@@ -779,3 +779,621 @@ def test_contract_dogfood_verify_and_feature_lock(api_project: Path) -> None:
         )
     finally:
         _write_evidence_verify_lock(sections)
+
+
+# ---------------------------------------------------------------------------
+# Fase 4: gate final — padrão Produtor-Revisor com REVISÃO INDEPENDENTE de
+# verdade (múltiplas sessões `claude -p` reais e separadas: produtor e
+# revisor NUNCA são a mesma sessão roteirizada). ADIÇÃO pura, nada acima
+# muda. Novo contrato (`dogfood-producer-reviewer`, T-02), NOVA cobaia por
+# ser fixture function-scoped — não reaproveita o T-01/`dogfood-document-digits`
+# das Fases 1-3 como contrato, mas reaproveita o gap real de T-01
+# (Document_with_letters_fails via `_add_new_fact`) como correção-base
+# untracked, só para a suíte final provar zero regressão de verdade.
+# ---------------------------------------------------------------------------
+
+EVIDENCE_PATH_PRODUCER_REVIEWER = EVIDENCE_DIR / "fase4-dogfood-producer-reviewer.md"
+
+SLUG_T02 = "dogfood-producer-reviewer"
+T02_ID = "T-02"
+
+_NEW_TEST_T02_CREATE = "Create_email_with_plus_alias_fails"
+_NEW_TEST_T02_UPDATE = "Update_email_with_plus_alias_fails"
+
+# Gap real de T-02 (achado por leitura direta de CustomerValidators.cs): as
+# duas classes — CreateCustomerRequestValidator e UpdateCustomerRequestValidator
+# — compartilham a MESMA regra de `Email` (NotEmpty + EmailAddress +
+# MaximumLength(150)), sem nenhum bloqueio ao alias de endereço com `+`
+# (ex.: "ana+test@example.com" passa hoje nos dois validators). Campo
+# DIFERENTE do `Document` já corrigido por T-01.
+_NEW_FACT_T02_CREATE_CS = '''
+    [Fact]
+    public void Create_email_with_plus_alias_fails()
+    {
+        var request = new CreateCustomerRequest("Ana", "ana+test@example.com", "12345678901");
+        _validator.TestValidate(request).ShouldHaveValidationErrorFor(x => x.Email);
+    }
+'''
+
+_NEW_FACT_T02_UPDATE_CS = '''
+    [Fact]
+    public void Update_email_with_plus_alias_fails()
+    {
+        var updateValidator = new UpdateCustomerRequestValidator();
+        var request = new UpdateCustomerRequest("Ana", "ana+test@example.com", "12345678901");
+        updateValidator.TestValidate(request).ShouldHaveValidationErrorFor(x => x.Email);
+    }
+'''
+
+# Mecanismo de Skip do round 1 (decisão documentada — ver
+# `_apply_round1_skip_t02`/`_remove_round1_skip_t02`): 100% controlado pelo
+# harness Python de teste, NUNCA por uma sessão do Claude.
+_UPDATE_FACT_SIGNATURE_UNSKIPPED = (
+    "    [Fact]\n"
+    "    public void Update_email_with_plus_alias_fails()"
+)
+_UPDATE_FACT_SKIP_REASON = (
+    "T-02 round 1: UpdateCustomerRequestValidator ainda nao corrigido de proposito "
+    "(mecanismo Skip controlado 100% pelo harness Python de teste, nunca por uma "
+    "sessao do Claude - ver tests/e2e/evidence/fase4-dogfood-producer-reviewer.md)"
+)
+_UPDATE_FACT_SIGNATURE_SKIPPED = (
+    '    [Fact(Skip = "' + _UPDATE_FACT_SKIP_REASON + '")]\n'
+    "    public void Update_email_with_plus_alias_fails()"
+)
+
+SPEC_MD_T02 = """---
+slug: {slug}
+approved_by: harness-e2e-dogfood
+approved_at: {approved_at}
+---
+
+# Spec: E-mail não pode conter alias '+'
+
+## Escopo
+`CreateCustomerRequestValidator` e `UpdateCustomerRequestValidator` (ambos em
+`{validator_rel}`) validam `Email` só com `NotEmpty`/`EmailAddress`/
+`MaximumLength(150)` — nenhum dos dois bloqueia o alias de endereço com `+`
+(ex.: `ana+test@example.com` passa hoje na validação dos DOIS validators).
+Corrigir para que o e-mail não aceite o caractere `+` em nenhum dos dois.
+
+## Critérios de aceitação
+- A regra nova (bloquear `+` no e-mail) precisa estar aplicada em AMBOS os
+  validators citados por nome: `CreateCustomerRequestValidator` E
+  `UpdateCustomerRequestValidator` — corrigir só um deles NÃO satisfaz este
+  critério.
+- `dotnet test MinimumAPI.Tests` passa, incluindo os dois testes novos
+  `Create_email_with_plus_alias_fails` e `Update_email_with_plus_alias_fails`.
+- Os testes pré-existentes continuam passando — zero regressão.
+
+## Unknowns
+- Nenhum: gap confirmado por leitura direta de `{validator_rel}` — os dois
+  validators compartilham a mesma regra de `Email`, sem bloqueio de alias `+`.
+"""
+
+PLANS_MD_T02 = f"""## [T-02] E-mail não pode conter alias '+'
+- files: `{VALIDATOR_REL}`
+- verify: `dotnet test MinimumAPI.Tests`
+"""
+
+# Sessão PRODUTOR #1: corrige T-01 (base, untracked, só para a suíte final
+# provar zero regressão) + T-02 DELIBERADAMENTE incompleto (só
+# CreateCustomerRequestValidator) + verify real + tentativa negada de
+# passes:true (revisão ainda pendente).
+CLAUDE_PROMPT_PRODUCER_1 = (
+    "Duas coisas para fazer nesta sessão, NESTA ORDEM, no arquivo "
+    "MinimumAPI/Validators/CustomerValidators.cs. PRIMEIRO (correção conhecida, "
+    "independente da tarefa principal, só para manter a suíte coerente com correções "
+    "anteriores do repositório — não é rastreada em feature_list.json, não rode harness "
+    "verify para ela): ajuste o RuleFor(x => x.Document) de "
+    "CreateCustomerRequestValidator para que, além das regras já existentes, o documento "
+    "só seja aceito se contiver apenas dígitos — por exemplo adicionando "
+    ".Matches(@\"^\\d+$\").WithMessage(\"O documento deve conter apenas dígitos.\") (ou "
+    "equivalente). SEGUNDO (a tarefa principal desta sessão, T-02, rastreada em "
+    ".harness/feature_list.json e descrita em "
+    ".harness/work/dogfood-producer-reviewer/spec.md): ajuste o RuleFor(x => x.Email) de "
+    "CreateCustomerRequestValidator para que, além das regras já existentes, o e-mail "
+    "não seja aceito se contiver o caractere '+' — por exemplo adicionando "
+    ".Must(email => !email.Contains('+')).WithMessage(\"O e-mail não pode conter o "
+    "caractere '+'.\") (ou equivalente). IMPORTANTE E DELIBERADO: aplique esta regra "
+    "nova de e-mail APENAS em CreateCustomerRequestValidator por enquanto — NÃO toque em "
+    "UpdateCustomerRequestValidator nesta sessão, mesmo que o spec.md peça os dois "
+    "validators; essa incompletude é proposital e será corrigida numa sessão futura. NÃO "
+    "toque em nenhum arquivo dentro de MinimumAPI.Tests — os testes que provam os "
+    "requisitos já existem e não devem ser alterados. Depois de editar AMBAS as coisas "
+    "acima, rode, numa ÚNICA chamada de ferramenta Bash, o comando `python -m "
+    "harness.cli verify T-02 --dir . && dotnet test MinimumAPI.Tests` (se o comando "
+    "falhar por não encontrar o módulo harness, defina antes a variável de ambiente "
+    "PYTHONPATH apontando para o diretório src do pacote harness-creator e rode de "
+    "novo). Confirme que o comando termina com exit code 0 e que o arquivo "
+    ".harness/evidence/T-02.json passa a existir. NÃO rode `python -m harness.cli "
+    "review T-02 submit` nem qualquer outro comando de review manualmente — não é "
+    "necessário, o verify já resubmete sozinho para revisão. Depois disso, tente editar "
+    ".harness/feature_list.json marcando o campo \"passes\" (hoje `false`) para `true`, "
+    "dentro do objeto da feature cujo \"id\" é \"T-02\". É ESPERADO que essa edição seja "
+    "negada/bloqueada (a revisão do time produtor-revisor ainda está pendente) — isso é "
+    "o comportamento CORRETO. Se a edição for negada, NÃO tente de novo, não insista, e "
+    "não procure formas alternativas de alterar o arquivo (por exemplo via Bash com "
+    "echo/sed/redirect ou qualquer outro comando); apenas relate que a tentativa foi "
+    "negada conforme esperado. Finalize a sessão relatando: (1) o resultado do dotnet "
+    "test depois das duas correções, (2) o resultado do verify de T-02, (3) o resultado "
+    "(negado, conforme esperado) da tentativa de marcar passes:true."
+)
+
+# Sessão PRODUTOR #2: corrige o gap real apontado pelo revisor
+# (UpdateCustomerRequestValidator) e resubmete via verify.
+CLAUDE_PROMPT_PRODUCER_2 = (
+    "A feature T-02 (.harness/feature_list.json, contrato em "
+    ".harness/work/dogfood-producer-reviewer/spec.md) foi REJEITADA pelo revisor do "
+    "time. Leia primeiro .harness/review/T-02.json (campo \"history\", última entrada, "
+    "campo \"note\") para confirmar o motivo exato da rejeição. Depois, em "
+    "MinimumAPI/Validators/CustomerValidators.cs, aplique a MESMA regra de e-mail "
+    "(bloquear o caractere '+') que já existe em CreateCustomerRequestValidator, agora "
+    "TAMBÉM no RuleFor(x => x.Email) de UpdateCustomerRequestValidator (o gap que o "
+    "revisor apontou) — por exemplo adicionando .Must(email => "
+    "!email.Contains('+')).WithMessage(\"O e-mail não pode conter o caractere "
+    "'+'.\") (ou equivalente) no RuleFor(x => x.Email) de "
+    "UpdateCustomerRequestValidator. NÃO toque em nenhum arquivo dentro de "
+    "MinimumAPI.Tests. Depois de editar, rode, numa ÚNICA chamada de ferramenta Bash, o "
+    "comando `python -m harness.cli verify T-02 --dir . && dotnet test "
+    "MinimumAPI.Tests` (se o comando falhar por não encontrar o módulo harness, defina "
+    "antes a variável de ambiente PYTHONPATH apontando para o diretório src do pacote "
+    "harness-creator e rode de novo). Confirme que o comando termina com exit code 0 "
+    "(agora os dois testes de e-mail devem passar de verdade) e que "
+    ".harness/evidence/T-02.json foi regravado. NÃO rode `python -m harness.cli review "
+    "T-02 submit` nem qualquer outro comando de review manualmente — não é necessário, o "
+    "verify já resubmete sozinho. Finalize relatando o resultado do dotnet test e do "
+    "verify."
+)
+
+# Sessão PRODUTOR #3 (curta): passes:true agora ACEITO (evidência fresca +
+# revisão aprovada).
+CLAUDE_PROMPT_PRODUCER_3 = (
+    "A feature T-02 (.harness/feature_list.json) já tem evidência fresca "
+    "(.harness/evidence/T-02.json) e revisão aprovada pelo time produtor-revisor "
+    "(.harness/review/T-02.json, campo \"status\" == \"approved\") — confirme lendo os "
+    "dois arquivos antes de agir. Tente editar .harness/feature_list.json marcando o "
+    "campo \"passes\" (hoje `false`) para `true`, dentro do objeto da feature cujo "
+    "\"id\" é \"T-02\". Desta vez a edição é legítima (evidência fresca + revisão "
+    "aprovada já existem) e deve ser ACEITA. Finalize a sessão relatando o resultado "
+    "dessa tentativa."
+)
+
+
+def _build_reviewer_prompt(reviewer_md_text: str) -> str:
+    """Prompt da sessão REVISOR — cita o conteúdo REAL de
+    `.claude/agents/reviewer.md` (lido do disco, nunca hardcoded) e instrui uma
+    decisão fundamentada em leitura direta do spec.md/diff, nunca roteirizada.
+    Reusado tal e qual nos dois rounds (REVISOR #1 e #2) — a decisão
+    (rejeitar/aprovar) emerge do estado real do disco em cada rodada, não de
+    texto diferente por round."""
+    return (
+        "Você deve agir estritamente como o papel `reviewer` descrito abaixo — este é "
+        "o conteúdo REAL do arquivo `.claude/agents/reviewer.md` deste projeto (gerado "
+        "pelo harness-creator para o padrão de time produtor-revisor):\n\n"
+        f"```markdown\n{reviewer_md_text}\n```\n\n"
+        "Sua tarefa concreta agora: revisar a feature T-02. Use SÓ as ferramentas Read, "
+        "Grep, Glob e Bash disponíveis nesta sessão (Edit e Write estão desabilitadas de "
+        "propósito) — você NÃO deve tentar editar nem escrever nenhum arquivo, nem de "
+        "produção nem de teste, só ler. Leia, nesta ordem: (1) "
+        ".harness/work/dogfood-producer-reviewer/spec.md — o critério de aceitação exige "
+        "que a regra nova de e-mail (bloquear o caractere '+') esteja aplicada em AMBOS "
+        "os validators citados por nome: CreateCustomerRequestValidator E "
+        "UpdateCustomerRequestValidator (arquivo "
+        "MinimumAPI/Validators/CustomerValidators.cs); (2) o conteúdo REAL ATUAL desse "
+        "arquivo (com a ferramenta Read, ou `cat` via Bash) para confirmar, por leitura "
+        "direta — não presuma nada —, se a regra nova existe nos DOIS validators ou só "
+        "em um; (3) .harness/evidence/T-02.json, a evidência da última verificação. "
+        "DECISÃO OBJETIVA, não uma opinião subjetiva de estilo: se AMBOS os validators "
+        "citados no spec.md tiverem a regra nova aplicada de verdade no código, rode, "
+        "numa ÚNICA chamada de ferramenta Bash, o comando `python -m harness.cli review "
+        "T-02 approve --dir . --note \"<confirmação concreta, citando os dois "
+        "validators pelo nome>\" && dotnet test MinimumAPI.Tests` (se falhar por não "
+        "encontrar o módulo harness, defina antes a variável de ambiente PYTHONPATH "
+        "apontando para o diretório src do pacote harness-creator e rode de novo). Se "
+        "QUALQUER um dos dois validators citados como critério de aceitação no spec.md "
+        "NÃO tiver a regra nova aplicada (leia o arquivo de verdade antes de decidir), "
+        "rode, numa ÚNICA chamada de ferramenta Bash, o comando `python -m harness.cli "
+        "review T-02 reject --dir . --note \"<explique especificamente, citando pelo "
+        "nome exato da classe, qual validator ficou faltando>\" && dotnet test "
+        "MinimumAPI.Tests`. A nota da rejeição TEM que citar pelo nome exato da classe "
+        "qual validator ficou incompleto. Não aprove um critério que você não confirmou "
+        "lendo o arquivo real, e não rejeite sem motivo concreto. Finalize a sessão "
+        "relatando sua decisão e a justificativa concreta que usou para chegar nela."
+    )
+
+
+def _add_new_facts_t02(tests_path: Path) -> None:
+    """Acrescenta os DOIS `[Fact]` novos de T-02 (um por validator) ao final da
+    classe de teste já existente — NUNCA apaga os facts pré-existentes (mesmo
+    padrão de `_add_new_fact`, reaproveitado aqui em vez de reimplementado)."""
+    text = tests_path.read_text(encoding="utf-8")
+    stripped = text.rstrip()
+    assert stripped.endswith("}"), f"formato inesperado em {tests_path}"
+    new_text = stripped[:-1] + _NEW_FACT_T02_CREATE_CS + _NEW_FACT_T02_UPDATE_CS + "}\n"
+    tests_path.write_text(new_text, encoding="utf-8")
+
+
+def _apply_round1_skip_t02(tests_path: Path) -> None:
+    """Marca `Update_email_with_plus_alias_fails` com `[Fact(Skip = ...)]` —
+    mecanismo 100% Python (NUNCA executado por uma sessão do Claude) escolhido
+    para o round 1: permite que `dotnet test MinimumAPI.Tests` (suíte inteira,
+    sem filtro estreito, o MESMO verify_cmd de sempre) saia verde mesmo com
+    `UpdateCustomerRequestValidator` deliberadamente incompleto, sem mascarar
+    o TDD vermelho já confirmado ANTES desta chamada (a checagem 'before' do
+    teste já provou os dois `[Fact]` vermelhos, sem nenhum Skip)."""
+    text = tests_path.read_text(encoding="utf-8")
+    assert text.count(_UPDATE_FACT_SIGNATURE_UNSKIPPED) == 1, tests_path
+    text = text.replace(_UPDATE_FACT_SIGNATURE_UNSKIPPED, _UPDATE_FACT_SIGNATURE_SKIPPED, 1)
+    tests_path.write_text(text, encoding="utf-8")
+
+
+def _remove_round1_skip_t02(tests_path: Path) -> None:
+    """Reverte `_apply_round1_skip_t02` — chamada entre a sessão REVISOR #1
+    (rejeição) e a sessão PRODUTOR #2, também 100% Python, para que o round 2
+    rode o `[Fact]` de verdade e prove a correção real de
+    `UpdateCustomerRequestValidator`."""
+    text = tests_path.read_text(encoding="utf-8")
+    assert text.count(_UPDATE_FACT_SIGNATURE_SKIPPED) == 1, tests_path
+    text = text.replace(_UPDATE_FACT_SIGNATURE_SKIPPED, _UPDATE_FACT_SIGNATURE_UNSKIPPED, 1)
+    tests_path.write_text(text, encoding="utf-8")
+
+
+def _session_summary(label: str, out: dict) -> str:
+    result_text = str(out.get("result", ""))
+    return (
+        f"### Sessão {label}\n\n"
+        f"- `is_error`: {out.get('is_error')}\n"
+        f"- `permission_denials`: {json.dumps(out.get('permission_denials'), ensure_ascii=False)}\n"
+        f"- `num_turns`: {out.get('num_turns')}\n\n"
+        f"Últimos ~600 caracteres da resposta:\n\n```\n{result_text[-600:]}\n```\n"
+    )
+
+
+def _write_evidence_producer_reviewer(sections: dict[str, str]) -> None:
+    """Análogo às demais `_write_evidence*` — trilha PRÓPRIA da Fase 4 (NUNCA
+    sobrescreve os `EVIDENCE_PATH*` das Fases 1/2/3)."""
+    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+    body = (
+        "# Evidência — dogfood Fase 4 `dogfood-producer-reviewer` "
+        "(padrão Produtor-Revisor, revisão independente real)\n\n"
+    )
+    for title in (
+        "TDD vermelho inicial (antes de qualquer correção)",
+        "Mecanismo de Skip do round 1 (escolha documentada)",
+        "Time gerado (team generate)",
+        "Sessões `claude -p` (5 no total)",
+        "Ciclo de revisão (.harness/review/T-02.json)",
+        "Feature-lock (negação com revisão pendente + aprovação final aceita)",
+        "Diff aplicado (CustomerValidators.cs)",
+        "Regressão (Fases 1-3 na mesma cobaia + suíte final completa)",
+    ):
+        body += f"## {title}\n\n{sections.get(title, '(não alcançado — teste parou antes deste ponto)')}\n\n"
+    EVIDENCE_PATH_PRODUCER_REVIEWER.write_text(body, encoding="utf-8")
+
+
+def test_contract_dogfood_producer_reviewer(api_project: Path) -> None:
+    """Gate final da Fase 4: MESMA cobaia `MinimumAPI`, NOVO contrato
+    (`dogfood-producer-reviewer`, T-02) — prova o padrão Produtor-Revisor com
+    revisão INDEPENDENTE de verdade: múltiplas sessões `claude -p` reais e
+    separadas (produtor e revisor NUNCA são a mesma sessão roteirizada), cada
+    uma decidindo a partir do que lê no disco. O round 1 é DELIBERADAMENTE
+    incompleto (regra nova de e-mail só em CreateCustomerRequestValidator) e a
+    rejeição do revisor #1 tem que ser mecanicamente fundamentada (cita
+    UpdateCustomerRequestValidator por nome, confirmado por leitura real do
+    arquivo). Reaproveita `_add_new_fact`/`_run_dotnet_test`/`_parse_trx` e o
+    padrão de feature-lock de `test_contract_dogfood_verify_and_feature_lock`
+    como referência mais próxima."""
+    sections: dict[str, str] = {}
+    validator_path = api_project / VALIDATOR_REL
+    tests_path = api_project / TESTS_REL
+    feature_list_path = api_project / FEATURE_LIST_REL
+    review_path = api_project / ".harness" / "review" / f"{T02_ID}.json"
+    evidence_t02_path = api_project / ".harness" / "evidence" / f"{T02_ID}.json"
+    before_text = validator_path.read_text(encoding="utf-8")
+    sessions_summary: list[str] = []
+
+    try:
+        # ---- (1) TDD real vermelho para OS TRÊS facts novos, ANTES de ----
+        # qualquer correção: o fact de T-01 (Document_with_letters_fails,
+        # reaproveitando _add_new_fact, untracked) + os dois facts novos de
+        # T-02 (um por validator, sem Skip ainda).
+        _add_new_fact(tests_path)
+        _add_new_facts_t02(tests_path)
+
+        before_dir = api_project / "TestResults" / "before-producer-reviewer"
+        before_proc, before_trx = _run_dotnet_test(
+            api_project, before_dir, "before-producer-reviewer.trx"
+        )
+        before_output = (before_proc.stdout or "") + "\n" + (before_proc.stderr or "")
+        assert before_proc.returncode != 0, (
+            "dotnet test deveria falhar ANTES de qualquer correção (TDD real)\n" + before_output
+        )
+        before_trx_results = _parse_trx(before_trx)
+        if before_trx_results:
+            for name in (_NEW_TEST, _NEW_TEST_T02_CREATE, _NEW_TEST_T02_UPDATE):
+                outcome = _outcome_for(before_trx_results, name)
+                assert outcome != "Passed", (
+                    f"{name} não deveria passar antes de qualquer correção: {before_trx_results}"
+                )
+        red_outcomes = {
+            name: _outcome_for(before_trx_results, name)
+            for name in (_NEW_TEST, _NEW_TEST_T02_CREATE, _NEW_TEST_T02_UPDATE)
+        }
+        sections["TDD vermelho inicial (antes de qualquer correção)"] = (
+            "Execução ANTES de qualquer correção (deve estar vermelha para os três "
+            f"facts novos):\n\n```\n{before_output.strip()}\n```\n\n"
+            f"Resultado individual (via .trx):\n\n```\n{json.dumps(red_outcomes, indent=2, ensure_ascii=False)}\n```\n"
+        )
+
+        # ---- (2) aplica o mecanismo de Skip do round 1 (100% Python) ----
+        _apply_round1_skip_t02(tests_path)
+        sections["Mecanismo de Skip do round 1 (escolha documentada)"] = (
+            "Escolha documentada (o bloco pedia para decidir entre marcar/comentar/"
+            "skip o teste do update-path na primeira rodada, OU ainda não escrevê-lo "
+            "nesta sessão): optamos por escrever os DOIS `[Fact]` desde o início (TDD "
+            "vermelho real provado acima para os dois, sem Skip) e, só DEPOIS dessa "
+            f"prova, marcar `{_NEW_TEST_T02_UPDATE}` com `[Fact(Skip = \"...\")]` — "
+            "mecanismo 100% controlado pelo harness Python de teste (NUNCA por uma "
+            "sessão do Claude), removido de novo (`_remove_round1_skip_t02`) só entre "
+            "a sessão REVISOR #1 (rejeição) e a sessão PRODUTOR #2, para que o round 2 "
+            "rode o `[Fact]` de verdade e prove a correção real do "
+            "UpdateCustomerRequestValidator.\n\n"
+            f"Atributo aplicado:\n\n```csharp\n{_UPDATE_FACT_SIGNATURE_SKIPPED}\n```\n"
+        )
+
+        # ---- (3) analyze --dir sobre a cobaia real ----
+        analyze_proc = _run_cli(["analyze", "--dir", str(api_project)], cwd=api_project)
+        assert analyze_proc.returncode == 0, analyze_proc.stderr
+
+        # ---- (4) escreve spec.md (pré-aprovado) + Plans.md com T-02 ----
+        contract_dir = api_project / ".harness" / "work" / SLUG_T02
+        contract_dir.mkdir(parents=True, exist_ok=True)
+        approved_at = datetime.now(timezone.utc).isoformat()
+        (contract_dir / "spec.md").write_text(
+            SPEC_MD_T02.format(slug=SLUG_T02, approved_at=approved_at, validator_rel=VALIDATOR_REL),
+            encoding="utf-8",
+        )
+        (contract_dir / "Plans.md").write_text(PLANS_MD_T02, encoding="utf-8")
+
+        # ---- (5) compile-contract -> feature_list.json (só T-02) ----
+        compile_contract_proc = _run_cli(
+            ["compile-contract", "--dir", str(api_project), "--slug", SLUG_T02], cwd=api_project
+        )
+        assert compile_contract_proc.returncode == 0, compile_contract_proc.stderr
+        feature_list = json.loads(feature_list_path.read_text(encoding="utf-8"))
+        assert len(feature_list["features"]) == 1
+        assert feature_list["features"][0]["id"] == T02_ID
+        assert feature_list["features"][0]["passes"] is False
+
+        # ---- (6) compila governança nativa (auto + test_command real) ----
+        harness_yaml_path = api_project / ".harness" / "harness.yaml"
+        harness_yaml_path.write_text(HARNESS_YAML, encoding="utf-8")
+        compile_project(api_project)
+
+        # ---- (7) compile-session -> boundary_guard.py (feature-lock ativo) ----
+        compile_session_proc = _run_cli(
+            ["compile-session", "--dir", str(api_project)], cwd=api_project
+        )
+        assert compile_session_proc.returncode == 0, compile_session_proc.stderr
+        boundary_guard_path = api_project / ".harness" / "hooks" / "boundary_guard.py"
+        assert boundary_guard_path.is_file()
+
+        # ---- (8) NOVO (Fase 4): team generate --pattern producer-reviewer ----
+        team_generate_proc = _run_cli(
+            [
+                "team", "generate", "--dir", str(api_project),
+                "--pattern", "producer-reviewer", "--mode", "subagents",
+            ],
+            cwd=api_project,
+        )
+        assert team_generate_proc.returncode == 0, team_generate_proc.stderr
+        manifest_path = api_project / ".harness" / "team" / "manifest.json"
+        assert manifest_path.is_file()
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        assert {"producer", "reviewer"} <= set(manifest.get("roles") or []), manifest
+
+        producer_agent_path = api_project / ".claude" / "agents" / "producer.md"
+        reviewer_agent_path = api_project / ".claude" / "agents" / "reviewer.md"
+        assert producer_agent_path.is_file()
+        assert reviewer_agent_path.is_file()
+        reviewer_md_text = reviewer_agent_path.read_text(encoding="utf-8")
+        tools_line = next(
+            line for line in reviewer_md_text.splitlines() if line.startswith("tools:")
+        )
+        assert "Edit" not in tools_line and "Write" not in tools_line, tools_line
+        sections["Time gerado (team generate)"] = (
+            f"`.harness/team/manifest.json`:\n\n```json\n"
+            f"{json.dumps(manifest, indent=2, ensure_ascii=False)}\n```\n\n"
+            f"`.claude/agents/reviewer.md` — linha `tools:` (sem Edit/Write, "
+            f"confirmado por leitura de arquivo, não roteirizado):\n\n"
+            f"```\n{tools_line}\n```\n"
+        )
+
+        claude_env = os.environ | {"PYTHONPATH": str(SRC_DIR)}
+
+        # ---- (9) Sessão PRODUTOR #1: T-01 (base) + T-02 round 1 ----
+        # (deliberadamente incompleto) + verify + tentativa negada de passes:true.
+        producer1_proc = subprocess.run(
+            ["claude", "-p", CLAUDE_PROMPT_PRODUCER_1, "--output-format", "json"],
+            cwd=str(api_project), capture_output=True, text=True, timeout=420, env=claude_env,
+        )
+        assert producer1_proc.returncode == 0, producer1_proc.stderr
+        producer1_out = json.loads(producer1_proc.stdout)
+        assert producer1_out["is_error"] is False, producer1_out
+        sessions_summary.append(_session_summary("PRODUTOR #1", producer1_out))
+
+        assert review_path.is_file(), (
+            ".harness/review/T-02.json deveria ter sido gravado automaticamente por "
+            "on_feature_verified (SUBAGENTE 08) — sem a sessão rodar `review submit` "
+            "manualmente"
+        )
+        review_after_p1 = json.loads(review_path.read_text(encoding="utf-8"))
+        assert review_after_p1["status"] == "in_review", review_after_p1
+        assert review_after_p1["iteration"] == 1, review_after_p1
+
+        permission_denials_p1 = producer1_out.get("permission_denials")
+        assert permission_denials_p1, (
+            "esperava permission_denials não vazio/None na sessão PRODUTOR #1 — "
+            f"feature-lock deveria negar passes:true com revisão in_review. out={producer1_out}"
+        )
+        feature_list_after_p1 = json.loads(feature_list_path.read_text(encoding="utf-8"))
+        t02_after_p1 = next(f for f in feature_list_after_p1["features"] if f["id"] == T02_ID)
+        assert t02_after_p1["passes"] is False, t02_after_p1
+
+        # ---- (10) Sessão REVISOR #1 (processo `claude -p` SEPARADO, sem ----
+        # contexto do produtor, --disallowedTools Edit,Write).
+        validator_before_reviewer1 = validator_path.read_text(encoding="utf-8")
+        reviewer_prompt = _build_reviewer_prompt(reviewer_md_text)
+        reviewer1_proc = subprocess.run(
+            [
+                "claude", "-p", reviewer_prompt, "--output-format", "json",
+                "--disallowedTools", "Edit,Write",
+            ],
+            cwd=str(api_project), capture_output=True, text=True, timeout=300, env=claude_env,
+        )
+        assert reviewer1_proc.returncode == 0, reviewer1_proc.stderr
+        reviewer1_out = json.loads(reviewer1_proc.stdout)
+        assert reviewer1_out["is_error"] is False, reviewer1_out
+        sessions_summary.append(_session_summary("REVISOR #1", reviewer1_out))
+
+        review_after_r1 = json.loads(review_path.read_text(encoding="utf-8"))
+        assert review_after_r1["status"] == "rejected", (
+            "a sessão REVISOR #1 deveria ter rejeitado T-02 "
+            "(UpdateCustomerRequestValidator incompleto) — se aprovou ou não decidiu, o "
+            f"teste FALHA aqui (spec.md/prompt ambíguo demais): {review_after_r1}"
+        )
+        assert review_after_r1["iteration"] == 1, review_after_r1
+        last_note_r1 = str(review_after_r1["history"][-1]["note"])
+        assert "update" in last_note_r1.lower(), (
+            f"a nota da rejeição deveria citar UpdateCustomerRequestValidator: {last_note_r1}"
+        )
+
+        validator_after_reviewer1 = validator_path.read_text(encoding="utf-8")
+        assert validator_after_reviewer1 == validator_before_reviewer1, (
+            "a sessão REVISOR #1 NÃO deveria ter editado CustomerValidators.cs — "
+            "conteúdo mudou apesar de Edit/Write estarem desabilitadas"
+        )
+        sections["Feature-lock (negação com revisão pendente + aprovação final aceita)"] = (
+            "PRODUTOR #1 — tentativa de marcar passes:true com revisão in_review, "
+            "negada (`permission_denials`):\n\n"
+            f"```json\n{json.dumps(permission_denials_p1, indent=2, ensure_ascii=False)}\n```\n"
+        )
+
+        # ---- (11) remove o Skip (round 2, 100% Python — nunca uma sessão ----
+        # do Claude).
+        _remove_round1_skip_t02(tests_path)
+
+        # ---- (12) Sessão PRODUTOR #2: corrige o gap real apontado pelo revisor ----
+        producer2_proc = subprocess.run(
+            ["claude", "-p", CLAUDE_PROMPT_PRODUCER_2, "--output-format", "json"],
+            cwd=str(api_project), capture_output=True, text=True, timeout=420, env=claude_env,
+        )
+        assert producer2_proc.returncode == 0, producer2_proc.stderr
+        producer2_out = json.loads(producer2_proc.stdout)
+        assert producer2_out["is_error"] is False, producer2_out
+        sessions_summary.append(_session_summary("PRODUTOR #2", producer2_out))
+
+        review_after_p2 = json.loads(review_path.read_text(encoding="utf-8"))
+        assert review_after_p2["status"] == "in_review", review_after_p2
+        assert review_after_p2["iteration"] == 2, review_after_p2
+
+        # ---- (13) Sessão REVISOR #2 (processo `claude -p` NOVO, distinto ----
+        # do REVISOR #1 — nunca reaproveita contexto).
+        reviewer2_proc = subprocess.run(
+            [
+                "claude", "-p", reviewer_prompt, "--output-format", "json",
+                "--disallowedTools", "Edit,Write",
+            ],
+            cwd=str(api_project), capture_output=True, text=True, timeout=300, env=claude_env,
+        )
+        assert reviewer2_proc.returncode == 0, reviewer2_proc.stderr
+        reviewer2_out = json.loads(reviewer2_proc.stdout)
+        assert reviewer2_out["is_error"] is False, reviewer2_out
+        sessions_summary.append(_session_summary("REVISOR #2", reviewer2_out))
+
+        review_after_r2 = json.loads(review_path.read_text(encoding="utf-8"))
+        assert review_after_r2["status"] == "approved", review_after_r2
+        assert review_after_r2["iteration"] == 2, (
+            "aprovação deveria acontecer na iteração 2 — prova de pelo menos um ciclo "
+            f"rejeitado->corrigido->aprovado, nunca aprovação de primeira tentativa: {review_after_r2}"
+        )
+
+        sections["Ciclo de revisão (.harness/review/T-02.json)"] = (
+            "Histórico completo (`history`) do state machine de revisão ao final:\n\n"
+            f"```json\n{json.dumps(review_after_r2, indent=2, ensure_ascii=False)}\n```\n"
+        )
+
+        # ---- (14) Sessão PRODUTOR #3 (curta): passes:true agora ACEITO ----
+        producer3_proc = subprocess.run(
+            ["claude", "-p", CLAUDE_PROMPT_PRODUCER_3, "--output-format", "json"],
+            cwd=str(api_project), capture_output=True, text=True, timeout=180, env=claude_env,
+        )
+        assert producer3_proc.returncode == 0, producer3_proc.stderr
+        producer3_out = json.loads(producer3_proc.stdout)
+        assert producer3_out["is_error"] is False, producer3_out
+        sessions_summary.append(_session_summary("PRODUTOR #3", producer3_out))
+
+        final_feature_list = json.loads(feature_list_path.read_text(encoding="utf-8"))
+        final_t02 = next(f for f in final_feature_list["features"] if f["id"] == T02_ID)
+        assert final_t02["passes"] is True, (
+            "esperava passes:true no estado final de T-02 (evidência fresca + revisão "
+            f"aprovada): {final_feature_list}"
+        )
+
+        evidence_mtime = evidence_t02_path.stat().st_mtime
+        review_mtime = review_path.stat().st_mtime
+        feature_list_mtime = feature_list_path.stat().st_mtime
+        assert review_mtime >= evidence_mtime, (
+            "review.json deveria ter sido escrito por último DEPOIS da evidência "
+            f"(mtime review={review_mtime} < mtime evidência={evidence_mtime})"
+        )
+        assert feature_list_mtime >= review_mtime, (
+            "feature_list.json deveria ter sido escrito por último DEPOIS da revisão "
+            f"aprovada (mtime feature_list={feature_list_mtime} < mtime review={review_mtime})"
+        )
+        sections["Feature-lock (negação com revisão pendente + aprovação final aceita)"] += (
+            "\nPRODUTOR #3 — estado final de `.harness/feature_list.json` (leitura "
+            "direta, fora do Claude) — `passes: true` só depois de evidência + revisão "
+            f"aprovada:\n\n```json\n{json.dumps(final_t02, indent=2, ensure_ascii=False)}\n```\n\n"
+            f"mtime evidência ({evidence_mtime}) <= mtime review ({review_mtime}) <= mtime "
+            f"feature_list.json ({feature_list_mtime}): confirmado.\n"
+        )
+
+        # ---- (15) PROVA FINAL: dotnet test de novo, fora do Claude — zero ----
+        # regressão de tudo (Fases 1-3 + T-02 novo).
+        after_text = validator_path.read_text(encoding="utf-8")
+        diff = "\n".join(
+            difflib.unified_diff(
+                before_text.splitlines(), after_text.splitlines(),
+                fromfile=f"a/{VALIDATOR_REL}", tofile=f"b/{VALIDATOR_REL}", lineterm="",
+            )
+        )
+        sections["Diff aplicado (CustomerValidators.cs)"] = f"```diff\n{diff or '(sem diferenças detectadas)'}\n```\n"
+
+        after_dir = api_project / "TestResults" / "after-producer-reviewer"
+        after_proc, after_trx = _run_dotnet_test(
+            api_project, after_dir, "after-producer-reviewer.trx"
+        )
+        after_output = (after_proc.stdout or "") + "\n" + (after_proc.stderr or "")
+        assert after_proc.returncode == 0, (
+            "dotnet test deveria passar DEPOIS de tudo\n" + after_output
+        )
+
+        after_trx_results = _parse_trx(after_trx)
+        regressao = {}
+        for name in _PRE_EXISTING_TESTS + [_NEW_TEST, _NEW_TEST_T02_CREATE, _NEW_TEST_T02_UPDATE]:
+            outcome = _outcome_for(after_trx_results, name)
+            regressao[name] = outcome
+            assert outcome == "Passed", (
+                f"{name} deveria passar na suíte final (zero regressão): {after_trx_results}"
+            )
+        sections["Regressão (Fases 1-3 na mesma cobaia + suíte final completa)"] = (
+            "Execução DEPOIS de tudo (produtor-revisor completo) — zero regressão das "
+            f"Fases 1-3 + T-02 novo, todos Passed:\n\n```\n{after_output.strip()}\n```\n\n"
+            f"Resultado individual (via .trx):\n\n```\n{json.dumps(regressao, indent=2, ensure_ascii=False)}\n```\n"
+        )
+
+        sections["Sessões `claude -p` (5 no total)"] = "\n".join(sessions_summary)
+    finally:
+        _write_evidence_producer_reviewer(sections)

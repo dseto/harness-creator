@@ -1,5 +1,78 @@
 # Changelog
 
+## 0.14.0 — 2026-07-16
+
+Fase 4 do roadmap (Team-Architecture Factory, Nível L3): de uma sessão só
+para um time de agentes com revisão de qualidade independente embutida — o
+único toque humano é aprovar a arquitetura do time, uma vez por projeto.
+Backlog revisado por plan-critic + judge antes da execução (5 achados reais
+corrigidos: precedência da heurística de recomendação, teto duro de
+iterações, comparação review-vs-evidência no feature-lock, `on_feature_verified`
+acionado de verdade pelo comando `verify`, e o gate de encerramento
+redesenhado para usar sessões de revisor genuinamente independentes).
+
+### Adicionado
+- `src/harness/teams.py` — catálogo declarativo de 6 padrões de time
+  (`teams/patterns/*.yaml`, conteúdo do plugin): `producer-reviewer` e
+  `supervisor` com schema completo (papéis + `tools` mínimas — revisor e
+  supervisor nunca têm `Edit`/`Write`); `pipeline`, `expert-pool`,
+  `fan-out-fan-in`, `hierarchical-delegation` declarativos, sem enforcement
+  dedicado nesta fase. `analyze_domain`/`recommend_pattern` (heurística
+  determinística e documentada, com ordem de precedência fixa: sinal
+  explícito da descrição vence `has_tests`). `generate_team` — entrypoint de
+  topo que compõe a geração de `.claude/agents/<papel>.md`,
+  `.claude/skills/<papel>/SKILL.md`, o bloco de time em `AGENTS.md` +
+  `.harness/TEAM.md` (progressive disclosure) e o manifesto
+  `.harness/team/manifest.json`, tudo via substituição por blocos gerenciados
+  (idempotente, preserva conteúdo do usuário e os blocos de
+  `compiler.py`/`lifecycle.py`).
+- `src/harness/review.py` — state machine de revisão do padrão
+  Produtor-Revisor: `pending → in_review → rejected|approved`
+  (`.harness/review/<feature_id>.json`). Teto duro de iterações
+  (`max_review_iterations`, default 3): esgotado, `submit_for_review` recusa
+  nova submissão e `record_decision` liga `escalate=True` — o estado
+  **nunca** vira `approved` por esgotamento, escala ao humano. Gate de
+  justificativa: aprovar uma feature cujos `files[]` tocam o `test_glob`
+  exige `justification` não-vazia (defesa da Fase 2 contra reescrever o
+  próprio teste, agora também no revisor).
+- `src/harness/supervisor.py` — despacho dinâmico: `ready_features`/
+  `dispatch_next` respeitam `depends[]` do `feature_list.json` (primeiro
+  consumidor real desse campo desde a Fase 1), sem executar nada por conta
+  própria (leitor de estado síncrono, não um daemon). `on_feature_verified`
+  aciona `submit_for_review` automaticamente quando o time declara
+  `producer`+`reviewer`.
+- `src/harness/boundary_guard.py` — feature-lock estendido: com
+  `.harness/team/manifest.json` declarando os papéis `producer`+`reviewer`,
+  `passes: true` exige, além da evidência fresca da Fase 3, aprovação do
+  revisor (`status == 'approved'`) mais recente que o último commit **e**
+  mais recente que a evidência gravada (aprovação obsoleta em relação a uma
+  evidência regravada depois dela → `deny`); diff de teste aprovado sem
+  `justification` registrada → `deny`. Sem manifesto (ou sem os dois
+  papéis), comportamento idêntico à Fase 3 — zero regressão.
+- `src/harness/team_audit.py` — segunda máquina de audit dedicada a
+  artefatos de TIME (distinta de `audit.py`/`runtime_audit.py`): papel órfão,
+  papel do padrão sem agente gerado, agente com ferramenta além do mínimo do
+  catálogo (`reviewer`/`supervisor` nunca deveria ganhar `Edit`/`Write`) e
+  drift do bloco gerenciado do agente frente ao catálogo atual. Ausência de
+  time compilado é `info`, não penaliza o score.
+- `harness team design|generate`, `harness review <id> submit|approve|reject`,
+  `harness supervise`, `harness audit-team` na CLI. O subcomando `verify` já
+  existente passa a acionar `on_feature_verified` automaticamente após
+  gravar evidência com sucesso.
+- Skill `/harness-creator:team` — análise de domínio → proposta de padrão →
+  **aprovação explícita da arquitetura do time (único toque humano da Fase
+  4, uma vez por projeto)** → geração dos artefatos → `harness audit-team`.
+- Gate de encerramento: `tests/e2e/test_contract_dogfood.py` ampliado com
+  **5 sessões `claude -p` headless reais e independentes** (produtor e
+  revisor em processos separados, sem memória entre si, revisor com
+  `--disallowedTools Edit,Write`) provando revisão independente de verdade —
+  o revisor rejeita um gap real e objetivo (regra de validação aplicada só
+  num dos dois validators que o `spec.md` exige), o produtor corrige, o
+  revisor aprova só depois — evidência em
+  `tests/e2e/evidence/fase4-dogfood-producer-reviewer.md`. Mais 21 testes de
+  outcome independentes (`tests/e2e/test_fase4_outcomes.py`), evidência em
+  `tests/e2e/evidence/fase4-outcomes-verification.md`.
+
 ## 0.13.0 — 2026-07-16
 
 Fase 3 do roadmap (Auto-verificação e Correção em Loop): *"confidence ≠

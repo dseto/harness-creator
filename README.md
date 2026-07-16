@@ -1,6 +1,6 @@
 # harness-creator
 
-**v0.13.0** · [CHANGELOG](CHANGELOG.md)
+**v0.14.0** · [CHANGELOG](CHANGELOG.md)
 
 Plugin do Claude Code que **cria, avalia e compila** estrutura de harness
 (governança de agentes) para projetos.
@@ -46,6 +46,7 @@ claude --plugin-dir C:\Projetos\Harness-creator
 | `/harness-creator:audit` | Score 0-100 + findings (drift, hooks ausentes, política arriscada) |
 | `/harness-creator:compile` | Recompila após edição manual do yaml (idempotente, preserva settings manuais) |
 | `/harness-creator:plan` | Demanda em linguagem natural → `spec.md` + `Plans.md` → aprovação humana → `feature_list.json` |
+| `/harness-creator:team` | Analisa o domínio → propõe padrão de time (Produtor-Revisor, Supervisor, ...) → **aprovação humana da arquitetura (único toque humano)** → gera agentes/skills/manifesto → `harness audit-team` |
 
 CLI equivalente: `harness compile --dir <alvo>` · `harness audit --dir <alvo>` ·
 `harness analyze --dir <alvo>` · `harness compile-contract --dir <alvo> --slug <slug>` ·
@@ -55,7 +56,42 @@ passos, os templates de sessão e o hook SessionStart) · `harness verify
 <feature-id> --dir <alvo>` (Fase 3 — roda o `verify_cmd` real da tarefa e só
 grava evidência com prova executável) · `harness audit-runtime --dir <alvo>`
 (Fase 3 — audita schema/frescor/invariantes dos artefatos runtime-mutáveis,
-distinto do `harness audit`).
+distinto do `harness audit`) · `harness team design|generate --dir <alvo>`,
+`harness review <feature-id> submit|approve|reject --dir <alvo>`, `harness
+supervise --dir <alvo>`, `harness audit-team --dir <alvo>` (Fase 4 — time de
+agentes com revisão de qualidade independente embutida; ver seção abaixo).
+
+## Fase 4 — Team-Architecture Factory (Nível L3)
+
+Depois do contrato aprovado (`/harness-creator:plan`) e da sessão autônoma
+compilada (Fase 2/3), o `/harness-creator:team` monta um **time de agentes**
+para trabalhar o contrato, com revisão de qualidade independente já embutida
+— o único toque humano é aprovar a arquitetura do time, uma vez por projeto:
+
+- **Catálogo de 6 padrões** (`teams/patterns/*.yaml`, conteúdo do plugin):
+  `producer-reviewer` e `supervisor` com schema completo (papéis + `tools`
+  mínimas — revisor/supervisor nunca têm `Edit`/`Write`); `pipeline`,
+  `expert-pool`, `fan-out-fan-in`, `hierarchical-delegation` declarativos.
+  `harness team design` analisa o domínio (`repo-profile.json`) e recomenda
+  um padrão com justificativa, sem gravar nada (dry-run); `harness team
+  generate` gera os artefatos (`.claude/agents/`, `.claude/skills/`,
+  `AGENTS.md`/`.harness/TEAM.md`, `.harness/team/manifest.json`) só depois da
+  aprovação explícita da arquitetura.
+- **Produtor-Revisor** (`src/harness/review.py`) — state machine `pending →
+  in_review → rejected|approved` por feature. Teto duro de iterações
+  (`max_review_iterations`, default 3): esgotado, o estado **nunca** vira
+  `approved` sozinho — escala ao humano. Aprovar diff que toca `test_glob`
+  exige justificativa registrada.
+- **Feature-lock estendido** (`boundary_guard.py`) — quando o time declara
+  `producer`+`reviewer`, `passes: true` exige evidência fresca **e**
+  aprovação do revisor mais recente que a evidência (aprovação obsoleta
+  frente a uma evidência regravada depois dela → `deny`). Sem time
+  compilado, comportamento idêntico à Fase 3.
+- **Supervisor** (`src/harness/supervisor.py`) — `harness supervise` devolve
+  a próxima feature pronta, respeitando `depends[]`; `on_feature_verified`
+  aciona a submissão para revisão automaticamente após `harness verify`.
+- **Audit de time** (`harness audit-team`) — papel órfão, papel sem agente
+  gerado, ferramenta além do mínimo do catálogo, drift do bloco gerenciado.
 
 ## Estrutura do repo
 

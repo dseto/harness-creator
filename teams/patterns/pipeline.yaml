@@ -1,0 +1,10 @@
+name: pipeline
+description: "Sequencia de agentes especializados, cada um consumindo a saida do anterior, para um fluxo linear de transformacao (ex.: coleta -> analise -> redacao)."
+when_to_use: "Projeto tem um fluxo de trabalho linear em estagios claros, onde cada estagio depende só da saida do estagio anterior."
+roles:
+  - name: stage_1
+    responsibilities: "Produz o primeiro artefato intermediario do pipeline a partir da entrada bruta."
+  - name: stage_2
+    responsibilities: "Consome a saida do stage_1 e produz o proximo artefato intermediario."
+  - name: stage_n
+    responsibilities: "Consome a saida do estagio anterior e produz o artefato final do pipeline."

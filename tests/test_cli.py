@@ -290,3 +290,140 @@ def test_audit_runtime_subcommand_exits_zero_when_healthy(
     data = json.loads(capsys.readouterr().out)
     assert not any(f["severity"] == "critical" for f in data["findings"])
     assert data["score"] >= 60
+
+
+# ---------------------------------------------------------------------------
+# Fase 4 (SUBAGENTE 08): `team design|generate`, `review`, `supervise`,
+# `audit-team`, e o efeito colateral de `verify` acionando
+# `harness.supervisor.on_feature_verified`.
+# ---------------------------------------------------------------------------
+
+def test_team_design_subcommand_prints_valid_pattern(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["harness", "team", "design", "--dir", str(tmp_path), "--description", "quero revisão de qualidade"],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["pattern"] == "producer-reviewer"
+    assert "justification" in data
+    assert set(data["roles"]) == {"producer", "reviewer"}
+
+
+def test_team_generate_subcommand_writes_artifacts_and_exits_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        sys, "argv", ["harness", "team", "generate", "--dir", str(tmp_path), "--pattern", "producer-reviewer"]
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["pattern"] == "producer-reviewer"
+    assert data["mode"] == "subagents"
+    assert set(data["roles"]) == {"producer", "reviewer"}
+
+    assert (tmp_path / ".claude" / "agents" / "producer.md").is_file()
+    assert (tmp_path / ".harness" / "team" / "manifest.json").is_file()
+
+
+def test_team_generate_subcommand_unknown_pattern_exits_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        sys, "argv", ["harness", "team", "generate", "--dir", str(tmp_path), "--pattern", "padrao-inexistente"]
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    err = capsys.readouterr().err
+    assert err.startswith("erro: ")
+
+
+def test_review_submit_subcommand_writes_in_review_and_exits_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_feature_list(tmp_path, _true_cmd())
+
+    monkeypatch.setattr(sys, "argv", ["harness", "review", "T-01", "submit", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["status"] == "in_review"
+
+    review_path = tmp_path / ".harness" / "review" / "T-01.json"
+    assert review_path.is_file()
+    assert json.loads(review_path.read_text(encoding="utf-8"))["status"] == "in_review"
+
+
+def test_review_approve_without_prior_submit_exits_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_feature_list(tmp_path, _true_cmd())
+
+    monkeypatch.setattr(sys, "argv", ["harness", "review", "T-01", "approve", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    err = capsys.readouterr().err
+    assert err.startswith("erro: ")
+
+
+def test_supervise_subcommand_without_contract_exits_zero_with_null(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["harness", "supervise", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["next"] is None
+
+
+def test_audit_team_subcommand_without_team_exits_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["harness", "audit-team", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["score"] >= 60
+    assert not any(f["severity"] == "critical" for f in data["findings"])
+
+
+def test_verify_subcommand_with_team_auto_submits_for_review(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from harness.teams import generate_team
+
+    _write_feature_list(tmp_path, _true_cmd())
+    generate_team(tmp_path, "producer-reviewer")
+
+    monkeypatch.setattr(sys, "argv", ["harness", "verify", "T-01", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["feature_id"] == "T-01"
+
+    review_path = tmp_path / ".harness" / "review" / "T-01.json"
+    assert review_path.is_file()
+    review_data = json.loads(review_path.read_text(encoding="utf-8"))
+    assert review_data["status"] == "in_review"
+    assert review_data["iteration"] == 1

@@ -1,0 +1,10 @@
+name: fan-out-fan-in
+description: "Uma tarefa e dividida em subtarefas independentes despachadas em paralelo (fan-out) e depois um agente consolida os resultados (fan-in)."
+when_to_use: "Projeto tem uma tarefa que se decompoe em subtarefas independentes entre si, onde paralelizar reduz o tempo total e um passo final precisa juntar os resultados."
+roles:
+  - name: dispatcher
+    responsibilities: "Divide a tarefa em subtarefas independentes e despacha cada uma em paralelo para um worker."
+  - name: worker
+    responsibilities: "Resolve uma subtarefa independente recebida do dispatcher e devolve o resultado parcial."
+  - name: aggregator
+    responsibilities: "Consolida os resultados parciais de todos os workers num resultado final coerente."

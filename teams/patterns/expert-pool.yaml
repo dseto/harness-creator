@@ -1,0 +1,8 @@
+name: expert-pool
+description: "Roteador encaminha cada tarefa para o especialista de dominio mais adequado num pool de agentes com competencias distintas."
+when_to_use: "Projeto tem tarefas heterogeneas que exigem conhecimento de dominio diferente (ex.: frontend, backend, infra) e quer roteamento automatico para o especialista certo."
+roles:
+  - name: router
+    responsibilities: "Classifica a tarefa recebida e encaminha para o especialista do pool mais adequado ao dominio."
+  - name: expert
+    responsibilities: "Resolve a tarefa roteada usando conhecimento aprofundado do seu dominio especifico."

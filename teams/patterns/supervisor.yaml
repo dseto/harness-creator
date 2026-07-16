@@ -1,0 +1,13 @@
+name: supervisor
+description: "Supervisor despacha tarefas do feature_list.json para produtores, respeitando dependencias do Plans.md, e aciona o par revisor de cada entrega."
+when_to_use: "Projeto quer distribuir multiplas features do contrato aprovado entre varios produtores, com revisao automatica de cada entrega."
+roles:
+  - name: supervisor
+    responsibilities: "Despacha tarefas dinamicamente respeitando depends do Plans.md, monitora conclusao e aciona o par revisor de cada entrega; nunca edita codigo de producao, so orquestra."
+    tools: [Read, Grep, Glob, Bash]
+  - name: producer
+    responsibilities: "Implementa a feature designada pelo supervisor, roda harness verify, submete para revisao."
+    tools: [Read, Grep, Glob, Edit, Write, Bash]
+  - name: reviewer
+    responsibilities: "Le o diff da feature contra spec.md e a evidencia da Fase 3; aprova ou rejeita com nota; nunca edita codigo de producao."
+    tools: [Read, Grep, Glob, Bash]

@@ -89,6 +89,47 @@ def _feature_list_json(features: list[dict]) -> str:
     return json.dumps({"contract": "test", "compiled_at": "now", "features": features})
 
 
+def _write_manifest(target: Path, roles: list[str] = ("producer", "reviewer")) -> None:
+    path = target / ".harness" / "team" / "manifest.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "pattern": "producer-reviewer",
+        "mode": "subagents",
+        "roles": list(roles),
+        "max_review_iterations": 3,
+        "generated_at": "2026-07-16T12:00:00+00:00",
+    }), encoding="utf-8")
+
+
+def _write_review(target: Path, feature_id: str, status: str, updated_at: str, **overrides) -> None:
+    path = target / ".harness" / "review" / f"{feature_id}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "feature_id": feature_id,
+        "status": status,
+        "iteration": 1,
+        "max_iterations": 3,
+        "history": [],
+        "justification": None,
+        "updated_at": updated_at,
+    }
+    data.update(overrides)
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+def _transition_payload(tmp_path: Path, files: list[str] | None = None) -> dict:
+    return {
+        "tool_name": "Write", "cwd": str(tmp_path),
+        "tool_input": {
+            "file_path": ".harness/feature_list.json",
+            "content": _feature_list_json([
+                {"id": "T-01", "desc": "x", "files": files or ["src/main.py"],
+                 "verify_cmd": "pytest -q", "depends": [], "passes": True}
+            ]),
+        },
+    }
+
+
 # ---------------- sem contrato ativo ----------------
 
 def test_no_feature_list_allows_edit(tmp_path: Path) -> None:
@@ -474,3 +515,162 @@ def test_feature_list_edit_without_passes_true_transition_keeps_current_behavior
         "tool_input": {"file_path": ".harness/feature_list.json", "content": new_content},
     })
     assert out["permissionDecision"] == "deny"
+
+
+# ---------------- feature-lock: veto do revisor (Fase 4, produtor-revisor) ----------------
+
+def test_feature_lock_without_manifest_keeps_phase3_behavior(tmp_path: Path) -> None:
+    """Sem `.harness/team/manifest.json`, evidência fresca já basta —
+    comportamento IDÊNTICO à Fase 3, sem checar revisão nenhuma."""
+    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    _write_evidence(tmp_path, "T-01", recorded_at="2026-06-01T00:00:00+00:00")
+    script = _script(tmp_path)
+    out = _run_hook(script, _transition_payload(tmp_path))
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_feature_lock_with_manifest_missing_producer_or_reviewer_role_keeps_phase3_behavior(
+    tmp_path: Path,
+) -> None:
+    """Manifesto existe mas NÃO declara os dois papéis (só 'producer') ->
+    checagem de revisão continua pulada, comportamento da Fase 3."""
+    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    _write_evidence(tmp_path, "T-01", recorded_at="2026-06-01T00:00:00+00:00")
+    _write_manifest(tmp_path, roles=["producer"])
+    script = _script(tmp_path)
+    out = _run_hook(script, _transition_payload(tmp_path))
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_feature_lock_with_producer_reviewer_manifest_denies_without_review_record(
+    tmp_path: Path,
+) -> None:
+    """Manifesto declara producer+reviewer, evidência fresca, mas SEM
+    `.harness/review/T-01.json` -> deny (registro default é status='pending')."""
+    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    _write_evidence(tmp_path, "T-01", recorded_at="2026-06-01T00:00:00+00:00")
+    _write_manifest(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, _transition_payload(tmp_path))
+    assert out["permissionDecision"] == "deny", out
+    assert "T-01" in out["permissionDecisionReason"]
+
+
+def test_feature_lock_with_review_rejected_in_review_or_pending_denies(tmp_path: Path) -> None:
+    """status='rejected'/'in_review'/'pending' (não 'approved') -> deny,
+    mesmo com updated_at bem no futuro."""
+    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    _write_evidence(tmp_path, "T-01", recorded_at="2026-06-01T00:00:00+00:00")
+    _write_manifest(tmp_path)
+    script = _script(tmp_path)
+    for status in ("rejected", "in_review", "pending"):
+        _write_review(tmp_path, "T-01", status=status, updated_at="2026-09-01T00:00:00+00:00")
+        out = _run_hook(script, _transition_payload(tmp_path))
+        assert out["permissionDecision"] == "deny", (status, out)
+        assert "T-01" in out["permissionDecisionReason"]
+
+
+def test_feature_lock_with_review_approved_but_older_than_commit_denies(tmp_path: Path) -> None:
+    """status='approved' mas updated_at MAIS ANTIGO que o último commit ->
+    deny (aprovação anterior ao próprio commit não cobre o diff atual)."""
+    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    _write_evidence(tmp_path, "T-01", recorded_at="2026-06-01T00:00:00+00:00")
+    _write_manifest(tmp_path)
+    _write_review(tmp_path, "T-01", status="approved", updated_at="2025-01-01T00:00:00+00:00")
+    script = _script(tmp_path)
+    out = _run_hook(script, _transition_payload(tmp_path))
+    assert out["permissionDecision"] == "deny", out
+    assert "T-01" in out["permissionDecisionReason"]
+
+
+def test_feature_lock_with_review_approved_but_older_than_evidence_denies(tmp_path: Path) -> None:
+    """status='approved', updated_at mais novo que o commit, mas MAIS
+    ANTIGO que evidencia.recorded_at (achado de reflect+judge: aprovação
+    obsoleta porque a evidência foi regravada DEPOIS da aprovação) -> deny."""
+    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    _write_evidence(tmp_path, "T-01", recorded_at="2026-06-01T00:00:00+00:00")
+    _write_manifest(tmp_path)
+    _write_review(tmp_path, "T-01", status="approved", updated_at="2026-03-01T00:00:00+00:00")
+    script = _script(tmp_path)
+    out = _run_hook(script, _transition_payload(tmp_path))
+    assert out["permissionDecision"] == "deny", out
+    assert "T-01" in out["permissionDecisionReason"]
+
+
+def test_feature_lock_with_review_approved_fresh_allows(tmp_path: Path) -> None:
+    """status='approved' com updated_at mais novo que o commit E que a
+    evidência -> allow, e a mensagem de sucesso cita a revisão aprovada."""
+    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    _write_evidence(tmp_path, "T-01", recorded_at="2026-03-01T00:00:00+00:00")
+    _write_manifest(tmp_path)
+    _write_review(tmp_path, "T-01", status="approved", updated_at="2026-06-01T00:00:00+00:00")
+    script = _script(tmp_path)
+    out = _run_hook(script, _transition_payload(tmp_path))
+    assert out["permissionDecision"] == "allow", out
+    assert "revis" in out["permissionDecisionReason"].lower()
+
+
+def test_feature_lock_test_diff_approved_without_justification_denies(tmp_path: Path) -> None:
+    """Feature transicionada cujo files[] toca o test_glob do repo-profile:
+    review aprovado fresco mas SEM justification -> deny (defesa em
+    profundidade — reconfirmação de leitura mesmo que review.py já
+    bloqueie isso na escrita)."""
+    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
+    _write_profile(tmp_path)
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["tests/test_x.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    _write_evidence(tmp_path, "T-01", recorded_at="2026-03-01T00:00:00+00:00")
+    _write_manifest(tmp_path)
+    _write_review(tmp_path, "T-01", status="approved", updated_at="2026-06-01T00:00:00+00:00",
+                  justification=None)
+    script = _script(tmp_path)
+    out = _run_hook(script, _transition_payload(tmp_path, files=["tests/test_x.py"]))
+    assert out["permissionDecision"] == "deny", out
+    assert "justificativa" in out["permissionDecisionReason"]
+
+
+def test_feature_lock_test_diff_approved_with_justification_allows(tmp_path: Path) -> None:
+    """Mesmo cenário acima, mas COM justification preenchida -> allow."""
+    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
+    _write_profile(tmp_path)
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["tests/test_x.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    _write_evidence(tmp_path, "T-01", recorded_at="2026-03-01T00:00:00+00:00")
+    _write_manifest(tmp_path)
+    _write_review(tmp_path, "T-01", status="approved", updated_at="2026-06-01T00:00:00+00:00",
+                  justification="expectativa mudou porque o contrato foi renegociado")
+    script = _script(tmp_path)
+    out = _run_hook(script, _transition_payload(tmp_path, files=["tests/test_x.py"]))
+    assert out["permissionDecision"] == "allow", out

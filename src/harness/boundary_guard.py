@@ -57,6 +57,27 @@ mesmo motivo do runtime floor acima: uma dentro da string retornada por
 `render_boundary_guard()` (stdlib apenas, sem import de `harness.*`) e uma
 importável neste módulo (`evaluate_feature_list_edit` e afins, mais abaixo)
 para ser testável via pytest direto. Mudou uma, muda a outra.
+
+**Veto do revisor (Fase 4, padrão Produtor-Revisor)** — checagem ADICIONAL
+avaliada depois que a evidência fresca de TODAS as features transicionadas
+já foi confirmada (a checagem acima, intocada): se
+`.harness/team/manifest.json` existir, for JSON válido e declarar os papéis
+`producer` e `reviewer` (`{"producer", "reviewer"} <= set(roles)`), cada
+feature transicionada exige ADICIONALMENTE `.harness/review/<id>.json` com
+`status == 'approved'` (lido via `harness.review.load_review` na versão
+importável; réplica stdlib-only equivalente na versão standalone) e
+`updated_at` mais novo que o último commit (mesmo padrão de comparação da
+evidência) E não mais antigo que `evidencia.recorded_at` da mesma feature
+(reusa o dict de evidência já carregado pela checagem de frescor acima — uma
+aprovação anterior à ÚLTIMA evidência gravada está cobrindo um diff que o
+revisor nunca viu, portanto obsoleta). Se a feature transicionada tem
+`files[]` tocando o `test_glob` do repo-profile (`harness.review.is_test_diff`
+na versão importável; réplica standalone equivalente, sem import), o registro
+de revisão aprovado também precisa ter `justification` não-vazia (defesa em
+profundidade — `review.py` já barra isso na escrita, esta é uma reconfirmação
+de leitura, caso o arquivo tenha sido editado por fora da API). Sem
+`manifest.json` (ausente, JSON inválido, ou sem os dois papéis), esta
+checagem inteira é pulada — comportamento IDÊNTICO à Fase 3.
 """
 
 from __future__ import annotations
@@ -67,6 +88,8 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from harness.review import ReviewError, is_test_diff, load_review
 
 HOOKS_DIR = ".harness/hooks"
 BOUNDARY_HOOK_FILENAME = "boundary_guard.py"
@@ -134,6 +157,7 @@ def is_floor_secret_path(path: str) -> bool:
 # ---------------------------------------------------------------------------
 FEATURE_LIST_RELATIVE_PATH = ".harness/feature_list.json"
 EVIDENCE_DIR_NAME = ".harness/evidence"
+TEAM_MANIFEST_RELATIVE_PATH = ".harness/team/manifest.json"
 
 
 def _read_last_commit_timestamp(cwd: Path | str | None) -> str | None:
@@ -186,30 +210,127 @@ def _transitions_to_true(old_data: Any, new_data: Any) -> list[Any]:
 
 def _evidence_freshness_problem(
     cwd: Path | str | None, feature_id: Any, commit_ts: str | None
-) -> str | None:
-    """`None` se a evidência de `feature_id` existe, é válida e (quando
-    `commit_ts` fornecido) mais nova que ele; senão, string descrevendo o
-    problema."""
+) -> tuple[str | None, dict[str, Any] | None]:
+    """`(None, evidence)` se a evidência de `feature_id` existe, é válida e
+    (quando `commit_ts` fornecido) mais nova que ele; senão, `(problema,
+    None)` descrevendo o problema. O dict de evidência é devolvido junto
+    (mesmo objeto já parseado, sem reler o arquivo) para o chamador reusar na
+    checagem do veto do revisor (comparação contra `evidencia.recorded_at`)."""
     base = Path(cwd) if cwd else Path(".")
     evidence_path = base / EVIDENCE_DIR_NAME / f"{feature_id}.json"
     if not evidence_path.is_file():
-        return f"{feature_id}: sem evidência (.harness/evidence/{feature_id}.json não existe)"
+        return f"{feature_id}: sem evidência (.harness/evidence/{feature_id}.json não existe)", None
     try:
         evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return f"{feature_id}: evidência inválida (JSON malformado)"
+        return f"{feature_id}: evidência inválida (JSON malformado)", None
     if not isinstance(evidence, dict) or evidence.get("feature_id") != feature_id:
-        return f"{feature_id}: evidência inválida (feature_id não corresponde)"
+        return f"{feature_id}: evidência inválida (feature_id não corresponde)", None
     recorded_dt = _parse_iso8601(evidence.get("recorded_at"))
     if recorded_dt is None:
-        return f"{feature_id}: evidência inválida (recorded_at ausente ou não-ISO8601)"
+        return f"{feature_id}: evidência inválida (recorded_at ausente ou não-ISO8601)", None
     if commit_ts is not None:
         commit_dt = _parse_iso8601(commit_ts)
         if commit_dt is not None and recorded_dt <= commit_dt:
             return (
                 f"{feature_id}: evidência mais antiga que o último commit "
                 f"(recorded_at={evidence.get('recorded_at')})"
+            ), None
+    return None, evidence
+
+
+def _read_team_manifest(cwd: Path | str | None) -> dict[str, Any] | None:
+    """Lê `.harness/team/manifest.json`; devolve o dict só se o arquivo
+    existir e for JSON válido representando um objeto — ausência ou JSON
+    inválido devolve `None` (time não compilado ou artefato corrompido: em
+    ambos os casos a checagem do veto do revisor é pulada por inteiro,
+    comportamento IDÊNTICO à Fase 3)."""
+    base = Path(cwd) if cwd else Path(".")
+    manifest_path = base / TEAM_MANIFEST_RELATIVE_PATH
+    if not manifest_path.is_file():
+        return None
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    return data
+
+
+def _manifest_requires_review(manifest: dict[str, Any] | None) -> bool:
+    """`True` só quando o manifesto declara AMBOS os papéis `producer` e
+    `reviewer` — decisão do planejador: revisão obrigatória é por PROJETO,
+    não por-tarefa."""
+    if manifest is None:
+        return False
+    roles = manifest.get("roles")
+    if not isinstance(roles, list):
+        return False
+    role_set = {r for r in roles if isinstance(r, str)}
+    return "producer" in role_set and "reviewer" in role_set
+
+
+def _feature_by_id(data: Any, feature_id: Any) -> dict[str, Any] | None:
+    if not isinstance(data, dict):
+        return None
+    for feat in data.get("features") or []:
+        if isinstance(feat, dict) and feat.get("id") == feature_id:
+            return feat
+    return None
+
+
+def _review_gate_problem(
+    cwd: Path | str | None,
+    feature_id: Any,
+    feature_data: dict[str, Any] | None,
+    commit_ts: str | None,
+    evidence: dict[str, Any] | None,
+) -> str | None:
+    """`None` se o veto do revisor está satisfeito para `feature_id`; senão,
+    string descrevendo o problema específico. Só chamada depois que o
+    manifesto já confirmou `producer`+`reviewer` (`_manifest_requires_review`)
+    E a evidência da feature já foi confirmada fresca (`evidence` não é
+    `None` quando chamada nesse fluxo)."""
+    base = Path(cwd) if cwd else Path(".")
+    try:
+        review = load_review(base, feature_id)
+    except ReviewError as exc:
+        return f"{feature_id}: registro de revisão inválido ({exc})"
+
+    status = review.get("status")
+    if status != "approved":
+        return (
+            f"{feature_id}: revisão pendente/rejeitada (status='{status}') — "
+            f"rode harness review {feature_id} approve antes"
+        )
+
+    review_dt = _parse_iso8601(review.get("updated_at"))
+    if review_dt is None:
+        return f"{feature_id}: registro de revisão sem updated_at válido"
+
+    if commit_ts is not None:
+        commit_dt = _parse_iso8601(commit_ts)
+        if commit_dt is not None and review_dt <= commit_dt:
+            return (
+                f"{feature_id}: aprovação mais antiga que o último commit "
+                f"(updated_at={review.get('updated_at')})"
             )
+
+    if evidence is not None:
+        recorded_dt = _parse_iso8601(evidence.get("recorded_at"))
+        if recorded_dt is not None and review_dt < recorded_dt:
+            return (
+                f"{feature_id}: aprovação obsoleta — evidência foi regravada depois "
+                f"da aprovação (evidencia.recorded_at={evidence.get('recorded_at')}, "
+                f"review.updated_at={review.get('updated_at')})"
+            )
+
+    if is_test_diff(feature_data or {}, base):
+        justification = review.get("justification")
+        if not justification or not str(justification).strip():
+            return f"{feature_id}: aprovação de diff de teste sem justificativa registrada"
+
     return None
 
 
@@ -252,21 +373,47 @@ def evaluate_feature_list_edit(
         return None
 
     commit_ts = _read_last_commit_timestamp(base)
-    problems = [
-        p
-        for p in (_evidence_freshness_problem(base, fid, commit_ts) for fid in transitioned)
-        if p
-    ]
+    problems: list[str] = []
+    evidence_by_id: dict[Any, dict[str, Any]] = {}
+    for fid in transitioned:
+        problem, evidence = _evidence_freshness_problem(base, fid, commit_ts)
+        if problem:
+            problems.append(problem)
+        else:
+            evidence_by_id[fid] = evidence  # type: ignore[assignment]
     if problems:
         return "deny", (
             "feature-lock: transição para passes:true sem evidência fresca — "
             + "; ".join(problems)
             + " — rode harness verify <id> primeiro"
         )
-    return "allow", (
+
+    manifest = _read_team_manifest(base)
+    review_required = _manifest_requires_review(manifest)
+    if review_required:
+        review_problems = [
+            p
+            for p in (
+                _review_gate_problem(
+                    base, fid, _feature_by_id(new_data, fid), commit_ts, evidence_by_id.get(fid)
+                )
+                for fid in transitioned
+            )
+            if p
+        ]
+        if review_problems:
+            return "deny", (
+                "feature-lock: revisão do time (produtor-revisor) pendente/obsoleta — "
+                + "; ".join(review_problems)
+            )
+
+    success_message = (
         "feature-lock: transição para passes:true com evidência fresca confirmada para "
         + ", ".join(str(fid) for fid in sorted(transitioned, key=str))
     )
+    if review_required:
+        success_message += " e revisão do time (produtor-revisor) aprovada"
+    return "allow", success_message
 
 
 # ---------------------------------------------------------------------------
@@ -324,6 +471,8 @@ FIXED_GIT_SEQUENCES = [
 FEATURE_LIST_PATH = ".harness/feature_list.json"
 PROFILE_PATH = ".harness/repo-profile.json"
 EVIDENCE_DIR = ".harness/evidence"
+TEAM_MANIFEST_PATH = ".harness/team/manifest.json"
+REVIEW_DIR = ".harness/review"
 
 # package_manager.value (analyzer.py) -> comando de instalação EXATO. Mesmo
 # mapeamento de harness.session_permissions/harness.templates: o valor bruto
@@ -491,16 +640,122 @@ def _transitions_to_true(old_data, new_data):
 def _evidence_freshness_problem(cwd, feature_id, commit_ts):
     evidence = _load_json(cwd, EVIDENCE_DIR + "/" + str(feature_id) + ".json")
     if evidence is None:
-        return str(feature_id) + ": sem evidencia (.harness/evidence/" + str(feature_id) + ".json nao existe ou JSON invalido)"
+        return (str(feature_id) + ": sem evidencia (.harness/evidence/" + str(feature_id) + ".json nao existe ou JSON invalido)"), None
     if not isinstance(evidence, dict) or evidence.get("feature_id") != feature_id:
-        return str(feature_id) + ": evidencia invalida (feature_id nao corresponde)"
+        return (str(feature_id) + ": evidencia invalida (feature_id nao corresponde)"), None
     recorded_dt = _parse_iso8601(evidence.get("recorded_at"))
     if recorded_dt is None:
-        return str(feature_id) + ": evidencia invalida (recorded_at ausente ou nao-ISO8601)"
+        return (str(feature_id) + ": evidencia invalida (recorded_at ausente ou nao-ISO8601)"), None
     if commit_ts is not None:
         commit_dt = _parse_iso8601(commit_ts)
         if commit_dt is not None and recorded_dt <= commit_dt:
-            return str(feature_id) + ": evidencia mais antiga que o ultimo commit (recorded_at=" + str(evidence.get("recorded_at")) + ")"
+            return (str(feature_id) + ": evidencia mais antiga que o ultimo commit (recorded_at=" + str(evidence.get("recorded_at")) + ")"), None
+    return None, evidence
+
+
+def _read_team_manifest(cwd):
+    return _load_json(cwd, TEAM_MANIFEST_PATH)
+
+
+def _manifest_requires_review(manifest):
+    if not isinstance(manifest, dict):
+        return False
+    roles = manifest.get("roles")
+    if not isinstance(roles, list):
+        return False
+    role_set = set(r for r in roles if isinstance(r, str))
+    return "producer" in role_set and "reviewer" in role_set
+
+
+def _feature_by_id(data, feature_id):
+    if not isinstance(data, dict):
+        return None
+    for feat in data.get("features") or []:
+        if isinstance(feat, dict) and feat.get("id") == feature_id:
+            return feat
+    return None
+
+
+def _is_test_diff(feature, cwd):
+    """Equivalente standalone de harness.review.is_test_diff — o hook nao
+    pode importar a lib, entao replica: casa feature['files'] contra o
+    test_glob do repo-profile usando o _glob_to_regex ja copiado acima."""
+    profile = _load_json(cwd, PROFILE_PATH)
+    test_glob = _profile_entry_value(profile, "test_glob")
+    if not test_glob:
+        return False
+    pattern = _glob_to_regex(test_glob)
+    files = (feature or {}).get("files") or []
+    for f in files:
+        normalized = str(f).replace("\\\\", "/")
+        if pattern.match(normalized):
+            return True
+    return False
+
+
+def _load_review_record(cwd, feature_id):
+    """Equivalente standalone de harness.review.load_review: devolve
+    (record, problema). Arquivo ausente -> registro DEFAULT status='pending'
+    (mesmo comportamento de load_review, sem gravar em disco); JSON invalido
+    -> (None, problema)."""
+    import os
+    base = cwd or "."
+    full = os.path.join(base, REVIEW_DIR, str(feature_id) + ".json")
+    if not os.path.isfile(full):
+        return {
+            "feature_id": feature_id,
+            "status": "pending",
+            "iteration": 0,
+            "max_iterations": 3,
+            "history": [],
+            "justification": None,
+            "updated_at": "",
+        }, None
+    try:
+        with open(full, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None, str(feature_id) + ": registro de revisao invalido (JSON malformado)"
+    if not isinstance(data, dict):
+        return None, str(feature_id) + ": registro de revisao invalido (formato inesperado)"
+    return data, None
+
+
+def _review_gate_problem(cwd, feature_id, feature_data, commit_ts, evidence):
+    record, load_problem = _load_review_record(cwd, feature_id)
+    if load_problem:
+        return load_problem
+
+    status = record.get("status")
+    if status != "approved":
+        return (
+            str(feature_id) + ": revisao pendente/rejeitada (status='" + str(status) + "') - "
+            "rode harness review " + str(feature_id) + " approve antes"
+        )
+
+    review_dt = _parse_iso8601(record.get("updated_at"))
+    if review_dt is None:
+        return str(feature_id) + ": registro de revisao sem updated_at valido"
+
+    if commit_ts is not None:
+        commit_dt = _parse_iso8601(commit_ts)
+        if commit_dt is not None and review_dt <= commit_dt:
+            return str(feature_id) + ": aprovacao mais antiga que o ultimo commit (updated_at=" + str(record.get("updated_at")) + ")"
+
+    if evidence is not None:
+        recorded_dt = _parse_iso8601(evidence.get("recorded_at"))
+        if recorded_dt is not None and review_dt < recorded_dt:
+            return (
+                str(feature_id) + ": aprovacao obsoleta - evidencia foi regravada depois da "
+                "aprovacao (evidencia.recorded_at=" + str(evidence.get("recorded_at")) +
+                ", review.updated_at=" + str(record.get("updated_at")) + ")"
+            )
+
+    if _is_test_diff(feature_data, cwd):
+        justification = record.get("justification")
+        if not justification or not str(justification).strip():
+            return str(feature_id) + ": aprovacao de diff de teste sem justificativa registrada"
+
     return None
 
 
@@ -536,10 +791,13 @@ def _evaluate_feature_list_edit(tool_name, tool_input, cwd):
 
     commit_ts = _read_last_commit_timestamp(cwd)
     problems = []
+    evidence_by_id = {}
     for fid in transitioned:
-        problem = _evidence_freshness_problem(cwd, fid, commit_ts)
+        problem, evidence = _evidence_freshness_problem(cwd, fid, commit_ts)
         if problem:
             problems.append(problem)
+        else:
+            evidence_by_id[fid] = evidence
 
     if problems:
         return "deny", (
@@ -547,10 +805,30 @@ def _evaluate_feature_list_edit(tool_name, tool_input, cwd):
             + "; ".join(problems)
             + " - rode harness verify <id> primeiro"
         )
-    return "allow", (
+
+    manifest = _read_team_manifest(cwd)
+    review_required = _manifest_requires_review(manifest)
+    if review_required:
+        review_problems = []
+        for fid in transitioned:
+            problem = _review_gate_problem(
+                cwd, fid, _feature_by_id(new_data, fid), commit_ts, evidence_by_id.get(fid)
+            )
+            if problem:
+                review_problems.append(problem)
+        if review_problems:
+            return "deny", (
+                "feature-lock: revisao do time (produtor-revisor) pendente/obsoleta - "
+                + "; ".join(review_problems)
+            )
+
+    success_message = (
         "feature-lock: transicao para passes:true com evidencia fresca confirmada para "
         + ", ".join(str(fid) for fid in sorted(transitioned, key=str))
     )
+    if review_required:
+        success_message += " e revisao do time (produtor-revisor) aprovada"
+    return "allow", success_message
 
 
 def _evaluate_file(path, cwd):

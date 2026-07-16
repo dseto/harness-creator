@@ -13,13 +13,13 @@ pip install -e .
 claude --plugin-dir C:\Projetos\Harness-creator
 ```
 
-Isso abre uma sessão do Claude Code com as 4 skills disponíveis:
+Isso abre uma sessão do Claude Code com as 5 skills disponíveis:
 `/harness-creator:init`, `/harness-creator:audit`, `/harness-creator:compile`,
-`/harness-creator:plan`.
+`/harness-creator:plan`, `/harness-creator:team`.
 
 > Repita `claude --plugin-dir ...` toda vez que abrir o Claude Code para
 > trabalhar com harness — não é uma instalação permanente do Claude Code em
-> si, é um flag de sessão. (Se preferir permanente, ver seção 7.)
+> si, é um flag de sessão. (Se preferir permanente, ver seção 10.)
 
 ## 2. Criar o harness no projeto-alvo (uma vez, por repositório)
 
@@ -205,11 +205,81 @@ harness audit-runtime --dir <alvo>
 Audita os artefatos runtime-mutáveis (`claude-progress.md`,
 `feature_list.json`, `evidence/`): schema, frescor e invariantes (1 feature
 `in_progress` por vez; todo `passes:true` com evidência válida). É uma
-máquina distinta do `/harness-creator:audit` (seção 8) — aquele faz diff
+máquina distinta do `/harness-creator:audit` (seção 9) — aquele faz diff
 byte-exato dos artefatos **compilados** (settings/hooks/blocos gerenciados);
 este confere os artefatos que mudam a cada sessão de trabalho.
 
-## 8. Verificar se está tudo consistente
+## 8. Montar um time de agentes com revisão independente (Fase 4)
+
+Depois do contrato aprovado (seção 5) e, opcionalmente, da sessão autônoma
+compilada (seção 6), você pode ir além de uma sessão só e montar um **time
+de agentes** para trabalhar o contrato — com revisão de qualidade
+independente já embutida. Rode:
+
+```
+/harness-creator:team
+```
+
+A skill segue este fluxo:
+
+1. **Design (dry-run)** — `harness team design --dir <alvo> --description
+   "<descrição da demanda>"` analisa o domínio (`repo-profile.json`) e
+   recomenda um padrão do catálogo (`producer-reviewer`, `supervisor`,
+   `pipeline`, `expert-pool`, `fan-out-fan-in`, `hierarchical-delegation`)
+   com justificativa. Não grava nada em disco.
+2. **Apresentação** — a skill mostra o padrão recomendado, a justificativa e
+   os papéis do time. Se você discordar, pode pedir outro padrão
+   explicitamente.
+3. **Aprovação explícita (o único toque humano da Fase 4, uma vez por
+   projeto)** — a skill apresenta padrão + papéis + modo de execução (`mode`,
+   padrão `subagents`) e pede sua aprovação clara antes de gerar qualquer
+   arquivo. Sem aprovação explícita, nada é escrito — mesma regra dura da
+   seção 5 para o contrato.
+4. **Geração** — só depois da aprovação, `harness team generate --dir <alvo>
+   --pattern <nome>` grava `.claude/agents/<papel>.md`,
+   `.claude/skills/<papel>/SKILL.md`, o bloco de time em `AGENTS.md` +
+   `.harness/TEAM.md` (detalhe) e o manifesto
+   `.harness/team/manifest.json`.
+5. **Validação** — `harness audit-team --dir <alvo>` confere papel órfão,
+   papel do padrão sem agente gerado, ferramenta além do mínimo do catálogo
+   (um `reviewer`/`supervisor` nunca deveria ganhar `Edit`/`Write`) e drift
+   do bloco gerenciado. Finding crítico bloqueia considerar o time
+   operacional.
+
+A partir daí, o **ciclo operacional roda sem novo toque humano**: o produtor
+implementa a feature; `harness verify <feature-id> --dir <alvo>` (seção 7)
+grava evidência fresca e já aciona automaticamente a submissão para revisão
+— não precisa rodar `review ... submit` manualmente. Com o padrão
+`producer-reviewer` compilado, o **feature-lock** do `boundary_guard.py`
+passa a exigir, além da evidência fresca, aprovação do revisor
+(`.harness/review/<feature-id>.json` com `status: approved`) **mais recente
+que a última evidência gravada** — uma aprovação antiga em relação a uma
+evidência regravada depois dela é considerada obsoleta e bloqueada de novo.
+O revisor decide com:
+
+```
+harness review <feature-id> approve --dir <alvo> --note "..."
+harness review <feature-id> reject --dir <alvo> --note "..."
+```
+
+Rejeição devolve a tarefa ao produtor; o ciclo repete até aprovação **ou**
+até o teto de iterações (`max_review_iterations`, default 3) estourar sem
+aprovação — o que **nunca** força aprovação automática, apenas escala a
+decisão a você. Com o padrão `supervisor` compilado,
+
+```
+harness supervise --dir <alvo>
+```
+
+devolve a próxima feature pronta a trabalhar, respeitando `depends[]` do
+contrato — sem executar nada por conta própria (é uma leitura de estado
+síncrona, não um daemon).
+
+Sem time compilado (sem `.harness/team/manifest.json`), o feature-lock e o
+`harness verify` continuam se comportando exatamente como na Fase 3 — zero
+regressão.
+
+## 9. Verificar se está tudo consistente
 
 ```
 /harness-creator:audit
@@ -219,7 +289,7 @@ Score 0–100. Rode depois de qualquer edição manual em `settings.json`,
 `AGENTS.md` ou nos hooks — ele detecta *drift* (alguém editou à mão e
 divergiu do que o `harness.yaml` geraria) e sugere recompilar.
 
-## 9. Deixar o plugin sempre disponível (opcional)
+## 10. Deixar o plugin sempre disponível (opcional)
 
 Em vez de repetir `--plugin-dir` toda sessão, adicione a
 `~/.claude/settings.json` do seu usuário (não do projeto):
@@ -257,6 +327,16 @@ trabalhar normal — prompts de aprovação aparecem sozinhos conforme a políti
         │                                            compile-session (Fase 2: permissions do
         │                                            raio de impacto + boundary_guard + lifecycle
         │                                            + templates + SessionStart)
+        │                                                           │
+        │                                                           ▼
+        │                                            harness verify <id> (Fase 3: roda o
+        │                                            verify_cmd real, só grava evidência com
+        │                                            prova executável)
+        │                                                           │
+        │                                                           ▼
+        │                                            /harness-creator:team (Fase 4: aprovar
+        │                                            arquitetura do time 1x → produtor-revisor
+        │                                            roda sem novo toque humano)
         │
         └─ quer conferir? ──► /harness-creator:audit
 ```

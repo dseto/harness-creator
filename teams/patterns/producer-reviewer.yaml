@@ -1,0 +1,10 @@
+name: producer-reviewer
+description: "Produtor implementa uma feature do feature_list.json; revisor valida contra spec.md + evidência da Fase 3 antes de aprovar."
+when_to_use: "Projeto quer revisão de qualidade automatizada por outro agente, sem gate humano por tarefa."
+roles:
+  - name: producer
+    responsibilities: "Implementa a feature escolhida, roda harness verify, submete para revisão."
+    tools: [Read, Grep, Glob, Edit, Write, Bash]
+  - name: reviewer
+    responsibilities: "Le o diff da feature contra spec.md e a evidencia da Fase 3; aprova ou rejeita com nota; nunca edita codigo de producao."
+    tools: [Read, Grep, Glob, Bash]

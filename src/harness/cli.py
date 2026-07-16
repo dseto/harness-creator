@@ -52,6 +52,40 @@ def main() -> None:
     ver.add_argument("feature_id", help="Id da feature em .harness/feature_list.json")
     ver.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
 
+    team = sub.add_parser("team", help="Team-Architecture Factory (Fase 4): design/generate de times de agentes")
+    team_sub = team.add_subparsers(dest="team_command", required=True)
+
+    team_design = team_sub.add_parser(
+        "design", help="Dry-run: analisa o domínio e recomenda um padrão de time (não escreve nada)"
+    )
+    team_design.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+    team_design.add_argument("--description", required=True, help="Descrição da demanda/domínio em linguagem natural")
+
+    team_generate = team_sub.add_parser(
+        "generate", help="Gera os artefatos do time (.claude/agents, .claude/skills, AGENTS.md, manifesto)"
+    )
+    team_generate.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+    team_generate.add_argument("--pattern", required=True, help="Nome do padrão de time (catálogo teams/patterns/)")
+    team_generate.add_argument(
+        "--mode", default="subagents", choices=["subagents", "agent-teams"], help="Modo de execução do time"
+    )
+    team_generate.add_argument(
+        "--max-review-iterations", type=int, default=3, help="Teto de iterações de revisão do padrão produtor-revisor"
+    )
+
+    rev = sub.add_parser("review", help="Transições do state machine de revisão do padrão Produtor-Revisor")
+    rev.add_argument("feature_id", help="Id da feature em .harness/feature_list.json")
+    rev.add_argument("decision", choices=["submit", "approve", "reject"], help="Transição a aplicar")
+    rev.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+    rev.add_argument("--note", default="", help="Nota da decisão (aprovação/rejeição)")
+    rev.add_argument("--justification", default=None, help="Justificativa (obrigatória para aprovar diff de teste)")
+
+    sup = sub.add_parser("supervise", help="Devolve a próxima feature pronta a trabalhar (ou null)")
+    sup.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+
+    aud_team = sub.add_parser("audit-team", help="Audita os artefatos de time da Fase 4 — score + findings JSON")
+    aud_team.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+
     args = parser.parse_args()
 
     if args.command == "run":
@@ -177,9 +211,112 @@ def main() -> None:
             print(f"erro: {exc}", file=sys.stderr)
             sys.exit(1)
 
+        from harness.supervisor import on_feature_verified
+
+        on_feature_verified(Path(args.dir), args.feature_id)
+
         data = json.loads(evidence_path.read_text(encoding="utf-8"))
         print(json.dumps(data, indent=2, ensure_ascii=False))
         sys.exit(0)
+
+    if args.command == "team" and args.team_command == "design":
+        from harness.teams import analyze_domain, load_pattern, recommend_pattern
+
+        domain = analyze_domain(Path(args.dir))
+        pattern_name, justification = recommend_pattern(domain, args.description)
+        pattern = load_pattern(pattern_name)
+        print(json.dumps({
+            "pattern": pattern_name,
+            "justification": justification,
+            "roles": [r.name for r in pattern.roles],
+        }, indent=2, ensure_ascii=False))
+        sys.exit(0)
+
+    if args.command == "team" and args.team_command == "generate":
+        from harness.teams import TeamError, generate_team
+
+        try:
+            result = generate_team(
+                Path(args.dir),
+                args.pattern,
+                mode=args.mode,
+                max_review_iterations=args.max_review_iterations,
+            )
+        except TeamError as exc:
+            print(f"erro: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        print(json.dumps({
+            "pattern": result.pattern,
+            "mode": result.mode,
+            "roles": result.roles,
+            "agents_written": [str(p) for p in result.agents_written],
+            "skills_written": [str(p) for p in result.skills_written],
+            "agents_md": str(result.agents_md),
+            "team_detail": str(result.team_detail),
+            "manifest": str(result.manifest),
+        }, indent=2, ensure_ascii=False))
+        sys.exit(0)
+
+    if args.command == "review":
+        from harness.contract import FEATURE_LIST_FILE
+        from harness.review import REVIEW_DIR, ReviewError, record_decision, submit_for_review
+
+        target_dir = Path(args.dir)
+
+        if args.decision == "submit":
+            try:
+                submit_for_review(target_dir, args.feature_id)
+            except ReviewError as exc:
+                print(f"erro: {exc}", file=sys.stderr)
+                sys.exit(1)
+        else:
+            feature_list_path = target_dir.resolve() / FEATURE_LIST_FILE
+            if not feature_list_path.is_file():
+                print(f"erro: {feature_list_path}: feature_list.json não encontrado", file=sys.stderr)
+                sys.exit(1)
+
+            try:
+                feature_list_data = json.loads(feature_list_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                print(f"erro: {feature_list_path}: JSON inválido — {exc}", file=sys.stderr)
+                sys.exit(1)
+
+            feature = next(
+                (f for f in feature_list_data.get("features", []) if f.get("id") == args.feature_id),
+                None,
+            )
+            if feature is None:
+                print(f"erro: feature '{args.feature_id}' não encontrada em {feature_list_path}", file=sys.stderr)
+                sys.exit(1)
+
+            decision = "approved" if args.decision == "approve" else "rejected"
+            try:
+                record_decision(
+                    target_dir, args.feature_id, feature, decision, args.note, args.justification
+                )
+            except ReviewError as exc:
+                print(f"erro: {exc}", file=sys.stderr)
+                sys.exit(1)
+
+        review_path = target_dir.resolve() / REVIEW_DIR / f"{args.feature_id}.json"
+        data = json.loads(review_path.read_text(encoding="utf-8"))
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+        sys.exit(0)
+
+    if args.command == "supervise":
+        from harness.supervisor import dispatch_next
+
+        next_feature = dispatch_next(Path(args.dir))
+        print(json.dumps({"next": next_feature}, indent=2, ensure_ascii=False))
+        sys.exit(0)
+
+    if args.command == "audit-team":
+        from harness.team_audit import audit_team
+
+        report = audit_team(Path(args.dir))
+        print(report.to_json())
+        sys.exit(0 if report.score >= 60 else 1)
 
 
 if __name__ == "__main__":
