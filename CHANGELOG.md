@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.13.0 — 2026-07-16
+
+Fase 3 do roadmap (Auto-verificação e Correção em Loop): *"confidence ≠
+correctness"* — o agente roda a própria suíte, conserta as próprias falhas e
+só declara vitória com prova executável. Backlog revisado por plan-critic +
+judge antes da execução.
+
+### Adicionado
+- `src/harness/verify.py` — `harness verify <feature-id>`: roda o
+  `verify_cmd` da tarefa (vindo do contrato, validado contra o profile);
+  sucesso grava `.harness/evidence/<id>.json` (timestamp, comando, hash). É o
+  passo 11 do lifecycle ("registra a prova").
+- `src/harness/contract.py` — `get_stop_conditions`: expõe as stop conditions
+  do `spec.md` como disjuntor do loop de autocorreção (passos 9–10): N falhas
+  consecutivas da mesma suíte ou sinal de impossibilidade → o agente para,
+  registra o estado no `claude-progress.md` e devolve ao humano com
+  diagnóstico.
+- `src/harness/boundary_guard.py` — feature-lock: `passes: true` no
+  `feature_list.json` só com evidência fresca (`evidence/<id>.json` mais novo
+  que o último commit). Edição que marca feature concluída sem evidência
+  válida → `deny` com razão ("rode harness verify primeiro"). Mata a
+  manipulação de lista de tarefas sem nenhum prompt humano.
+- `src/harness/stop_hook.py` — hook `Stop`: feature `in_progress` com
+  verificação nunca rodada ou falhando → o encerramento devolve a razão ao
+  agente (continua o ciclo ou executa o ritual de handoff dos passos 12–16).
+  Redireciona o agente, não interrompe o humano.
+- `src/harness/runtime_audit.py` — segunda máquina de audit, distinta do diff
+  byte-exato do [audit.py](src/harness/audit.py): audita os artefatos
+  runtime-mutáveis (`claude-progress.md`, `feature_list.json`, `evidence/`)
+  por schema + frescor + invariantes (1 feature `in_progress`; todo
+  `passes:true` com evidência válida).
+- `harness verify <feature-id>` e `harness audit-runtime` na CLI.
+
 ## 0.12.0 — 2026-07-16
 
 Fase 2 do roadmap (Execução Autônoma no Raio de Impacto): dentro do contrato

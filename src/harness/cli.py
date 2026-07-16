@@ -27,6 +27,12 @@ def main() -> None:
     aud = sub.add_parser("audit", help="Avalia a estrutura de harness do projeto (score + findings JSON)")
     aud.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
 
+    aud_rt = sub.add_parser(
+        "audit-runtime",
+        help="Audita os artefatos runtime-mutáveis (feature_list.json, evidence, progress) — score + findings JSON",
+    )
+    aud_rt.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+
     ana = sub.add_parser("analyze", help="Analisa o repo-alvo e grava .harness/repo-profile.json")
     ana.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
 
@@ -39,6 +45,12 @@ def main() -> None:
         help="Compila a sessão autônoma (Fase 2): permissions, boundary guard, lifecycle, templates, SessionStart",
     )
     cs.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+
+    ver = sub.add_parser(
+        "verify", help="Roda o verify_cmd de uma feature e grava .harness/evidence/<id>.json"
+    )
+    ver.add_argument("feature_id", help="Id da feature em .harness/feature_list.json")
+    ver.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
 
     args = parser.parse_args()
 
@@ -78,6 +90,14 @@ def main() -> None:
         # score < 60 = estrutura comprometida (algum critical) -> exit 1
         sys.exit(0 if report.score >= 60 else 1)
 
+    if args.command == "audit-runtime":
+        from harness.runtime_audit import audit_runtime
+
+        report = audit_runtime(Path(args.dir))
+        print(report.to_json())
+        # score < 60 = estrutura runtime comprometida (algum critical) -> exit 1
+        sys.exit(0 if report.score >= 60 else 1)
+
     if args.command == "analyze":
         from harness.analyzer import analyze_project, write_profile
 
@@ -111,6 +131,7 @@ def main() -> None:
             compile_session_permissions,
         )
         from harness.session_start import install_session_start
+        from harness.stop_hook import install_stop_hook
         from harness.templates import install_templates
 
         target_dir = Path(args.dir)
@@ -130,6 +151,7 @@ def main() -> None:
         agents_path, lifecycle_detail_path = install_lifecycle(target_dir)
         templates_written = install_templates(target_dir, feature_list, profile)
         session_start_path = install_session_start(target_dir)
+        stop_hook_path = install_stop_hook(target_dir)
 
         print(json.dumps({
             "settings": str(settings_path),
@@ -138,7 +160,25 @@ def main() -> None:
             "lifecycle_detail": str(lifecycle_detail_path),
             "templates": [str(p) for p in templates_written],
             "session_start_hook": str(session_start_path),
+            "stop_hook": str(stop_hook_path),
         }, indent=2, ensure_ascii=False))
+        sys.exit(0)
+
+    if args.command == "verify":
+        from harness.verify import VerifyError, VerifyFailedError, run_verify
+
+        try:
+            evidence_path = run_verify(Path(args.dir), args.feature_id)
+        except VerifyFailedError as exc:
+            print(exc.stdout, file=sys.stderr)
+            print(exc.stderr, file=sys.stderr)
+            sys.exit(exc.exit_code)
+        except VerifyError as exc:
+            print(f"erro: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        data = json.loads(evidence_path.read_text(encoding="utf-8"))
+        print(json.dumps(data, indent=2, ensure_ascii=False))
         sys.exit(0)
 
 

@@ -1,6 +1,6 @@
 # harness-creator
 
-**v0.12.0** · [CHANGELOG](CHANGELOG.md)
+**v0.13.0** · [CHANGELOG](CHANGELOG.md)
 
 Plugin do Claude Code que **cria, avalia e compila** estrutura de harness
 (governança de agentes) para projetos.
@@ -51,7 +51,11 @@ CLI equivalente: `harness compile --dir <alvo>` · `harness audit --dir <alvo>` 
 `harness analyze --dir <alvo>` · `harness compile-contract --dir <alvo> --slug <slug>` ·
 `harness compile-session --dir <alvo>` (Fase 2 — compila a superfície de
 permissions do raio de impacto, o `boundary_guard.py`, o lifecycle de 16
-passos, os templates de sessão e o hook SessionStart).
+passos, os templates de sessão e o hook SessionStart) · `harness verify
+<feature-id> --dir <alvo>` (Fase 3 — roda o `verify_cmd` real da tarefa e só
+grava evidência com prova executável) · `harness audit-runtime --dir <alvo>`
+(Fase 3 — audita schema/frescor/invariantes dos artefatos runtime-mutáveis,
+distinto do `harness audit`).
 
 ## Estrutura do repo
 

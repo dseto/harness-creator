@@ -35,12 +35,36 @@ compilação do mecanismo antigo). `compiled-state-session.json` é
 COMPARTILHADO com os hooks irmãos de sessão (`session_permissions.py`,
 `session_start.py`): cada um grava sob sua própria chave, sempre
 preservando as chaves alheias já presentes no arquivo.
+
+**Feature-lock em `.harness/feature_list.json`** — caso especial avaliado
+ANTES da checagem genérica de superfície (mas só quando o path editado é o
+próprio `feature_list.json`): uma edição (`Edit`/`Write`) que faz alguma
+feature transicionar de `passes` não-`true` (ausente, `false` ou qualquer
+valor != `True`) para `passes: true` só vira `allow` se, para CADA feature
+transicionada, existir `.harness/evidence/<id>.json` (schema fixado em
+`verify.py`) válido, com `feature_id` correspondente e `recorded_at`
+(ISO8601) mais novo que `git log -1 --format=%cI` (mesmo padrão de
+subprocess de `session_start.py::_read_git_log`); sem timestamp de
+commit (repo sem commits / não é repo git), exige-se apenas evidência
+válida. Se QUALQUER transicionada não tiver evidência fresca, `deny`
+citando o(s) id(s) problemáticos. Se a edição não transicionar NENHUMA
+feature para `passes:true`, delega ao comportamento genérico de superfície
+(hoje resulta em `deny`, já que `feature_list.json` normalmente não é
+declarado em `files[]` de nenhuma tarefa).
+
+Esta lógica existe em DUAS cópias que precisam ficar sincronizadas, pelo
+mesmo motivo do runtime floor acima: uma dentro da string retornada por
+`render_boundary_guard()` (stdlib apenas, sem import de `harness.*`) e uma
+importável neste módulo (`evaluate_feature_list_edit` e afins, mais abaixo)
+para ser testável via pytest direto. Mudou uma, muda a outra.
 """
 
 from __future__ import annotations
 
 import json
 import re
+import subprocess
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -103,6 +127,149 @@ def is_floor_secret_path(path: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Feature-lock em feature_list.json (Python real, IMPORTÁVEL) — mesma lógica
+# duplicada inline dentro do script standalone gerado por
+# `render_boundary_guard()` mais abaixo. Ver nota de sincronização no
+# docstring do módulo.
+# ---------------------------------------------------------------------------
+FEATURE_LIST_RELATIVE_PATH = ".harness/feature_list.json"
+EVIDENCE_DIR_NAME = ".harness/evidence"
+
+
+def _read_last_commit_timestamp(cwd: Path | str | None) -> str | None:
+    """Mesmo padrão de subprocess de `session_start.py::_read_git_log`:
+    `git log -1 --format=%cI` (timestamp ISO8601 do committer). Retorna
+    `None` se o comando falhar (sem commits, não é repo git, git ausente)."""
+    try:
+        proc = subprocess.run(
+            ["git", "log", "-1", "--format=%cI"],
+            cwd=str(cwd) if cwd else None,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    output = proc.stdout.strip()
+    return output or None
+
+
+def _parse_iso8601(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+
+
+def _feature_passes_map(data: Any) -> dict[Any, bool]:
+    result: dict[Any, bool] = {}
+    if not isinstance(data, dict):
+        return result
+    for feat in data.get("features") or []:
+        if not isinstance(feat, dict):
+            continue
+        fid = feat.get("id")
+        if fid is not None:
+            result[fid] = feat.get("passes") is True
+    return result
+
+
+def _transitions_to_true(old_data: Any, new_data: Any) -> list[Any]:
+    old_map = _feature_passes_map(old_data)
+    new_map = _feature_passes_map(new_data)
+    return [fid for fid, val in new_map.items() if val and not old_map.get(fid, False)]
+
+
+def _evidence_freshness_problem(
+    cwd: Path | str | None, feature_id: Any, commit_ts: str | None
+) -> str | None:
+    """`None` se a evidência de `feature_id` existe, é válida e (quando
+    `commit_ts` fornecido) mais nova que ele; senão, string descrevendo o
+    problema."""
+    base = Path(cwd) if cwd else Path(".")
+    evidence_path = base / EVIDENCE_DIR_NAME / f"{feature_id}.json"
+    if not evidence_path.is_file():
+        return f"{feature_id}: sem evidência (.harness/evidence/{feature_id}.json não existe)"
+    try:
+        evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return f"{feature_id}: evidência inválida (JSON malformado)"
+    if not isinstance(evidence, dict) or evidence.get("feature_id") != feature_id:
+        return f"{feature_id}: evidência inválida (feature_id não corresponde)"
+    recorded_dt = _parse_iso8601(evidence.get("recorded_at"))
+    if recorded_dt is None:
+        return f"{feature_id}: evidência inválida (recorded_at ausente ou não-ISO8601)"
+    if commit_ts is not None:
+        commit_dt = _parse_iso8601(commit_ts)
+        if commit_dt is not None and recorded_dt <= commit_dt:
+            return (
+                f"{feature_id}: evidência mais antiga que o último commit "
+                f"(recorded_at={evidence.get('recorded_at')})"
+            )
+    return None
+
+
+def evaluate_feature_list_edit(
+    tool_name: str, tool_input: dict[str, Any], cwd: Path | str | None
+) -> tuple[str, str] | None:
+    """Avalia edição (`Edit`/`Write`) especificamente ao próprio
+    `.harness/feature_list.json`.
+
+    Retorna `("allow"|"deny", motivo)` se a edição transicionar alguma
+    feature de `passes` != `true` para `passes: true` (caso especial de
+    feature-lock). Retorna `None` se não houver nenhuma transição — o
+    chamador deve delegar ao comportamento genérico de superfície
+    (`_evaluate_file`), que hoje já resulta em `deny` para este path.
+    """
+    base = Path(cwd) if cwd else Path(".")
+    feature_list_path = base / FEATURE_LIST_RELATIVE_PATH
+    current_text = (
+        feature_list_path.read_text(encoding="utf-8") if feature_list_path.is_file() else "{}"
+    )
+
+    if tool_name == "Write":
+        proposed_text = tool_input.get("content") or ""
+    else:  # Edit
+        old_string = tool_input.get("old_string") or ""
+        new_string = tool_input.get("new_string") or ""
+        proposed_text = current_text.replace(old_string, new_string, 1)
+
+    try:
+        old_data = json.loads(current_text) if current_text.strip() else {}
+    except json.JSONDecodeError:
+        old_data = {}
+    try:
+        new_data = json.loads(proposed_text)
+    except json.JSONDecodeError:
+        return None  # JSON proposto inválido — não dá pra avaliar transições, delega
+
+    transitioned = _transitions_to_true(old_data, new_data)
+    if not transitioned:
+        return None
+
+    commit_ts = _read_last_commit_timestamp(base)
+    problems = [
+        p
+        for p in (_evidence_freshness_problem(base, fid, commit_ts) for fid in transitioned)
+        if p
+    ]
+    if problems:
+        return "deny", (
+            "feature-lock: transição para passes:true sem evidência fresca — "
+            + "; ".join(problems)
+            + " — rode harness verify <id> primeiro"
+        )
+    return "allow", (
+        "feature-lock: transição para passes:true com evidência fresca confirmada para "
+        + ", ".join(str(fid) for fid in sorted(transitioned, key=str))
+    )
+
+
+# ---------------------------------------------------------------------------
 # Render (puro) — devolve o CÓDIGO-FONTE do hook standalone
 # ---------------------------------------------------------------------------
 
@@ -125,8 +292,10 @@ ORDEM DE AVALIAÇÃO (não reordenar): o runtime floor roda incondicionalmente
 antes de qualquer checagem de contrato — mesmo sem .harness/feature_list.json
 no repo, git push e escrita em arquivo de segredo continuam DENY.
 """
+import datetime
 import json
 import re
+import subprocess
 import sys
 
 # Metacaracteres de shell contam como separador — "git push&&true" não escapa.
@@ -154,6 +323,7 @@ FIXED_GIT_SEQUENCES = [
 
 FEATURE_LIST_PATH = ".harness/feature_list.json"
 PROFILE_PATH = ".harness/repo-profile.json"
+EVIDENCE_DIR = ".harness/evidence"
 
 # package_manager.value (analyzer.py) -> comando de instalação EXATO. Mesmo
 # mapeamento de harness.session_permissions/harness.templates: o valor bruto
@@ -273,6 +443,116 @@ def _collect_allowed_bash_commands(feature_list, profile):
     return commands
 
 
+def _read_last_commit_timestamp(cwd):
+    try:
+        proc = subprocess.run(
+            ["git", "log", "-1", "--format=%cI"],
+            cwd=cwd or None,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    output = proc.stdout.strip()
+    return output or None
+
+
+def _parse_iso8601(value):
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+
+
+def _feature_passes_map(data):
+    result = {}
+    if not isinstance(data, dict):
+        return result
+    for feat in data.get("features") or []:
+        if not isinstance(feat, dict):
+            continue
+        fid = feat.get("id")
+        if fid is not None:
+            result[fid] = feat.get("passes") is True
+    return result
+
+
+def _transitions_to_true(old_data, new_data):
+    old_map = _feature_passes_map(old_data)
+    new_map = _feature_passes_map(new_data)
+    return [fid for fid, val in new_map.items() if val and not old_map.get(fid, False)]
+
+
+def _evidence_freshness_problem(cwd, feature_id, commit_ts):
+    evidence = _load_json(cwd, EVIDENCE_DIR + "/" + str(feature_id) + ".json")
+    if evidence is None:
+        return str(feature_id) + ": sem evidencia (.harness/evidence/" + str(feature_id) + ".json nao existe ou JSON invalido)"
+    if not isinstance(evidence, dict) or evidence.get("feature_id") != feature_id:
+        return str(feature_id) + ": evidencia invalida (feature_id nao corresponde)"
+    recorded_dt = _parse_iso8601(evidence.get("recorded_at"))
+    if recorded_dt is None:
+        return str(feature_id) + ": evidencia invalida (recorded_at ausente ou nao-ISO8601)"
+    if commit_ts is not None:
+        commit_dt = _parse_iso8601(commit_ts)
+        if commit_dt is not None and recorded_dt <= commit_dt:
+            return str(feature_id) + ": evidencia mais antiga que o ultimo commit (recorded_at=" + str(evidence.get("recorded_at")) + ")"
+    return None
+
+
+def _evaluate_feature_list_edit(tool_name, tool_input, cwd):
+    base = cwd or "."
+    import os
+    full = os.path.join(base, FEATURE_LIST_PATH)
+    if os.path.isfile(full):
+        with open(full, "r", encoding="utf-8") as fh:
+            current_text = fh.read()
+    else:
+        current_text = "{}"
+
+    if tool_name == "Write":
+        proposed_text = tool_input.get("content") or ""
+    else:
+        old_string = tool_input.get("old_string") or ""
+        new_string = tool_input.get("new_string") or ""
+        proposed_text = current_text.replace(old_string, new_string, 1)
+
+    try:
+        old_data = json.loads(current_text) if current_text.strip() else {}
+    except ValueError:
+        old_data = {}
+    try:
+        new_data = json.loads(proposed_text)
+    except ValueError:
+        return None
+
+    transitioned = _transitions_to_true(old_data, new_data)
+    if not transitioned:
+        return None
+
+    commit_ts = _read_last_commit_timestamp(cwd)
+    problems = []
+    for fid in transitioned:
+        problem = _evidence_freshness_problem(cwd, fid, commit_ts)
+        if problem:
+            problems.append(problem)
+
+    if problems:
+        return "deny", (
+            "feature-lock: transicao para passes:true sem evidencia fresca - "
+            + "; ".join(problems)
+            + " - rode harness verify <id> primeiro"
+        )
+    return "allow", (
+        "feature-lock: transicao para passes:true com evidencia fresca confirmada para "
+        + ", ".join(str(fid) for fid in sorted(transitioned, key=str))
+    )
+
+
 def _evaluate_file(path, cwd):
     if _is_secret_path(path):
         return "deny", (
@@ -343,7 +623,13 @@ def main() -> None:
 
     if tool_name in ("Edit", "Write"):
         path = _resolve_path(tool_input.get("file_path") or "", cwd)
-        decision, reason = _evaluate_file(path, cwd)
+        special = None
+        if path == FEATURE_LIST_PATH:
+            special = _evaluate_feature_list_edit(tool_name, tool_input, cwd)
+        if special is not None:
+            decision, reason = special
+        else:
+            decision, reason = _evaluate_file(path, cwd)
     elif tool_name == "Bash":
         command = tool_input.get("command") or ""
         decision, reason = _evaluate_bash(command, cwd)

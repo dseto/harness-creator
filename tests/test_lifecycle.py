@@ -52,6 +52,13 @@ def test_render_lifecycle_detail_covers_all_steps() -> None:
         assert f"{n}. **" in detail, f"detalhe do passo {n} ausente"
 
 
+def test_render_lifecycle_detail_step_10_cites_stop_conditions_source() -> None:
+    detail = render_lifecycle_detail()
+    assert "stop_conditions" in detail
+    assert "spec.md" in detail
+    assert "harness.contract.get_stop_conditions" in detail
+
+
 # ---------------- install_lifecycle ----------------
 
 def test_install_creates_agents_md_when_missing(tmp_path: Path) -> None:

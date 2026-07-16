@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -49,6 +50,43 @@ def _write_profile(target: Path, **overrides) -> None:
 
 def _script(target: Path) -> Path:
     return install_boundary_guard(target)
+
+
+def _init_git_repo_with_commit(target: Path, commit_iso_date: str) -> None:
+    """Cria um repo git em `target` com UM commit cujo timestamp de
+    committer é exatamente `commit_iso_date` (ex.: "2026-01-01T00:00:00+00:00"),
+    para testar o comparativo de frescor de evidência contra
+    `git log -1 --format=%cI`."""
+    subprocess.run(["git", "init"], cwd=target, capture_output=True, text=True, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"],
+                    cwd=target, capture_output=True, text=True, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"],
+                    cwd=target, capture_output=True, text=True, check=True)
+    (target / "README.md").write_text("x", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=target, capture_output=True, text=True, check=True)
+    env = os.environ.copy()
+    env["GIT_AUTHOR_DATE"] = commit_iso_date
+    env["GIT_COMMITTER_DATE"] = commit_iso_date
+    subprocess.run(["git", "commit", "-m", "init"], cwd=target, capture_output=True, text=True,
+                    check=True, env=env)
+
+
+def _write_evidence(target: Path, feature_id: str, recorded_at: str, **overrides) -> None:
+    path = target / ".harness" / "evidence" / f"{feature_id}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "feature_id": feature_id,
+        "verify_cmd": "pytest -q",
+        "recorded_at": recorded_at,
+        "exit_code": 0,
+        "files_hash": "sha256:deadbeef",
+    }
+    data.update(overrides)
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+def _feature_list_json(features: list[dict]) -> str:
+    return json.dumps({"contract": "test", "compiled_at": "now", "features": features})
 
 
 # ---------------- sem contrato ativo ----------------
@@ -331,3 +369,108 @@ def test_install_writes_state_key_preserving_siblings(tmp_path: Path) -> None:
     state = json.loads(state_path.read_text(encoding="utf-8"))
     assert state["session_permissions_hook_command"] == "sibling"
     assert BOUNDARY_STATE_KEY in state
+
+
+# ---------------- feature-lock: edição do próprio feature_list.json ----------------
+
+def test_feature_list_transition_to_passes_true_denies_without_evidence(tmp_path: Path) -> None:
+    """Sem NENHUMA evidência gravada, uma edição que marca passes:true é deny."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    script = _script(tmp_path)
+    new_content = _feature_list_json([
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": True}
+    ])
+    out = _run_hook(script, {
+        "tool_name": "Write", "cwd": str(tmp_path),
+        "tool_input": {"file_path": ".harness/feature_list.json", "content": new_content},
+    })
+    assert out["permissionDecision"] == "deny"
+    assert "T-01" in out["permissionDecisionReason"]
+    assert "harness verify" in out["permissionDecisionReason"]
+
+
+def test_feature_list_transition_to_passes_true_denies_with_stale_evidence(tmp_path: Path) -> None:
+    """Evidência existe mas é MAIS ANTIGA que o último commit -> deny."""
+    _init_git_repo_with_commit(tmp_path, "2026-06-01T00:00:00+00:00")
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    _write_evidence(tmp_path, "T-01", recorded_at="2026-01-01T00:00:00+00:00")
+    script = _script(tmp_path)
+    new_content = _feature_list_json([
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": True}
+    ])
+    out = _run_hook(script, {
+        "tool_name": "Write", "cwd": str(tmp_path),
+        "tool_input": {"file_path": ".harness/feature_list.json", "content": new_content},
+    })
+    assert out["permissionDecision"] == "deny"
+    assert "T-01" in out["permissionDecisionReason"]
+
+
+def test_feature_list_transition_to_passes_true_allows_with_fresh_evidence(tmp_path: Path) -> None:
+    """Evidência existe e é MAIS NOVA que o último commit -> allow."""
+    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    _write_evidence(tmp_path, "T-01", recorded_at="2026-06-01T00:00:00+00:00")
+    script = _script(tmp_path)
+    new_content = _feature_list_json([
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": True}
+    ])
+    out = _run_hook(script, {
+        "tool_name": "Write", "cwd": str(tmp_path),
+        "tool_input": {"file_path": ".harness/feature_list.json", "content": new_content},
+    })
+    assert out["permissionDecision"] == "allow", out
+    assert "T-01" in out["permissionDecisionReason"]
+
+
+def test_feature_list_edit_variant_uses_old_string_new_string(tmp_path: Path) -> None:
+    """Via Edit (old_string/new_string), não só Write: mesma checagem de
+    feature-lock se aplica."""
+    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    _write_evidence(tmp_path, "T-01", recorded_at="2026-06-01T00:00:00+00:00")
+    script = _script(tmp_path)
+    out = _run_hook(script, {
+        "tool_name": "Edit", "cwd": str(tmp_path),
+        "tool_input": {
+            "file_path": ".harness/feature_list.json",
+            "old_string": '"passes": false',
+            "new_string": '"passes": true',
+        },
+    })
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_feature_list_edit_without_passes_true_transition_keeps_current_behavior(tmp_path: Path) -> None:
+    """Edição a feature_list.json que NÃO transiciona nenhuma feature para
+    passes:true mantém o comportamento ATUAL (deny) — sem evidência
+    nenhuma, sem repo git algum."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x antigo", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    script = _script(tmp_path)
+    new_content = _feature_list_json([
+        {"id": "T-01", "desc": "x novo", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    out = _run_hook(script, {
+        "tool_name": "Write", "cwd": str(tmp_path),
+        "tool_input": {"file_path": ".harness/feature_list.json", "content": new_content},
+    })
+    assert out["permissionDecision"] == "deny"

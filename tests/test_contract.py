@@ -12,6 +12,7 @@ from harness.contract import (
     ContractNotApprovedError,
     Task,
     compile_contract,
+    get_stop_conditions,
     parse_plans,
     parse_spec,
 )
@@ -103,6 +104,25 @@ def test_parse_spec_malformed_unclosed_frontmatter(tmp_path: Path) -> None:
     spec_path.write_text("---\nslug: x\n\n# corpo\n", encoding="utf-8")
     with pytest.raises(ContractError):
         parse_spec(spec_path)
+
+
+# ---------------- get_stop_conditions ----------------
+
+def test_get_stop_conditions_returns_list_when_present(tmp_path: Path) -> None:
+    contract_dir = _write_contract(
+        tmp_path, "exemplo-feature", SPEC_WITH_STOP_CONDITIONS, BASIC_PLANS
+    )
+    conditions = get_stop_conditions(contract_dir / "spec.md")
+    assert conditions == [
+        "3 falhas consecutivas da mesma suite de teste",
+        "verify_cmd nao existe no profile do repo",
+    ]
+
+
+def test_get_stop_conditions_returns_empty_list_when_key_absent(tmp_path: Path) -> None:
+    contract_dir = _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, BASIC_PLANS)
+    conditions = get_stop_conditions(contract_dir / "spec.md")
+    assert conditions == []
 
 
 # ---------------- parse_plans ----------------

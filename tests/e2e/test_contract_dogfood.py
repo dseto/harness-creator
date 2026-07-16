@@ -36,6 +36,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 from harness.compiler import compile_project  # noqa: E402
+from harness.verify import compute_files_hash  # noqa: E402
 
 SRC_DIR = Path(__file__).resolve().parents[2] / "src"
 EVIDENCE_DIR = Path(__file__).resolve().parent / "evidence"
@@ -508,3 +509,273 @@ def test_contract_dogfood_boundary_guard_denies_out_of_scope(api_project: Path) 
         )
     finally:
         _write_evidence_boundary(sections)
+
+
+# ---------------------------------------------------------------------------
+# Fase 3: gate final — `harness verify` real + feature-lock (compile-contract
+# -> compile -> compile-session já existentes; ADIÇÃO pura, nada acima muda).
+# ---------------------------------------------------------------------------
+
+EVIDENCE_PATH_VERIFY_LOCK = EVIDENCE_DIR / "fase3-dogfood-verify-lock.md"
+FEATURE_LIST_REL = ".harness/feature_list.json"
+T01_EVIDENCE_REL = ".harness/evidence/T-01.json"
+
+# Fase 3: mesma tarefa T-01 (mesmo spec/Plans/harness.yaml/compile-session das
+# Fases 1/2), mais duas ações extras NA MESMA sessão, nesta ordem: (1) uma
+# tentativa PREMATURA de marcar `passes:true` em `.harness/feature_list.json`
+# sem nenhuma evidência gravada ainda — deve ser negada pelo feature-lock do
+# `boundary_guard.py`, e a instrução é explícita para não insistir (mesmo
+# padrão de `CLAUDE_PROMPT_BOUNDARY`); (2) só depois, rodar de verdade
+# `harness verify T-01`, que precisa vir concatenado ao `verify_cmd`
+# aprovado (`dotnet test MinimumAPI.Tests`) numa ÚNICA chamada de Bash porque
+# o `boundary_guard.py` só libera comandos de Bash que contenham, como
+# subsequência contígua de tokens, algum comando já declarado na superfície
+# compilada (`verify_cmd`/lint/typecheck/build/install/git local) — um
+# comando `python -m harness.cli verify ...` isolado NÃO está nessa
+# superfície e seria negado por si só; (3) com a evidência real agora
+# gravada, uma segunda tentativa (legítima) de marcar `passes:true` deve ser
+# aceita.
+CLAUDE_PROMPT_VERIFY_LOCK = (
+    CLAUDE_PROMPT
+    + " Depois de concluir a tarefa T-01 acima (com `dotnet test MinimumAPI.Tests` "
+    "passando de verdade), faça mais duas coisas, na MESMA sessão, NESTA ORDEM EXATA. "
+    "PRIMEIRO: antes de rodar qualquer comando de verificação, tente editar o arquivo "
+    ".harness/feature_list.json marcando o campo \"passes\" (que hoje está `false`) "
+    "para `true`, dentro do objeto da feature cujo \"id\" é \"T-01\", na lista "
+    "\"features\". Essa tentativa é PROPOSITALMENTE prematura — ainda não existe "
+    "nenhuma evidência gravada em .harness/evidence/T-01.json — e é ESPERADO que o "
+    "ambiente negue/bloqueie essa edição; isso é o comportamento CORRETO. Se a edição "
+    "for negada, NÃO tente de novo, não insista, e não procure formas alternativas de "
+    "alterar o arquivo (por exemplo via Bash com echo/sed/redirect ou qualquer outro "
+    "comando); apenas relate que a tentativa foi negada conforme esperado e siga para "
+    "o próximo passo. SEGUNDO: rode, numa ÚNICA chamada de ferramenta Bash, o comando "
+    "`python -m harness.cli verify T-01 --dir . && dotnet test MinimumAPI.Tests` "
+    "(se o comando falhar por não encontrar o módulo `harness`, defina antes a "
+    "variável de ambiente PYTHONPATH apontando para o diretório `src` do pacote "
+    "harness-creator e rode de novo) — isso grava a evidência real de que T-01 "
+    "passa. Confirme que o comando termina com exit code 0 e que o arquivo "
+    ".harness/evidence/T-01.json passa a existir. TERCEIRO: só DEPOIS de confirmar "
+    "que a evidência real foi gravada com sucesso no passo anterior, tente editar "
+    ".harness/feature_list.json de novo, marcando \"passes\": true para a feature "
+    "T-01 (mesmo campo do primeiro passo) — desta vez a edição é legítima (evidência "
+    "fresca já existe) e deve ser aceita. Finalize a sessão relatando o resultado de "
+    "cada uma dessas três etapas (a negação esperada do primeiro passo, o resultado "
+    "do verify do segundo passo, e o sucesso da edição do terceiro passo)."
+)
+
+
+def _write_evidence_verify_lock(sections: dict[str, str]) -> None:
+    """Análogo a `_write_evidence`/`_write_evidence_boundary`, em trilha própria
+    (arquivo/seções da Fase 3 — NUNCA sobrescreve `EVIDENCE_PATH`/
+    `EVIDENCE_PATH_BOUNDARY` das Fases 1/2)."""
+    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+    body = "# Evidência — dogfood Fase 3 `dogfood-document-digits` (verify + feature-lock)\n\n"
+    for title in (
+        "Regressão (Fases 1/2 na mesma cobaia)",
+        "Verify real (harness verify T-01)",
+        "Feature-lock (negação prematura + permissão legítima)",
+        "Diff aplicado (T-01)",
+        "Execução do agente",
+    ):
+        body += f"## {title}\n\n{sections.get(title, '(não alcançado — teste parou antes deste ponto)')}\n\n"
+    EVIDENCE_PATH_VERIFY_LOCK.write_text(body, encoding="utf-8")
+
+
+def test_contract_dogfood_verify_and_feature_lock(api_project: Path) -> None:
+    """Gate final da Fase 3: mesmo cenário `dogfood-document-digits` das Fases
+    1/2, ampliado para provar `harness verify` real + feature-lock de ponta a
+    ponta. Uma única sessão real do Claude tem que: (a) entregar T-01 de
+    verdade (zero regressão das Fases 1/2 na MESMA cobaia); (b) rodar
+    `python -m harness.cli verify T-01 --dir .` de verdade, gravando
+    `.harness/evidence/T-01.json` (schema de `verify.py`: `feature_id`,
+    `exit_code == 0`, `files_hash` batendo com o conteúdo REAL atual do
+    arquivo corrigido); (c) ter uma primeira tentativa de marcar
+    `passes: true` em `.harness/feature_list.json` SEM evidência ainda
+    negada de verdade pelo `boundary_guard.py` (feature-lock) — provado pelo
+    campo estruturado `permission_denials`, nunca por texto da resposta — e
+    só DEPOIS, com evidência real já gravada, uma segunda tentativa
+    (legítima) aceita, confirmada por leitura direta do arquivo final."""
+    sections: dict[str, str] = {}
+    validator_path = api_project / VALIDATOR_REL
+    tests_path = api_project / TESTS_REL
+    feature_list_path = api_project / FEATURE_LIST_REL
+    evidence_t01_path = api_project / T01_EVIDENCE_REL
+    before_text = validator_path.read_text(encoding="utf-8")
+
+    try:
+        # ---- (1) TDD real: mesmo teste vermelho ANTES da correção ----
+        _add_new_fact(tests_path)
+
+        before_dir = api_project / "TestResults" / "before-verify-lock"
+        before_proc, before_trx = _run_dotnet_test(
+            api_project, before_dir, "before-verify-lock.trx"
+        )
+        before_output = (before_proc.stdout or "") + "\n" + (before_proc.stderr or "")
+        assert before_proc.returncode != 0, (
+            "dotnet test deveria falhar ANTES da correção (TDD real)\n" + before_output
+        )
+        before_trx_results = _parse_trx(before_trx)
+        if before_trx_results:
+            new_outcome = _outcome_for(before_trx_results, _NEW_TEST)
+            assert new_outcome != "Passed", (
+                f"{_NEW_TEST} não deveria passar antes da correção: {before_trx_results}"
+            )
+
+        # ---- (2) analyze --dir sobre a cobaia real ----
+        analyze_proc = _run_cli(["analyze", "--dir", str(api_project)], cwd=api_project)
+        assert analyze_proc.returncode == 0, analyze_proc.stderr
+
+        # ---- (3) escreve spec.md (pré-aprovado) + Plans.md com T-01 ----
+        contract_dir = api_project / ".harness" / "work" / SLUG
+        contract_dir.mkdir(parents=True, exist_ok=True)
+        approved_at = datetime.now(timezone.utc).isoformat()
+        (contract_dir / "spec.md").write_text(
+            SPEC_MD_TEMPLATE.format(
+                slug=SLUG, approved_at=approved_at, validator_rel=VALIDATOR_REL
+            ),
+            encoding="utf-8",
+        )
+        (contract_dir / "Plans.md").write_text(PLANS_MD, encoding="utf-8")
+
+        # ---- (4) compile-contract -> feature_list.json ----
+        compile_contract_proc = _run_cli(
+            ["compile-contract", "--dir", str(api_project), "--slug", SLUG], cwd=api_project
+        )
+        assert compile_contract_proc.returncode == 0, compile_contract_proc.stderr
+        feature_list = json.loads(feature_list_path.read_text(encoding="utf-8"))
+        assert len(feature_list["features"]) == 1
+        assert feature_list["features"][0]["id"] == "T-01"
+        assert feature_list["features"][0]["passes"] is False
+        feature_files = feature_list["features"][0]["files"]
+
+        # ---- (5) compila governança nativa (auto + test_command real) ----
+        harness_yaml_path = api_project / ".harness" / "harness.yaml"
+        harness_yaml_path.write_text(HARNESS_YAML, encoding="utf-8")
+        compile_project(api_project)
+
+        # ---- (6) compile-session -> boundary_guard.py (feature-lock ativo) ----
+        compile_session_proc = _run_cli(
+            ["compile-session", "--dir", str(api_project)], cwd=api_project
+        )
+        assert compile_session_proc.returncode == 0, compile_session_proc.stderr
+        boundary_guard_path = api_project / ".harness" / "hooks" / "boundary_guard.py"
+        assert boundary_guard_path.is_file()
+
+        # ---- (7) Claude real, headless: T-01 + verify real + feature-lock ----
+        claude_env = os.environ | {"PYTHONPATH": str(SRC_DIR)}
+        claude_proc = subprocess.run(
+            ["claude", "-p", CLAUDE_PROMPT_VERIFY_LOCK, "--output-format", "json"],
+            cwd=str(api_project), capture_output=True, text=True, timeout=420, env=claude_env,
+        )
+        assert claude_proc.returncode == 0, claude_proc.stderr
+        out = json.loads(claude_proc.stdout)
+
+        result_text = str(out.get("result", ""))
+        permission_denials = out.get("permission_denials")
+        sections["Execução do agente"] = (
+            f"- `is_error`: {out.get('is_error')}\n"
+            f"- `permission_denials`: {json.dumps(permission_denials, ensure_ascii=False)}\n"
+            f"- `num_turns`: {out.get('num_turns')}\n\n"
+            f"Últimos ~800 caracteres da resposta:\n\n```\n{result_text[-800:]}\n```\n"
+        )
+        assert out["is_error"] is False, out
+
+        # ---- (8) PROVA do feature-lock: permission_denials estruturado, ----
+        # nunca texto da resposta.
+        assert permission_denials, (
+            "esperava permission_denials não vazio/None — evidência de que o "
+            f"boundary_guard negou a tentativa prematura. Resposta completa: {out}"
+        )
+        sections["Feature-lock (negação prematura + permissão legítima)"] = (
+            "Campo estruturado `permission_denials` do JSON de saída do `claude -p` "
+            "(prova real da negação da tentativa prematura; o texto da resposta NÃO "
+            "é usado como evidência):\n\n"
+            f"```json\n{json.dumps(permission_denials, indent=2, ensure_ascii=False)}\n```\n"
+        )
+
+        # ---- (9) PROVA real de `harness verify T-01`: evidência gravada ----
+        # pelo próprio Claude, com schema/exit_code/files_hash corretos.
+        assert evidence_t01_path.is_file(), (
+            f"esperava {evidence_t01_path} gravado pelo `harness verify T-01` "
+            "rodado pelo próprio Claude na sessão"
+        )
+        evidence_t01 = json.loads(evidence_t01_path.read_text(encoding="utf-8"))
+        assert evidence_t01.get("feature_id") == "T-01", evidence_t01
+        assert evidence_t01.get("exit_code") == 0, evidence_t01
+        expected_hash = compute_files_hash(feature_files, api_project)
+        assert evidence_t01.get("files_hash") == expected_hash, (
+            "files_hash da evidência não bate com o conteúdo REAL atual dos "
+            f"files[] da feature — evidence={evidence_t01.get('files_hash')} "
+            f"esperado={expected_hash}"
+        )
+        sections["Verify real (harness verify T-01)"] = (
+            f"Evidência gravada pelo próprio Claude em `{T01_EVIDENCE_REL}`:\n\n"
+            f"```json\n{json.dumps(evidence_t01, indent=2, ensure_ascii=False)}\n```\n\n"
+            f"`files_hash` recalculado de fora do Claude sobre {feature_files} bate "
+            f"com o gravado: {evidence_t01.get('files_hash') == expected_hash}\n"
+        )
+
+        # ---- (10) PROVA de que o estado final só ficou passes:true DEPOIS ----
+        # da evidência real: a única forma de o boundary_guard aceitar a
+        # transição é a edição acontecer com evidência já gravada em disco —
+        # por isso o mtime da escrita bem-sucedida do feature_list.json não
+        # pode ser anterior ao mtime da evidência gravada.
+        final_feature_list = json.loads(feature_list_path.read_text(encoding="utf-8"))
+        final_t01 = next(f for f in final_feature_list["features"] if f["id"] == "T-01")
+        assert final_t01["passes"] is True, (
+            "esperava passes:true no estado final de feature_list.json (edição "
+            f"legítima pós-evidência): {final_feature_list}"
+        )
+        evidence_mtime = evidence_t01_path.stat().st_mtime
+        feature_list_mtime = feature_list_path.stat().st_mtime
+        assert feature_list_mtime >= evidence_mtime, (
+            "feature_list.json foi escrito por último ANTES da evidência real "
+            f"(mtime feature_list={feature_list_mtime} < mtime evidência={evidence_mtime}) "
+            "— a transição para passes:true não deveria ter sido possível antes "
+            "da evidência existir"
+        )
+        sections["Feature-lock (negação prematura + permissão legítima)"] += (
+            "\nEstado final de `.harness/feature_list.json` (leitura direta, fora do "
+            f"Claude) — `passes: true` só depois da evidência real:\n\n"
+            f"```json\n{json.dumps(final_t01, indent=2, ensure_ascii=False)}\n```\n\n"
+            f"mtime feature_list.json ({feature_list_mtime}) >= mtime evidência "
+            f"({evidence_mtime}): confirmado.\n"
+        )
+
+        # ---- (11) PROVA FINAL: dotnet test de novo, fora do Claude (T-01) ----
+        after_text = validator_path.read_text(encoding="utf-8")
+        diff = "\n".join(
+            difflib.unified_diff(
+                before_text.splitlines(), after_text.splitlines(),
+                fromfile=f"a/{VALIDATOR_REL}", tofile=f"b/{VALIDATOR_REL}", lineterm="",
+            )
+        )
+        sections["Diff aplicado (T-01)"] = f"```diff\n{diff or '(sem diferenças detectadas)'}\n```\n"
+
+        after_dir = api_project / "TestResults" / "after-verify-lock"
+        after_proc, after_trx = _run_dotnet_test(api_project, after_dir, "after-verify-lock.trx")
+        after_output = (after_proc.stdout or "") + "\n" + (after_proc.stderr or "")
+        assert after_proc.returncode == 0, (
+            "dotnet test deveria passar DEPOIS da correção\n" + after_output
+        )
+
+        after_trx_results = _parse_trx(after_trx)
+        new_outcome = _outcome_for(after_trx_results, _NEW_TEST)
+        assert new_outcome == "Passed", f"{_NEW_TEST} deveria passar: {after_trx_results}"
+
+        regressao = {}
+        for name in _PRE_EXISTING_TESTS:
+            outcome = _outcome_for(after_trx_results, name)
+            regressao[name] = outcome
+            assert outcome == "Passed", (
+                f"regressão: {name} deveria continuar passando: {after_trx_results}"
+            )
+        sections["Regressão (Fases 1/2 na mesma cobaia)"] = (
+            "Execução DEPOIS da correção, na MESMA cobaia da Fase 3 — zero "
+            f"regressão dos mecanismos das Fases 1/2 (incluindo {_NEW_TEST}):\n\n"
+            f"```\n{after_output.strip()}\n```\n\n"
+            "Resultado individual (via .trx):\n\n"
+            f"```\n{json.dumps(regressao, indent=2, ensure_ascii=False)}\n```\n"
+        )
+    finally:
+        _write_evidence_verify_lock(sections)

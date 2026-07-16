@@ -173,6 +173,23 @@ def parse_spec(spec_path: Path) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# get_stop_conditions
+# ---------------------------------------------------------------------------
+
+def get_stop_conditions(spec_path: Path) -> list[str]:
+    """Acessor dedicado às `stop_conditions:` do frontmatter de `spec.md`.
+
+    Delega o parsing a `parse_spec` (nenhuma lógica de frontmatter nova
+    aqui) e devolve a chave `stop_conditions` já normalizada para
+    `list[str]`. Lista vazia se a chave não existir ou for `None` — nunca
+    levanta por ausência da chave (ela é opcional no contrato).
+    """
+    data = parse_spec(spec_path)
+    raw = data.get("stop_conditions") or []
+    return [str(item) for item in raw]
+
+
+# ---------------------------------------------------------------------------
 # parse_plans
 # ---------------------------------------------------------------------------
 

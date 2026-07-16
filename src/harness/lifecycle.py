@@ -104,7 +104,13 @@ aprovado e só devolve o controle ao humano em estado retomável.
 10. **Se falhar: autocorrigir e re-rodar `verify_cmd` até passar.** Loop de
     autocorreção (Fase 3): o agente conserta a própria falha e testa de
     novo, sem envolver o humano, respeitando as stop conditions (N falhas
-    consecutivas ou sinal de impossibilidade interrompe o loop).
+    consecutivas ou sinal de impossibilidade interrompe o loop). A fonte
+    dessas stop conditions é explícita: o campo `stop_conditions:` do
+    frontmatter do `spec.md` ativo (`.harness/work/<slug>/spec.md`),
+    acessível via `harness.contract.get_stop_conditions` — esse campo é o
+    disjuntor do loop. Satisfazer QUALQUER uma das condições listadas ali
+    interrompe a autocorreção, registra o estado em `claude-progress.md` e
+    devolve o controle ao humano junto com o diagnóstico da falha.
 
 11. **Registrar a prova (evidência da verificação bem-sucedida).** Grava a
     evidência de que `verify_cmd` passou (timestamp, comando, hash) — é o

@@ -160,6 +160,7 @@ def test_compile_session_subcommand_success(
     assert data["agents_md"].endswith("AGENTS.md")
     assert data["lifecycle_detail"].endswith("LIFECYCLE.md")
     assert data["session_start_hook"].endswith("session_start.py")
+    assert data["stop_hook"].endswith("stop_hook.py")
     assert any(p.endswith("init.sh") for p in data["templates"])
     assert any(p.endswith("init.ps1") for p in data["templates"])
 
@@ -171,6 +172,7 @@ def test_compile_session_subcommand_success(
     assert (tmp_path / "init.sh").is_file()
     assert (tmp_path / "init.ps1").is_file()
     assert (tmp_path / ".harness" / "hooks" / "session_start.py").is_file()
+    assert (tmp_path / ".harness" / "hooks" / "stop_hook.py").is_file()
 
 
 def test_compile_session_subcommand_missing_feature_list_exits_one(
@@ -183,3 +185,108 @@ def test_compile_session_subcommand_missing_feature_list_exits_one(
     assert exc_info.value.code == 1
     err = capsys.readouterr().err
     assert err.startswith("erro: ")
+
+
+def _write_feature_list(tmp_path: Path, verify_cmd: str) -> None:
+    payload = {
+        "contract": "exemplo-feature",
+        "compiled_at": "2026-07-16T12:00:00+00:00",
+        "features": [
+            {
+                "id": "T-01",
+                "desc": "Criar modulo de configuracao",
+                "files": [],
+                "verify_cmd": verify_cmd,
+                "depends": [],
+                "passes": False,
+            }
+        ],
+    }
+    _write(
+        tmp_path / ".harness" / "feature_list.json",
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+    )
+
+
+def _true_cmd() -> str:
+    return "exit 0" if sys.platform.startswith("win") else "true"
+
+
+def _exit_code_cmd(code: int) -> str:
+    return f"exit {code}" if sys.platform.startswith("win") else f"exit {code}"
+
+
+def test_verify_subcommand_success_exits_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_feature_list(tmp_path, _true_cmd())
+
+    monkeypatch.setattr(sys, "argv", ["harness", "verify", "T-01", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["feature_id"] == "T-01"
+    assert data["exit_code"] == 0
+
+    evidence_path = tmp_path / ".harness" / "evidence" / "T-01.json"
+    assert evidence_path.is_file()
+
+
+def test_verify_subcommand_failure_propagates_exit_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_feature_list(tmp_path, _exit_code_cmd(3))
+
+    monkeypatch.setattr(sys, "argv", ["harness", "verify", "T-01", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 3
+    evidence_path = tmp_path / ".harness" / "evidence" / "T-01.json"
+    assert not evidence_path.is_file()
+
+
+def test_verify_subcommand_missing_feature_exits_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_feature_list(tmp_path, _true_cmd())
+
+    monkeypatch.setattr(sys, "argv", ["harness", "verify", "T-99", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    err = capsys.readouterr().err
+    assert err.startswith("erro: ")
+
+
+def test_audit_runtime_subcommand_exits_one_when_score_low(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # nenhum feature_list.json -> critical -> score baixo -> exit 1
+    monkeypatch.setattr(sys, "argv", ["harness", "audit-runtime", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    data = json.loads(capsys.readouterr().out)
+    assert "missing_feature_list" in {f["code"] for f in data["findings"]}
+    assert data["score"] <= 60
+
+
+def test_audit_runtime_subcommand_exits_zero_when_healthy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_feature_list(tmp_path, _true_cmd())
+    _write(tmp_path / "claude-progress.md", "# Progresso\n")
+
+    monkeypatch.setattr(sys, "argv", ["harness", "audit-runtime", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    data = json.loads(capsys.readouterr().out)
+    assert not any(f["severity"] == "critical" for f in data["findings"])
+    assert data["score"] >= 60

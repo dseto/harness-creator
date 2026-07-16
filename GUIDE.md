@@ -169,7 +169,47 @@ release`) e `git push` continuam fora da superfície liberada — são
 verificados incondicionalmente, antes de qualquer outra checagem do
 `boundary_guard.py`.
 
-## 7. Verificar se está tudo consistente
+## 7. Verificar a implementação (Fase 3 — loop de auto-verificação)
+
+Depois de implementar uma feature do contrato ativo, rode:
+
+```
+harness verify <feature-id> --dir <alvo>
+```
+
+Isso roda o `verify_cmd` **real** daquela tarefa (o mesmo comando do
+contrato, validado contra o profile) — não é uma alegação do agente, é
+execução de fato. Só se passar é que grava
+`.harness/evidence/<feature-id>.json` (timestamp, comando, hash). É o passo
+11 do lifecycle ("registra a prova").
+
+Marcar `passes: true` no `feature_list.json` **sem** evidência fresca (mais
+nova que o último commit) é negado pelo `boundary_guard.py` — feature-lock:
+o guard nega a edição e devolve a razão ao agente ("rode harness verify
+primeiro"). Não dá pra declarar vitória editando a lista de tarefas na mão.
+
+Se `verify` falhar, o próprio agente corrige e roda de novo — sem envolver
+você — até passar ou até bater numa stop condition do `spec.md` (N falhas
+seguidas da mesma suíte, sinal de impossibilidade), caso em que ele para,
+registra o estado no `claude-progress.md` e devolve com diagnóstico.
+
+O hook **Stop** fecha o loop da sessão: se o agente tentar encerrar com uma
+feature `in_progress` cuja verificação nunca rodou ou está falhando, o
+encerramento devolve essa razão a ele — que retoma o ciclo ou executa o
+ritual de handoff. De novo, quem é avisado é o agente, não você.
+
+```
+harness audit-runtime --dir <alvo>
+```
+
+Audita os artefatos runtime-mutáveis (`claude-progress.md`,
+`feature_list.json`, `evidence/`): schema, frescor e invariantes (1 feature
+`in_progress` por vez; todo `passes:true` com evidência válida). É uma
+máquina distinta do `/harness-creator:audit` (seção 8) — aquele faz diff
+byte-exato dos artefatos **compilados** (settings/hooks/blocos gerenciados);
+este confere os artefatos que mudam a cada sessão de trabalho.
+
+## 8. Verificar se está tudo consistente
 
 ```
 /harness-creator:audit
@@ -179,7 +219,7 @@ Score 0–100. Rode depois de qualquer edição manual em `settings.json`,
 `AGENTS.md` ou nos hooks — ele detecta *drift* (alguém editou à mão e
 divergiu do que o `harness.yaml` geraria) e sugere recompilar.
 
-## 8. Deixar o plugin sempre disponível (opcional)
+## 9. Deixar o plugin sempre disponível (opcional)
 
 Em vez de repetir `--plugin-dir` toda sessão, adicione a
 `~/.claude/settings.json` do seu usuário (não do projeto):
