@@ -33,7 +33,7 @@ fluxo.
 | | `gitignore_present` | `.gitignore` ausente na raiz | WARNING | criar `.gitignore` da stack |
 | **2. Manifestos de Projeto** | `manifest_present` | `RepoProfile.languages` vazio | FAIL | criar manifest (`pyproject.toml`, `package.json`, `go.mod`, `Cargo.toml`, `.csproj`) |
 | **3. Verificação/TDD** | `test_runner_detected` | `RepoProfile.test_command is None` | FAIL | declarar runner (fix contextual à linguagem) |
-| | `test_files_present` | `RepoProfile.test_glob is None` | WARNING | criar teste na convenção detectável, ou mover os existentes pra ela |
+| | `test_files_present` | `RepoProfile.test_glob is None` (nenhum candidato de glob da linguagem casa em disco) | WARNING | criar teste na convenção detectável, ou mover os existentes pra ela |
 | **4. Qualidade Estática/Linting** | `linter_configured` | `RepoProfile.extras["lint_command"]` ausente | WARNING | configurar linter (`[tool.ruff]`, eslint, ...) |
 
 **Duas severidades foram decisão explícita do usuário** (não default de
@@ -194,5 +194,16 @@ de reflect (Claude Opus, effort xhigh) + LLM-as-judge (Claude Fable 5):
    de `git worktree add`). Um quinto achado (fix de `.gitignore` "genérico
    demais") foi **rejeitado** pelo judge — o texto já casava com o exemplo
    não-vinculante do próprio spec.
+3. **Dogfooding real pós-release (v0.15.2)** — `test_files_present` acusou
+   WARNING num repo Angular real (`elegant-heisenberg`) com 8 arquivos de
+   teste. Causa: `analyze_project()` só reconhecia `**/*.test.ts`
+   (Jest/Vitest) como convenção JS/TS, sem candidato para `**/*.spec.ts`
+   (Jasmine/Karma). Corrigido no [analyzer](../src/harness/analyzer.py):
+   `_TEST_GLOB_CANDIDATES_BY_LANGUAGE` agora testa uma **lista** de
+   candidatos em ordem de prioridade por linguagem (não só um glob fixo);
+   `*.test.ts` continua vencendo quando os dois existem no mesmo repo. Não
+   é bug do `preflight.py` em si — a política de severidade estava correta,
+   o fato que ela lia (`RepoProfile.test_glob`) é que vinha incompleto do
+   analyzer.
 
-Suíte final: 437 passed, 10 skipped, zero regressão.
+Suíte final: 439 passed, 10 skipped, zero regressão.

@@ -39,7 +39,8 @@ Na sessão, rode:
 A skill pergunta (com defaults sugeridos a partir do seu projeto):
 - política de aprovação: `balanced` (recomendado), `paranoid` ou `auto`
 - comando de teste (`pytest`, `npm test`, `go test`...)
-- glob dos arquivos de teste (`tests/**/*.py`, `**/*.test.ts`...)
+- glob dos arquivos de teste (`tests/**/*.py`, `**/*.test.ts`,
+  `**/*.spec.ts`...)
 - se quer disciplina TDD (bloquear edição de teste / execução direta da suíte)
 
 Ao final ela escreve `.harness/harness.yaml`, compila, e mostra o que foi
