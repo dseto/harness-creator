@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.15.3 — 2026-07-17
+
+Fix de bug relatado por outra sessão: `harness compile-contract` recusava
+`spec.md`/`Plans.md` gerados com BOM UTF-8 (comum em editores/ferramentas no
+Windows) — o BOM (`﻿`) ficava colado na primeira linha, quebrando o
+match do delimitador de frontmatter (`spec.md`) e do header `## [T-XX]`
+(`Plans.md`).
+
+### Corrigido
+- `src/harness/contract.py` — `parse_spec`, `parse_plans` e
+  `_load_existing_features` trocaram `read_text(encoding="utf-8")` por
+  `read_text(encoding="utf-8-sig")`, que descarta o BOM se presente e é
+  no-op se ausente.
+- 2 testes novos em `tests/test_contract.py` confirmando parse correto de
+  `spec.md`/`Plans.md` gravados com BOM.
+
 ## 0.15.2 — 2026-07-17
 
 Fix de falso-positivo no `preflight` (achado em dogfooding real no projeto

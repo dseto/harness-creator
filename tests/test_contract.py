@@ -106,6 +106,13 @@ def test_parse_spec_malformed_unclosed_frontmatter(tmp_path: Path) -> None:
         parse_spec(spec_path)
 
 
+def test_parse_spec_tolerates_utf8_bom(tmp_path: Path) -> None:
+    spec_path = tmp_path / "spec.md"
+    spec_path.write_text(APPROVED_SPEC, encoding="utf-8-sig")
+    data = parse_spec(spec_path)
+    assert data["slug"] == "exemplo-feature"
+
+
 # ---------------- get_stop_conditions ----------------
 
 def test_get_stop_conditions_returns_list_when_present(tmp_path: Path) -> None:
@@ -135,6 +142,13 @@ def test_parse_plans_extracts_tasks_with_files_and_verify(tmp_path: Path) -> Non
     assert tasks[0].files == ["src/harness/config.py", "tests/test_config.py"]
     assert tasks[0].verify_cmd == "pytest tests/test_config.py -q"
     assert tasks[0].desc == "Criar modulo de configuracao"
+
+
+def test_parse_plans_tolerates_utf8_bom(tmp_path: Path) -> None:
+    plans_path = tmp_path / "Plans.md"
+    plans_path.write_text(BASIC_PLANS, encoding="utf-8-sig")
+    tasks = parse_plans(plans_path)
+    assert [t.id for t in tasks] == ["T-01", "T-02"]
 
 
 def test_parse_plans_depends_present_is_parsed(tmp_path: Path) -> None:

@@ -144,7 +144,7 @@ def parse_spec(spec_path: Path) -> dict[str, Any]:
     if not spec_path.is_file():
         raise ContractError(f"{spec_path}: spec.md não encontrado")
 
-    text = spec_path.read_text(encoding="utf-8")
+    text = spec_path.read_text(encoding="utf-8-sig")
     lines = text.splitlines()
     if not lines or lines[0].strip() != _FRONTMATTER_DELIM:
         raise ContractError(
@@ -208,7 +208,7 @@ def parse_plans(plans_path: Path) -> list[Task]:
     if not plans_path.is_file():
         raise ContractError(f"{plans_path}: Plans.md não encontrado")
 
-    lines = plans_path.read_text(encoding="utf-8").splitlines()
+    lines = plans_path.read_text(encoding="utf-8-sig").splitlines()
     tasks: list[Task] = []
     i = 0
     n = len(lines)
@@ -256,7 +256,7 @@ def _load_existing_features(feature_list_path: Path) -> dict[str, dict[str, Any]
     if not feature_list_path.is_file():
         return {}
     try:
-        data = json.loads(feature_list_path.read_text(encoding="utf-8"))
+        data = json.loads(feature_list_path.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError:
         return {}
     return {f["id"]: f for f in data.get("features", []) if "id" in f}
