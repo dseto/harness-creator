@@ -105,7 +105,7 @@ harness-creator/
 │   ├── config.py                # HarnessConfig (pydantic) — fonte de verdade
 │   ├── cli.py                   # harness run|compile|audit
 │   └── (orchestrator, sandbox, tools, ...)  # modo execução — CONGELADO
-└── tests/                       # 75 testes (sem Docker/API para compile/audit)
+└── tests/                       # 389+ testes (sem Docker/API para compile/audit)
 ```
 
 ## Modo execução (congelado)
@@ -129,6 +129,17 @@ cobaia — compile, audit, hooks via stdin, drift e merge, tudo em subprocess
 como na vida real. Precisa de `C:\Projetos\MinimumAPI` no disco (ou
 `HARNESS_E2E_API_SRC` apontando pra outra API); sem ela os E2E são skipped.
 Não precisa de dotnet — os E2E operam só em arquivos.
+
+Uma segunda cobaia, `miojo-simulator-3.0` (Python/FastAPI/pytest —
+`HARNESS_E2E_MIOJO_SRC`, default `C:\Projetos\miojo-simulator-3.0`), prova
+que o harness generaliza além de C#/.NET (`tests/e2e/test_contract_dogfood_miojo.py`).
+
+Dogfood real de segurança (opt-in, `HARNESS_E2E_DOGFOOD=1`, exige `claude`
+no PATH) — `tests/e2e/test_boundary_guard_security_fix_{minimumapi,miojo}.py`
+disparam sessão `claude -p` headless de verdade nas duas cobaias tentando
+command smuggling e `replace_all` bypass no `boundary_guard.py`, confirmando
+`deny` via `permission_denials` estruturado **e** prova de disco (nunca
+texto de resposta).
 
 Headless real (`tests/e2e/test_headless.py`) — invoca o binário `claude -p`
 de verdade contra o playground compilado e confere o campo

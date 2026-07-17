@@ -150,7 +150,11 @@ Isso compila a **Fase 2** do roadmap (Execução Autônoma no Raio de Impacto):
   só passada em vez de N guards por ação, decidindo `allow`/`deny` a partir
   da superfície do contrato ativo. Traz proteção contra enfraquecimento de
   teste — só edita arquivo de teste se a tarefa ativa o declarar em
-  `files[]`.
+  `files[]`. Comando composto (`comando_aprovado && comando_qualquer`) não
+  escapa: cada segmento entre `;`/`&&`/`||`/`|` precisa prefixar um comando
+  da superfície liberada, e command substitution (`$(...)`/crase) é negada
+  de cara — um agente não consegue colar uma ação arbitrária atrás de um
+  `verify_cmd`/lint/git local aprovado.
 - **Lifecycle de 16 passos** — bloco gerenciado adicional no `AGENTS.md`
   (ler AGENTS.md → rodar `init.*` → ler progresso → escolher UMA feature →
   implementar → verificar → autocorrigir → registrar evidência → commit em
@@ -187,6 +191,10 @@ Marcar `passes: true` no `feature_list.json` **sem** evidência fresca (mais
 nova que o último commit) é negado pelo `boundary_guard.py` — feature-lock:
 o guard nega a edição e devolve a razão ao agente ("rode harness verify
 primeiro"). Não dá pra declarar vitória editando a lista de tarefas na mão.
+Isso vale mesmo quando a edição usa `replace_all` (troca todas as
+ocorrências de `"passes": false` de uma vez) — o guard simula a transição
+completa, não só a primeira, então uma feature sem evidência não passa de
+carona numa edição em massa que aprova outra.
 
 Se `verify` falhar, o próprio agente corrige e roda de novo — sem envolver
 você — até passar ou até bater numa stop condition do `spec.md` (N falhas

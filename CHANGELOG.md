@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.14.1 — 2026-07-16
+
+Correção de segurança no `boundary_guard.py` (o hook `PreToolUse` único que
+governa Edit/Write/Bash dentro do raio de impacto de um contrato) — 2 bugs
+reais encontrados por auditoria independente (Fable) contra o `ROADMAP.md`,
+confirmados por reflect (Opus), corrigidos com TDD e provados em condições
+reais (2 dogfood E2E novos, sessão `claude -p` headless de verdade, cobaias
+MinimumAPI e miojo-simulator-3.0), validados de ponta a ponta por uma
+segunda rodada independente (Fable + subagentes, reproduzindo do zero).
+
+### Corrigido
+- **Command smuggling no guard de Bash** — um comando permitido seguido de
+  `&&`/`;`/`|` + comando arbitrário (ex.: `"<verify_cmd> && rm -rf src"`) era
+  liberado inteiro: o guard só checava se a sequência permitida aparecia em
+  alguma janela contígua dos tokens, não se o comando inteiro era composto
+  só de segmentos permitidos. Corrigido: o comando agora é segmentado nos
+  operadores de controle de shell, command substitution (`$(...)`/crase) é
+  negada de cara, e cada segmento precisa **prefixar** (não mais "aparecer
+  em qualquer janela") uma sequência permitida. O runtime floor (`git push`,
+  `curl`, `wget`, `npm publish`, `pip upload`, `twine upload`, `gh release`)
+  não mudou — continua pegando floor smuggled do jeito que já pegava.
+- **feature-lock ignorava `replace_all=true`** — um `Edit` em
+  `.harness/feature_list.json` com `replace_all=true` fazia o guard simular
+  só a 1ª ocorrência da transição `passes:false → true` (aprovando se ela
+  tivesse evidência fresca), mas o Edit real do Claude Code flippava
+  **todas** as ocorrências — inclusive features sem evidência ou sem
+  aprovação do revisor. Corrigido: o guard agora ramifica em `replace_all` e
+  simula a transição completa antes de decidir, nas duas cópias (importável
+  e a gerada dentro do hook standalone).
+
+### Adicionado (prova)
+- 10 testes novos em `tests/test_boundary_guard.py` provando os dois fixes
+  isoladamente (smuggling via `&&`/`;`/`|`/command substitution nas duas
+  direções; `replace_all` com features mistas evidência/sem-evidência) —
+  suíte completa: 389 passed, 8 skipped, zero regressão.
+- `tests/e2e/test_boundary_guard_security_fix_minimumapi.py` e
+  `tests/e2e/test_boundary_guard_security_fix_miojo.py` (opt-in,
+  `HARNESS_E2E_DOGFOOD=1`) — sessão `claude -p` headless real tentando os
+  dois ataques numa cobaia fresca, confirmando `deny` via
+  `permission_denials` estruturado **e** prova de disco (arquivo malicioso
+  nunca criado, feature sem evidência continua `passes:false`).
+- `tests/e2e/test_contract_dogfood_miojo.py` — primeiro dogfood real numa
+  segunda cobaia (`miojo-simulator-3.0`, Python/FastAPI/pytest), provando
+  que o harness generaliza além de C#/.NET: gap real corrigido (`GET
+  /leaderboard?limit=` sem validação de faixa — SQLite trata `LIMIT`
+  negativo como "sem limite").
+
 ## 0.14.0 — 2026-07-16
 
 Fase 4 do roadmap (Team-Architecture Factory, Nível L3): de uma sessão só
