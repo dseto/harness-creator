@@ -1,6 +1,25 @@
 # Changelog
 
-## 0.15.1 — 2026-07-17
+## 0.15.2 — 2026-07-17
+
+Fix de falso-positivo no `preflight` (achado em dogfooding real no projeto
+`elegant-heisenberg`, um repo Angular): `test_files_present` acusava WARNING
+("convenção de testes não observada") num repo com 8 arquivos de teste reais
+— a stack usa `*.spec.ts` (Jasmine/Karma), e o analyzer só reconhecia
+`*.test.ts` (Jest/Vitest) como convenção de teste para JS/TS.
+
+### Corrigido
+- `src/harness/analyzer.py` — `_TEST_GLOB_BY_LANGUAGE` (um glob fixo por
+  linguagem) virou `_TEST_GLOB_CANDIDATES_BY_LANGUAGE` (lista de candidatos
+  em ordem de prioridade). `_detect_test_glob` tenta cada candidato contra o
+  disco e usa o primeiro que casar; nenhum casando continua indo para
+  `unknowns`, nunca virando fato inventado. JavaScript/TypeScript agora
+  tentam `**/*.test.ts` antes de `**/*.spec.ts` (prioridade preservada
+  quando os dois existem no mesmo repo). Python/C#/Go inalterados (só um
+  candidato cada, sem convenção concorrente conhecida).
+- 2 testes novos em `tests/test_analyzer.py` (convenção `*.spec.ts` sozinha;
+  prioridade `*.test.ts` quando ambas presentes). Suíte completa: 439 passed,
+  10 skipped, zero regressão.
 
 Instalação persistente do plugin sem `--plugin-dir` — necessário para uso
 fora do terminal (app **desktop**, que não aceita flags de CLI).

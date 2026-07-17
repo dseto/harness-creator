@@ -113,6 +113,44 @@ def test_node_project_detects_manager_and_test_script(tmp_path: Path) -> None:
     assert profile.unknowns == []
 
 
+def test_node_project_with_angular_spec_convention_detects_test_glob(tmp_path: Path) -> None:
+    """Regressão do falso-positivo achado em dogfooding: repo Angular real usa
+    `*.spec.ts` (Jasmine/Karma), não `*.test.ts` (Jest/Vitest) — o candidato
+    único antigo dava `test_glob=None` e o preflight emitia WARNING num repo
+    que tinha 8 arquivos de teste de verdade."""
+    _write(
+        tmp_path / "package.json",
+        json.dumps({"name": "sample", "scripts": {"test": "ng test"}}),
+    )
+    _write(tmp_path / "package-lock.json", "{}")
+    _write(tmp_path / "src" / "app" / "app.component.spec.ts", "describe('ok', () => {});\n")
+
+    profile = analyze_project(tmp_path)
+
+    assert profile.test_glob is not None
+    assert profile.test_glob.value == "**/*.spec.ts"
+    assert profile.test_glob.evidence == "src/app/app.component.spec.ts"
+    assert profile.unknowns == []
+
+
+def test_node_project_prefers_test_ts_over_spec_ts_when_both_present(tmp_path: Path) -> None:
+    """Prioridade preservada: com os dois presentes, `*.test.ts` (candidato
+    listado primeiro) vence — não é ambíguo, é ordem de prioridade fixa."""
+    _write(
+        tmp_path / "package.json",
+        json.dumps({"name": "sample", "scripts": {"test": "jest"}}),
+    )
+    _write(tmp_path / "package-lock.json", "{}")
+    _write(tmp_path / "src" / "app.component.spec.ts", "describe('ok', () => {});\n")
+    _write(tmp_path / "src" / "sample.test.ts", "test('ok', () => {});\n")
+
+    profile = analyze_project(tmp_path)
+
+    assert profile.test_glob is not None
+    assert profile.test_glob.value == "**/*.test.ts"
+    assert profile.test_glob.evidence == "src/sample.test.ts"
+
+
 def test_node_project_with_tsconfig_adds_typescript_language(tmp_path: Path) -> None:
     _bootstrap_node(tmp_path)
     _write(tmp_path / "tsconfig.json", "{}")

@@ -1,6 +1,6 @@
 # harness-creator
 
-**v0.15.0** · [CHANGELOG](CHANGELOG.md)
+**v0.15.2** · [CHANGELOG](CHANGELOG.md)
 
 Plugin do Claude Code que **cria, avalia e compila** estrutura de harness
 (governança de agentes) para projetos.

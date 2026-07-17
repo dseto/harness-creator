@@ -56,14 +56,18 @@ _LOCKFILE_MANAGERS: dict[str, str] = {
     "poetry.lock": "poetry",
 }
 
-# Convenção de test_glob por linguagem, proposta e depois VALIDADA contra o
-# disco (glob sem nenhum arquivo casando não vira Finding, vai para unknowns).
-_TEST_GLOB_BY_LANGUAGE: dict[str, str] = {
-    "python": "tests/**/*.py",
-    "javascript": "**/*.test.ts",
-    "typescript": "**/*.test.ts",
-    "csharp": "**/*Tests.cs",
-    "go": "**/*_test.go",
+# Candidatos de test_glob por linguagem, em ordem de prioridade — cada um
+# proposto e depois VALIDADO contra o disco (candidato sem nenhum arquivo
+# casando é descartado; nenhum casando -> vira unknown, nunca fato). Mais de
+# um candidato por linguagem cobre convenções de teste concorrentes na mesma
+# stack (ex.: TypeScript com Jest/Vitest usa "*.test.ts", Angular/Jasmine/
+# Karma usa "*.spec.ts" — um repo real pode seguir qualquer uma das duas).
+_TEST_GLOB_CANDIDATES_BY_LANGUAGE: dict[str, list[str]] = {
+    "python": ["tests/**/*.py"],
+    "javascript": ["**/*.test.ts", "**/*.spec.ts"],
+    "typescript": ["**/*.test.ts", "**/*.spec.ts"],
+    "csharp": ["**/*Tests.cs"],
+    "go": ["**/*_test.go"],
 }
 
 # Detectores "estendidos" (populam `RepoProfile.extras`) — lint/typecheck/build,
@@ -353,14 +357,15 @@ def _detect_node_test_command(target_dir: Path, package_rel: Path | None) -> Fin
 def _detect_test_glob(primary_language: str | None, files: list[Path]) -> Finding | None:
     if primary_language is None:
         return None
-    glob = _TEST_GLOB_BY_LANGUAGE.get(primary_language)
-    if glob is None:
+    candidates = _TEST_GLOB_CANDIDATES_BY_LANGUAGE.get(primary_language)
+    if candidates is None:
         return None
-    pattern = _glob_to_regex(glob)
-    matches = sorted(rel for rel in files if pattern.match(rel.as_posix()))
-    if not matches:
-        return None  # convenção não observada em disco -> não vira fato
-    return Finding(glob, matches[0].as_posix(), 1.0)
+    for glob in candidates:
+        pattern = _glob_to_regex(glob)
+        matches = sorted(rel for rel in files if pattern.match(rel.as_posix()))
+        if matches:
+            return Finding(glob, matches[0].as_posix(), 1.0)
+    return None  # nenhum candidato casou em disco -> não vira fato
 
 
 def _snapshot_manifests(
