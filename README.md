@@ -38,6 +38,11 @@ pip install -e .
 claude --plugin-dir C:\Projetos\Harness-creator
 ```
 
+`--plugin-dir` é uma flag de CLI — não existe no app **desktop** (sem
+terminal, sem flag). Para o plugin ficar disponível sem repetir o comando
+(inclusive no desktop), registre-o como marketplace local em
+`~/.claude/settings.json`: ver [GUIDE.md §10](GUIDE.md#10-deixar-o-plugin-sempre-disponível-opcional).
+
 ## Skills
 
 | Skill | Faz |

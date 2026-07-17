@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.15.1 — 2026-07-17
+
+Instalação persistente do plugin sem `--plugin-dir` — necessário para uso
+fora do terminal (app **desktop**, que não aceita flags de CLI).
+
+### Adicionado
+- `.claude-plugin/marketplace.json` — o próprio repo se auto-registra como
+  marketplace de um plugin só (`harness-creator`, `source: "./"`), habilitando
+  o registro via `extraKnownMarketplaces` (fonte `directory`) +
+  `enabledPlugins` (`harness-creator@harness-creator-local`) em
+  `~/.claude/settings.json` do usuário — sem precisar de `--plugin-dir` em
+  toda sessão.
+- `README.md`/`GUIDE.md` §10 atualizados com a sintaxe real
+  (`enabledPlugins`/`extraKnownMarketplaces`) — a seção anterior descrevia uma
+  chave `plugins.path` que não existe no schema de settings desta versão do
+  Claude Code.
+
 ## 0.15.0 — 2026-07-17
 
 Laudo de prontidão de repositório cru: um portão de entrada que roda ANTES de

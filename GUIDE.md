@@ -299,19 +299,43 @@ divergiu do que o `harness.yaml` geraria) e sugere recompilar.
 
 ## 10. Deixar o plugin sempre disponível (opcional)
 
-Em vez de repetir `--plugin-dir` toda sessão, adicione a
-`~/.claude/settings.json` do seu usuário (não do projeto):
+Em vez de repetir `--plugin-dir` toda sessão — e é o ÚNICO jeito de usar o
+plugin fora do terminal, ex. no app desktop, que não aceita flags de CLI —
+registre um marketplace local apontando pro diretório do plugin.
 
-```json
-{
-  "plugins": {
-    "harness-creator": { "path": "C:\\Projetos\\Harness-creator" }
-  }
-}
-```
+1. O repo do plugin precisa de um `.claude-plugin/marketplace.json`
+   auto-referenciando-se (já existe neste repo — ver
+   [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json)):
+   ```json
+   {
+     "name": "harness-creator-local",
+     "owner": { "name": "<seu nome>" },
+     "plugins": [
+       { "name": "harness-creator", "source": "./", "version": "0.15.0" }
+     ]
+   }
+   ```
+2. No `~/.claude/settings.json` do seu usuário (não do projeto), registre o
+   marketplace (`extraKnownMarketplaces`, fonte `directory`) e habilite o
+   plugin (`enabledPlugins`, formato `plugin@marketplace`):
+   ```json
+   {
+     "extraKnownMarketplaces": {
+       "harness-creator-local": {
+         "source": { "source": "directory", "path": "C:\\Projetos\\Harness-creator" }
+       }
+     },
+     "enabledPlugins": {
+       "harness-creator@harness-creator-local": true
+     }
+   }
+   ```
+3. Reinicie o Claude Code (CLI ou app desktop) para carregar o marketplace
+   novo — mudança em `settings.json` não é recarregada em sessão já aberta.
 
-(Confira a sintaxe atual de plugins persistentes no `claude --help` da sua
-versão — o formato pode mudar entre releases.)
+(Confira a sintaxe atual — `enabledPlugins`/`extraKnownMarketplaces` — no
+schema de settings da sua versão; o formato já mudou uma vez antes e pode
+mudar de novo entre releases.)
 
 ## Resumo do ciclo completo
 
