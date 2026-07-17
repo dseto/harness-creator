@@ -112,9 +112,9 @@ Isso instala a biblioteca e o CLI `harness`. Confira:
 
 ```powershell
 harness --help
-# deve listar: run (modo execução, congelado), compile, audit, analyze,
-#              compile-contract, compile-session, verify, audit-runtime,
-#              team, review, supervise, audit-team
+# deve listar: run (modo execução, congelado), preflight, compile, audit,
+#              analyze, compile-contract, compile-session, verify,
+#              audit-runtime, team, review, supervise, audit-team
 ```
 
 ## A.2 Abrir o Claude Code com o plugin, dentro do projeto-alvo
@@ -131,17 +131,62 @@ claude --plugin-dir C:\Projetos\Harness-creator
 > Code para usar as skills do plugin. (Dá para tornar permanente via
 > `~/.claude/settings.json`; ver GUIDE.md seção 10.)
 
-Na sessão, as 5 skills ficam disponíveis:
+Na sessão, as 6 skills ficam disponíveis:
 
 | Skill | Faz |
 |---|---|
+| `/harness-creator:preflight` | Laudo de prontidão de um repo cru (READY/NOT_READY) ANTES de instalar o harness — read-only |
 | `/harness-creator:init` | Entrevista curta → gera `.harness/harness.yaml` → compila |
 | `/harness-creator:audit` | Score 0-100 + findings (drift, hooks ausentes, política arriscada) |
 | `/harness-creator:compile` | Recompila após edição manual do yaml |
 | `/harness-creator:plan` | Demanda em linguagem natural → contrato (`spec.md` + `Plans.md`) → aprovação sua → `feature_list.json` |
 | `/harness-creator:team` | Propõe padrão de time de agentes → você aprova a arquitetura → gera agentes/skills/manifesto |
 
-## A.3 Rodar `/harness-creator:init`
+## A.3 (passo 0) `/harness-creator:preflight` — o repo está pronto?
+
+Antes de instalar qualquer coisa — e, mais adiante, antes de rodar
+`/harness-creator:plan` numa demanda — vale rodar o **preflight**: um laudo de
+prontidão do repositório **cru**. É o portão de entrada do ciclo
+Plan→Work→Review, e é **100% read-only** (não escreve um byte no repo, nem
+`.harness/`).
+
+```
+/harness-creator:preflight
+```
+
+Ele avalia 4 categorias de pré-requisitos e devolve, para cada uma, um status
+`[PASS]` / `[WARNING]` / `[FAIL]` — cada achado não-PASS já vem com um
+**Actionable Fix** concreto:
+
+| Categoria | O que checa | Por que importa |
+|---|---|---|
+| Controle de Versão (Git) | binário `git`, repo iniciado, commit de baseline, working tree limpa, `.gitignore` | sem git não há baseline/diff/rollback — o harness precisa disso para o raio de impacto |
+| Manifestos de Projeto | um manifest reconhecível (`pyproject.toml`, `package.json`, `go.mod`, `Cargo.toml`, `.csproj`) | é do manifest que o `analyze` extrai os fatos da stack |
+| Verificação/TDD | runner de teste declarado + arquivos de teste na convenção | é o `verify_cmd` que transforma "pronto" em prova executável |
+| Qualidade Estática/Linting | linter configurado (`[tool.ruff]`, eslint, ...) | alimenta o quality gate |
+
+**Como interpretar o laudo** (o veredito no topo):
+
+- **`READY`** — 4 categorias PASS. Pode seguir para `/harness-creator:init` (e,
+  na hora da demanda, `/harness-creator:plan`) sem ressalvas.
+- **`READY_WITH_WARNINGS`** — nenhum FAIL, mas há WARNINGs (ex.: sem
+  `.gitignore`, sem linter, sem arquivos de teste ainda). Não bloqueia o fluxo,
+  mas vale endereçar antes.
+- **`NOT_READY`** — há pelo menos um FAIL bloqueante (ex.: não é repo git, ou
+  nenhum manifest reconhecível). A skill oferece aplicar os fixes **um a um,
+  só com sua confirmação explícita** (nunca em lote, nunca sozinha), e re-roda
+  o preflight para confirmar que o veredito melhorou.
+
+**Quando rodar**: em qualquer repositório ainda não avaliado — tipicamente a
+primeira coisa que você faz num projeto novo, antes do `/init`; e, mais tarde,
+como cheque rápido antes de abrir uma demanda com `/harness-creator:plan`.
+Equivalente no CLI: `harness preflight --dir .` (JSON no stdout; exit `0`
+READY/READY_WITH_WARNINGS, `1` NOT_READY, `2` erro de uso).
+
+Detalhe completo (tabela de checks, contrato do JSON, decisões de arquitetura,
+garantia read-only, evidência E2E): [docs/preflight.md](docs/preflight.md).
+
+## A.4 Rodar `/harness-creator:init`
 
 Na sessão, digite:
 
@@ -186,7 +231,7 @@ verification:
   PreToolUse da disciplina TDD.
 - **`AGENTS.md`** — bloco gerenciado com as instruções operacionais.
 
-## A.4 Reabrir a sessão (obrigatório)
+## A.5 Reabrir a sessão (obrigatório)
 
 **Feche e reabra o Claude Code nesse projeto.** O `settings.json` só é lido
 na inicialização — a sessão que rodou o `/init` não aplica as regras nela
@@ -199,7 +244,7 @@ cd C:\Projetos\miojo-simulator
 claude
 ```
 
-## A.5 Conferir que está tudo consistente
+## A.6 Conferir que está tudo consistente
 
 A qualquer momento (e sempre depois de editar `settings.json`/`AGENTS.md` à
 mão):

@@ -13,6 +13,10 @@ from pathlib import Path
 
 
 def main() -> None:
+    # No Windows, stdout redirecionado/piped fica na locale cp1252 e corrompia o JSON
+    # ensure_ascii=False do laudo (UnicodeEncodeError em paths com caracteres fora do cp1252, ex. cirílico/CJK).
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(prog="harness", description="harness-creator — Agente = Modelo + Harness")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -35,6 +39,12 @@ def main() -> None:
 
     ana = sub.add_parser("analyze", help="Analisa o repo-alvo e grava .harness/repo-profile.json")
     ana.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+
+    pf = sub.add_parser(
+        "preflight",
+        help="Avalia a prontidão do repo-alvo para instalação do harness (laudo PASS/WARNING/FAIL) — JSON only",
+    )
+    pf.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
 
     cc = sub.add_parser("compile-contract", help="Compila .harness/work/<slug> -> .harness/feature_list.json")
     cc.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
@@ -138,6 +148,20 @@ def main() -> None:
         profile = analyze_project(Path(args.dir))
         write_profile(profile, Path(args.dir))
         print(json.dumps(profile.to_dict(), indent=2, ensure_ascii=False))
+        sys.exit(0)
+
+    if args.command == "preflight":
+        from harness.preflight import PreflightError, run_preflight
+
+        try:
+            report = run_preflight(Path(args.dir))
+        except PreflightError as exc:
+            print(f"erro: {exc}", file=sys.stderr)
+            sys.exit(2)
+
+        print(report.to_json())
+        if report.verdict == "NOT_READY":
+            sys.exit(1)
         sys.exit(0)
 
     if args.command == "compile-contract":

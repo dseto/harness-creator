@@ -1,5 +1,62 @@
 # Changelog
 
+## 0.15.0 — 2026-07-17
+
+Laudo de prontidão de repositório cru: um portão de entrada que roda ANTES de
+`analyze`/`plan` e diz se um repo ainda não governado tem o mínimo para o ciclo
+Plan→Work→Review funcionar (git para baseline/diff/rollback, manifest para o
+analyzer ter fatos, testes para o `verify_cmd`, lint para o quality gate).
+100% read-only — não escreve um byte no repo avaliado.
+
+### Adicionado
+- `src/harness/preflight.py` — `run_preflight(target_dir)` emite um laudo
+  com veredito `READY` / `READY_WITH_WARNINGS` / `NOT_READY` sobre 4
+  categorias, cada check não-PASS carregando um **Actionable Fix** concreto:
+  - **1. Controle de Versão (Git)** — peça nova (o analyzer ignora `.git` de
+    propósito): binário `git` no PATH, `<alvo>/.git` presente, commit de
+    baseline (HEAD resolve), working tree limpa e `.gitignore` na raiz. Os
+    checks de subprocess usam `git --no-optional-locks -C <alvo> ...`
+    (read-only estrito — sem a flag o próprio git reescreveria `.git/index`
+    como efeito colateral do `status`); presença de repo decidida por
+    `(alvo/.git).exists()`, nunca por `--is-inside-work-tree`, para um mock
+    dentro de outro repo não passar de carona.
+  - **2. Manifestos de Projeto**, **3. Verificação/TDD** e **4. Qualidade
+    Estática/Linting** — camada de política de severidade sobre o
+    `RepoProfile` de `analyze_project()` (reuso obrigatório, sem
+    reimplementar detecção): `languages` vazio → `manifest_present` FAIL;
+    `test_command is None` → `test_runner_detected` FAIL; `test_glob is None`
+    → `test_files_present` WARNING; `extras.lint_command` ausente →
+    `linter_configured` WARNING. Chamado uma vez, puro, sem `write_profile`.
+  - Status da categoria = pior status dos checks (FAIL > WARNING > PASS);
+    veredito global `NOT_READY` se ≥1 FAIL, `READY_WITH_WARNINGS` se 0 FAIL e
+    ≥1 WARNING, `READY` caso contrário. Todo check não-PASS tem `fix`
+    não-vazio (invariante testada).
+- `harness preflight --dir <alvo>` na CLI — imprime o laudo como JSON no
+  stdout (convenção do repo, igual a `audit`/`analyze`); exit code `0`
+  (READY/READY_WITH_WARNINGS), `1` (NOT_READY), `2` (alvo inexistente ou
+  não-diretório, mensagem em stderr).
+- Skill `/harness-creator:preflight` (`skills/preflight/SKILL.md`) — roda o
+  CLI, apresenta o laudo como tabela `[PASS]/[WARNING]/[FAIL]` por categoria
+  com o Actionable Fix de cada não-PASS, e roteia pelo veredito: `READY` →
+  aponta `/harness-creator:plan`; `NOT_READY` → oferece aplicar os fixes UM A
+  UM só com confirmação explícita (a skill nunca aplica fix sozinha) e re-roda
+  o preflight.
+- 47 testes novos em `tests/test_preflight.py` (AC-1 a AC-9, incluindo o ramo
+  FAIL de `git_worktree_clean` sob erro inesperado de subprocess e o caminho
+  "gitfile" de `git worktree add`) + E2E real com subprocess
+  (`tests/e2e/test_preflight_e2e.py`) e evidência legível colada em
+  `tests/e2e/evidence/preflight-dogfood-2026-07-17.md`. Suíte completa verde
+  (437 passed, 10 skipped), zero regressão.
+- Fix de encoding no CLI: `sys.stdout.reconfigure(encoding="utf-8")` no início
+  de `main()` — sem isso, stdout redirecionado/piped no Windows usa a locale
+  (cp1252), corrompendo o JSON `ensure_ascii=False` do laudo e crashando com
+  `UnicodeEncodeError` em alvos com caminho fora do cp1252 (ex. cirílico/CJK).
+  Achado e corrigido por um ciclo de reflect (Opus, effort xhigh) + LLM-as-judge
+  (Fable 5, effort xhigh) sobre a implementação já concluída — o mesmo ciclo
+  também eliminou um parâmetro morto/armadilha em `_run_git` (não escopava o
+  subprocess ao alvo por si só) e fechou os dois gaps de cobertura acima.
+- Documentação dedicada: [docs/preflight.md](docs/preflight.md).
+
 ## 0.14.1 — 2026-07-16
 
 Correção de segurança no `boundary_guard.py` (o hook `PreToolUse` único que

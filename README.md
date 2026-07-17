@@ -1,6 +1,6 @@
 # harness-creator
 
-**v0.14.0** · [CHANGELOG](CHANGELOG.md)
+**v0.15.0** · [CHANGELOG](CHANGELOG.md)
 
 Plugin do Claude Code que **cria, avalia e compila** estrutura de harness
 (governança de agentes) para projetos.
@@ -42,13 +42,20 @@ claude --plugin-dir C:\Projetos\Harness-creator
 
 | Skill | Faz |
 |---|---|
+| `/harness-creator:preflight` | Laudo de prontidão de um repo cru ANTES de instalar o harness: PASS/WARNING/FAIL em 4 categorias (Git, Manifestos, Verificação/TDD, Linting) com Actionable Fix e veredito READY/NOT_READY — read-only |
 | `/harness-creator:init` | Entrevista curta → gera `.harness/harness.yaml` → compila |
 | `/harness-creator:audit` | Score 0-100 + findings (drift, hooks ausentes, política arriscada) |
 | `/harness-creator:compile` | Recompila após edição manual do yaml (idempotente, preserva settings manuais) |
 | `/harness-creator:plan` | Demanda em linguagem natural → `spec.md` + `Plans.md` → aprovação humana → `feature_list.json` |
 | `/harness-creator:team` | Analisa o domínio → propõe padrão de time (Produtor-Revisor, Supervisor, ...) → **aprovação humana da arquitetura (único toque humano)** → gera agentes/skills/manifesto → `harness audit-team` |
 
-CLI equivalente: `harness compile --dir <alvo>` · `harness audit --dir <alvo>` ·
+Detalhe completo do preflight (tabela de checks, contrato do JSON, decisões de
+arquitetura): [docs/preflight.md](docs/preflight.md).
+
+CLI equivalente: `harness preflight --dir <alvo>` (v0.15 — laudo de prontidão
+read-only de um repo cru; JSON no stdout, exit 0/1/2 conforme
+READY/NOT_READY/erro-de-uso) · `harness compile --dir <alvo>` ·
+`harness audit --dir <alvo>` ·
 `harness analyze --dir <alvo>` · `harness compile-contract --dir <alvo> --slug <slug>` ·
 `harness compile-session --dir <alvo>` (Fase 2 — compila a superfície de
 permissions do raio de impacto, o `boundary_guard.py`, o lifecycle de 16
