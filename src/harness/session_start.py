@@ -77,7 +77,7 @@ def _read_feature_summary(cwd: Path) -> str:
     if not path.is_file():
         return "Nenhum contrato ativo (.harness/feature_list.json nao encontrado)."
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
     except (json.JSONDecodeError, OSError):
         return "Nenhum contrato ativo (.harness/feature_list.json invalido)."
 

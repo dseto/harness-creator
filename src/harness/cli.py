@@ -201,9 +201,9 @@ def main() -> None:
             sys.exit(1)
 
         resolved_dir = target_dir.resolve()
-        feature_list = json.loads((resolved_dir / FEATURE_LIST_FILE).read_text(encoding="utf-8"))
+        feature_list = json.loads((resolved_dir / FEATURE_LIST_FILE).read_text(encoding="utf-8-sig"))
         profile_path = resolved_dir / REPO_PROFILE_FILE
-        profile = json.loads(profile_path.read_text(encoding="utf-8")) if profile_path.is_file() else {}
+        profile = json.loads(profile_path.read_text(encoding="utf-8-sig")) if profile_path.is_file() else {}
 
         boundary_guard_path = install_boundary_guard(target_dir)
         agents_path, lifecycle_detail_path = install_lifecycle(target_dir)
@@ -239,7 +239,7 @@ def main() -> None:
 
         on_feature_verified(Path(args.dir), args.feature_id)
 
-        data = json.loads(evidence_path.read_text(encoding="utf-8"))
+        data = json.loads(evidence_path.read_text(encoding="utf-8-sig"))
         print(json.dumps(data, indent=2, ensure_ascii=False))
         sys.exit(0)
 
@@ -301,7 +301,7 @@ def main() -> None:
                 sys.exit(1)
 
             try:
-                feature_list_data = json.loads(feature_list_path.read_text(encoding="utf-8"))
+                feature_list_data = json.loads(feature_list_path.read_text(encoding="utf-8-sig"))
             except json.JSONDecodeError as exc:
                 print(f"erro: {feature_list_path}: JSON inválido — {exc}", file=sys.stderr)
                 sys.exit(1)
@@ -324,7 +324,7 @@ def main() -> None:
                 sys.exit(1)
 
         review_path = target_dir.resolve() / REVIEW_DIR / f"{args.feature_id}.json"
-        data = json.loads(review_path.read_text(encoding="utf-8"))
+        data = json.loads(review_path.read_text(encoding="utf-8-sig"))
         print(json.dumps(data, indent=2, ensure_ascii=False))
         sys.exit(0)
 

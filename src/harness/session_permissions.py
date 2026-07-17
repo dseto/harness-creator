@@ -194,7 +194,7 @@ def render_session_permissions(
 # ---------------------------------------------------------------------------
 
 def _load_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
 def compile_session_permissions(target_dir: Path) -> Path:

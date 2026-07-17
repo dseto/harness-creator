@@ -84,7 +84,7 @@ def _load_feature(target_dir: Path, feature_id: str) -> dict[str, Any]:
         raise VerifyError(f"{feature_list_path}: feature_list.json não encontrado")
 
     try:
-        data = json.loads(feature_list_path.read_text(encoding="utf-8"))
+        data = json.loads(feature_list_path.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError as exc:
         raise VerifyError(f"{feature_list_path}: JSON inválido — {exc}") from exc
 

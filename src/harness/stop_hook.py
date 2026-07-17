@@ -125,7 +125,7 @@ def needs_verification(feature: dict[str, Any], target_dir: Path) -> bool:
         return True
 
     try:
-        evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+        evidence = json.loads(evidence_path.read_text(encoding="utf-8-sig"))
     except (json.JSONDecodeError, OSError):
         return True
 
@@ -216,7 +216,7 @@ def needs_verification(feature, target_dir):
         return True
 
     try:
-        evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+        evidence = json.loads(evidence_path.read_text(encoding="utf-8-sig"))
     except (json.JSONDecodeError, OSError):
         return True
 
@@ -230,7 +230,7 @@ def _load_features(cwd):
     if not path.is_file():
         return []
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
     except (json.JSONDecodeError, OSError):
         return []
     return data.get("features") or []
@@ -282,7 +282,7 @@ if __name__ == "__main__":
 
 def _load_json(path: Path) -> dict[str, Any]:
     if path.is_file():
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8-sig"))
     return {}
 
 

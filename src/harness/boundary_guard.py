@@ -221,7 +221,7 @@ def _evidence_freshness_problem(
     if not evidence_path.is_file():
         return f"{feature_id}: sem evidência (.harness/evidence/{feature_id}.json não existe)", None
     try:
-        evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+        evidence = json.loads(evidence_path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError):
         return f"{feature_id}: evidência inválida (JSON malformado)", None
     if not isinstance(evidence, dict) or evidence.get("feature_id") != feature_id:
@@ -250,7 +250,7 @@ def _read_team_manifest(cwd: Path | str | None) -> dict[str, Any] | None:
     if not manifest_path.is_file():
         return None
     try:
-        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        data = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError):
         return None
     if not isinstance(data, dict):
@@ -536,10 +536,46 @@ def _matches_any_sequence(tokens, sequences):
 def _split_shell_segments(command):
     """Segmenta a string do comando nos operadores de controle de shell
     (`;`, `&&`, `||`, `|`, `&` de background), devolvendo a lista de
-    sub-comandos nao-vazios. `&&`/`||` sao casados ANTES de `&`/`|` isolados
-    (ordem da alternacao) para nao quebrar um `&&` em dois `&`."""
-    parts = re.split(r"&&|\\|\\||[;&|]", command or "")
-    return [p for p in (seg.strip() for seg in parts) if p]
+    sub-comandos nao-vazios. Respeita aspas e double-quotes de shell (operadores
+    dentro de strings nao causam segmentacao). `&&`/`||` sao casados ANTES de
+    `&`/`|` isolados para nao quebrar um `&&` em dois `&`."""
+    if not command:
+        return []
+    result = []
+    current = []
+    in_single = False
+    in_double = False
+    escape_next = False
+    i = 0
+    while i < len(command):
+        ch = command[i]
+        if escape_next:
+            current.append(ch)
+            escape_next = False
+        elif ch == "\\\\" and not in_single:
+            escape_next = True
+        elif ch == "'" and not in_double:
+            in_single = not in_single
+            current.append(ch)
+        elif ch == '"' and not in_single:
+            in_double = not in_double
+            current.append(ch)
+        elif ch in ("&", "|", ";") and not in_single and not in_double:
+            seg = "".join(current).strip()
+            if seg:
+                result.append(seg)
+            current = []
+            if ch == "&" and i + 1 < len(command) and command[i + 1] == "&":
+                i += 1
+            elif ch == "|" and i + 1 < len(command) and command[i + 1] == "|":
+                i += 1
+        else:
+            current.append(ch)
+        i += 1
+    seg = "".join(current).strip()
+    if seg:
+        result.append(seg)
+    return result
 
 
 def _segment_prefixes_any(seg_tokens, sequences):
@@ -584,11 +620,34 @@ def _profile_extra_value(profile, key):
     return None
 
 
-def _collect_allowed_files(feature_list):
+def _collect_allowed_files(feature_list, cwd=None):
     allowed = set()
+    globs_to_expand = []
+
     for feat in (feature_list or {}).get("features", []) or []:
         for f in feat.get("files") or []:
-            allowed.add(str(f).replace("\\\\", "/"))
+            normalized = str(f).replace("\\\\", "/")
+            if "*" in normalized or "?" in normalized:
+                globs_to_expand.append(normalized)
+            else:
+                allowed.add(normalized)
+
+    if globs_to_expand and cwd:
+        from pathlib import Path
+        import os
+        base = Path(cwd) if cwd else Path(".")
+        for glob_pattern in globs_to_expand:
+            pattern = _glob_to_regex(glob_pattern)
+            for root, dirs, files in os.walk(str(base)):
+                for fname in files:
+                    full_path = os.path.join(root, fname)
+                    rel_path = os.path.relpath(full_path, str(base)).replace("\\\\", "/")
+                    if pattern.match(rel_path):
+                        allowed.add(rel_path)
+    else:
+        for g in globs_to_expand:
+            allowed.add(g)
+
     return allowed
 
 

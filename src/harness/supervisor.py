@@ -84,7 +84,7 @@ def dispatch_next(target_dir: Path) -> dict[str, Any] | None:
         return None
 
     try:
-        data = json.loads(feature_list_path.read_text(encoding="utf-8"))
+        data = json.loads(feature_list_path.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError:
         return None
 
@@ -111,7 +111,7 @@ def on_feature_verified(
         return None
 
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError:
         return None
 

@@ -93,7 +93,7 @@ def load_review(target_dir: Path, feature_id: str) -> dict[str, Any]:
         return _default_review(feature_id)
 
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError as exc:
         raise ReviewError(f"{path}: JSON inválido — {exc}") from exc
 
@@ -160,7 +160,7 @@ def is_test_diff(feature: dict[str, Any], target_dir: Path) -> bool:
         return False
 
     try:
-        profile_data = json.loads(profile_path.read_text(encoding="utf-8"))
+        profile_data = json.loads(profile_path.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError:
         return False
 

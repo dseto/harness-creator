@@ -98,7 +98,7 @@ def audit_runtime(target_dir: Path) -> RuntimeAuditReport:
         return _finish(findings)
 
     try:
-        data = json.loads(feature_list_path.read_text(encoding="utf-8"))
+        data = json.loads(feature_list_path.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError as exc:
         findings.append(RuntimeFinding(
             "critical", "invalid_feature_list",
@@ -157,7 +157,7 @@ def audit_runtime(target_dir: Path) -> RuntimeAuditReport:
             continue
 
         try:
-            evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+            evidence = json.loads(evidence_path.read_text(encoding="utf-8-sig"))
         except json.JSONDecodeError as exc:
             findings.append(RuntimeFinding(
                 "critical", "invalid_evidence_json",

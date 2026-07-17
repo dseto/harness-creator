@@ -156,7 +156,7 @@ def analyze_domain(target_dir: Path) -> dict[str, Any]:
         return {"profile": None, "languages": [], "has_tests": False}
 
     try:
-        profile = json.loads(path.read_text(encoding="utf-8"))
+        profile = json.loads(path.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError:
         return {"profile": None, "languages": [], "has_tests": False}
 

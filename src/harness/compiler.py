@@ -308,7 +308,7 @@ def _write_hooks(target_dir: Path, artifacts: Artifacts) -> list[Path]:
 def _load_state(target_dir: Path) -> dict[str, Any]:
     path = target_dir / STATE_FILE
     if path.is_file():
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8-sig"))
     return {}
 
 

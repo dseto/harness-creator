@@ -146,7 +146,7 @@ def audit_team(target_dir: Path, patterns_dir: Path | None = None) -> TeamAuditR
         )
 
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError as exc:
         findings.append(TeamFinding(
             "critical", "invalid_team_manifest_json",

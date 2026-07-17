@@ -112,7 +112,7 @@ def audit_project(target_dir: Path) -> AuditReport:
         ))
     else:
         try:
-            settings = json.loads(settings_path.read_text(encoding="utf-8"))
+            settings = json.loads(settings_path.read_text(encoding="utf-8-sig"))
         except json.JSONDecodeError:
             settings = None
             findings.append(Finding(
