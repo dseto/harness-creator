@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.15.7 — 2026-07-18
+
+Corrige 5 pontos de fricção real achados numa sessão de dogfood (harness
+rodando sob seu próprio contrato) + fecha um bypass do runtime floor achado
+na revisão do plano. Duas rodadas de revisão do plano (reflect/Fable +
+llm-as-judge/Opus) e duas do código implementado (mesma dupla), veredito
+final: commitar.
+
+### Corrigido
+- `boundary_guard.py` + `session_permissions.py`: subcomandos enumerados do
+  `harness` CLI (`analyze`, `verify`, `compile-contract`, `compile-session`,
+  `compile`, `audit`, `audit-runtime`, `audit-team`, `preflight`, `review`,
+  `supervise`, `team`) liberados sob contrato ativo nas duas camadas (hook +
+  `settings.json` compilado) — a ferramenta que gera o contrato não ficava
+  mais presa no próprio guard que ela gerou. `harness run` fica de fora
+  deliberadamente (orquestrador da era congelada, chama a API Anthropic —
+  rede fora do floor).
+- `boundary_guard.py`: feature-lock devolve mensagem específica pros dois
+  caminhos que antes caíam na mensagem genérica de superfície — JSON
+  inválido pós-edição e `old_string` não encontrado (`Edit` combinado
+  editando várias features de uma vez). Corrigido nas duas cópias
+  (importável + standalone do hook instalado).
+- `verify.py` + `contract.py`: fecha bypass do runtime floor achado pelo
+  llm-as-judge na revisão do plano — liberar `compile-contract`/`verify`
+  via Bash tornava `_dry_check_verify_cmd` e `run_verify` alcançáveis com um
+  `verify_cmd` malicioso (`curl`/`git push`) escrito pelo próprio agente em
+  `.harness/work/**` e auto-aprovado (gate de aprovação é só textual). Fix:
+  `is_floor_bash_command` é a primeira ação nos dois, antes de qualquer
+  subprocess — provas adversariais (`assert_not_called()`) nos dois
+  caminhos + prova end-to-end sem mock.
+
+### Adicionado
+- `contract.py` + `cli.py`: `compile-contract --dry-run-verify` roda cada
+  `verify_cmd` distinto do contrato com timeout curto (8s) e avisa (stderr,
+  nunca bloqueia) quando um comando falha rápido — sinal de erro de
+  parse/flag inválida, descoberto antes só depois que um subagente rodava e
+  falhava.
+- `skills/plan/SKILL.md`: notas de granularidade de tarefa em linguagem
+  compilada (C#/.csproj, Java/Maven-Gradle, Go, Rust) e de concorrência em
+  `feature_list.json` entre agentes paralelos (fix real fica pra Fase 6 de
+  `docs/roadmap-autonomous.md`).
+
+458 testes verdes, ruff limpo. Trade-off aceito e documentado: liberar
+`compile-contract` via Bash dá ao agente um primitivo de auto-expansão da
+própria superfície de edição (o gate de aprovação é só textual) — o
+floor-check acima é o que mantém esse trade-off contido; fix estrutural
+real (`approval_hash` verificável por máquina) fica pra Fase 5 de
+`docs/roadmap-autonomous.md`.
+
 ## 0.15.6 — 2026-07-18
 
 Fix de bug real achado durante implementação no `elegant-heisenberg`
