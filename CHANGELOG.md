@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.15.8 — 2026-07-18
+
+Sem forma de saber, num repo consumidor (ex.: `elegant-heisenberg`), qual
+versão do plugin `harness-creator` compilou os artefatos ali — nem
+`settings.json`, nem `.harness/hooks/boundary_guard.py`, nem
+`feature_list.json` guardavam isso, e `src/harness/__init__.py::__version__`
+estava travado em `"0.1.0"` desde sempre, dessincronizado das outras 3
+fontes de versão (`plugin.json`, `marketplace.json`, `pyproject.toml`).
+
+### Adicionado
+- `harness.__version__` agora é a fonte única de verdade pra versão em
+  runtime (bumpado junto de `plugin.json`/`marketplace.json`/`pyproject.toml`
+  a cada release — os quatro precisam concordar).
+- `contract.py::compile_contract` grava `compiled_with_version` em
+  `.harness/feature_list.json` (ao lado de `contract`/`compiled_at`).
+- `compiler.py::compile_project` grava `plugin_version` em
+  `.harness/compiled-state.json` (bookkeeping interno do fluxo
+  `harness.yaml`, não afeta `settings.json`).
+- 2 testes novos (`tests/test_contract.py`, `tests/test_compiler.py`)
+  confirmando o stamp em cada fluxo.
+
 ## 0.15.7 — 2026-07-18
 
 Corrige 5 pontos de fricção real achados numa sessão de dogfood (harness

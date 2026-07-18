@@ -11,7 +11,11 @@ permanecem importáveis sem elas.
 from typing import Any
 
 __all__ = ["AgentOrchestrator", "HarnessConfig"]
-__version__ = "0.1.0"
+# Fonte de verdade pro que fica gravado em .harness/feature_list.json
+# (compiled_with_version) e .harness/compiled-state.json (plugin_version) -
+# mudar aqui SEM bumpar .claude-plugin/plugin.json, .claude-plugin/marketplace.json
+# e pyproject.toml deixa os quatro dessincronizados (ja aconteceu uma vez).
+__version__ = "0.15.8"
 
 
 def __getattr__(name: str) -> Any:

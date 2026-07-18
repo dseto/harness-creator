@@ -9,7 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from harness.compiler import AGENTS_BEGIN, AGENTS_END, compile_project, render
+from harness import __version__ as _HARNESS_VERSION
+from harness.compiler import AGENTS_BEGIN, AGENTS_END, STATE_FILE, compile_project, render
 from harness.config import HarnessConfig
 
 
@@ -87,6 +88,14 @@ def test_compile_writes_all_artifacts(tmp_path: Path) -> None:
     assert (tmp_path / ".harness" / "hooks" / "guard_tests.py").is_file()
     agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
     assert AGENTS_BEGIN in agents and AGENTS_END in agents
+
+
+def test_compile_stamps_plugin_version_in_state_file(tmp_path: Path) -> None:
+    _write_yaml(tmp_path, BASIC_YAML)
+    compile_project(tmp_path)
+
+    state = json.loads((tmp_path / STATE_FILE).read_text(encoding="utf-8"))
+    assert state["plugin_version"] == _HARNESS_VERSION
 
 
 def test_merge_preserves_user_settings_and_is_idempotent(tmp_path: Path) -> None:

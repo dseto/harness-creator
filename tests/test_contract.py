@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
+from harness import __version__ as _HARNESS_VERSION
 from harness.contract import (
     ContractError,
     ContractNotApprovedError,
@@ -217,6 +218,7 @@ def test_compile_contract_approved_compiles_with_correct_schema(tmp_path: Path) 
     data = json.loads(out_path.read_text(encoding="utf-8"))
     assert data["contract"] == "exemplo-feature"
     assert "compiled_at" in data
+    assert data["compiled_with_version"] == _HARNESS_VERSION
     assert len(data["features"]) == 2
 
     t01 = next(f for f in data["features"] if f["id"] == "T-01")

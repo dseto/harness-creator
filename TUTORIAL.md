@@ -376,6 +376,7 @@ harness compile-contract --dir . --slug leaderboard-limit
 {
   "contract": "leaderboard-limit",
   "compiled_at": "2026-07-16T18:00:00+00:00",
+  "compiled_with_version": "0.15.8",
   "features": [
     {
       "id": "T-01",

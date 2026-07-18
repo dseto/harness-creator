@@ -127,6 +127,7 @@ from typing import Any
 
 import yaml
 
+from harness import __version__ as _HARNESS_VERSION
 from harness.boundary_guard import is_floor_bash_command
 
 WORK_DIR = ".harness/work"
@@ -410,6 +411,7 @@ def compile_contract(target_dir: Path, slug: str, *, dry_run_verify: bool = Fals
     payload = {
         "contract": slug,
         "compiled_at": datetime.now(timezone.utc).isoformat(),
+        "compiled_with_version": _HARNESS_VERSION,
         "features": features,
     }
 

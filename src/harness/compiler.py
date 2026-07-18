@@ -31,6 +31,7 @@ from typing import Any
 
 import yaml
 
+from harness import __version__ as _HARNESS_VERSION
 from harness.config import HarnessConfig
 from harness.governance.approval import _ALWAYS_GATED, _POLICY_MATRIX
 from harness.verification.tdd_loop import _glob_to_regex
@@ -316,6 +317,7 @@ def _write_state(target_dir: Path, artifacts: Artifacts) -> None:
     path = target_dir / STATE_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
     state = {
+        "plugin_version": _HARNESS_VERSION,
         "managed_permissions": artifacts.permission_rules,
         "managed_hook_commands": [
             h["hooks"][0]["command"] for h in artifacts.hook_entries
