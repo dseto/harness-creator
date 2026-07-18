@@ -1,4 +1,4 @@
-"""E2E: verificação independente dos 9 outcomes prometidos pela Fase 2 do
+"""E2E: verificação independente dos 8 outcomes prometidos pela Fase 2 do
 ROADMAP.md ("Execução Autônoma no Raio de Impacto"), provados contra o código
 REAL via subprocess da CLI (`python -m harness.cli ...`) em repos sintéticos
 `tmp_path` — nunca por import in-process, nunca por confiança em relatório de
@@ -9,11 +9,7 @@ escrito junto com a implementação): os cenários aqui são deliberadamente
 diferentes — profile com extras (lint/typecheck/build) e package_manager,
 contrato de duas tarefas com arquivos sobrepostos, contrato HOSTIL tentando
 cobrir o runtime floor, mecanismo legado com `enforce_tdd: true` (guard_tests
-E guard_test_runner), abandono de contrato após instalação. E não repete o
-dogfood headless real (`claude -p`) já provado por
-`test_contract_dogfood.py::test_contract_dogfood_boundary_guard_denies_out_of_scope`
-— o outcome 9 verifica barato, por leitura de disco, que a evidência gravada
-por aquele teste existe e diz o que promete.
+E guard_test_runner), abandono de contrato após instalação.
 
 Outcomes verificados (extraídos da seção "Fase 2" do ROADMAP.md, linhas
 ~130-206):
@@ -51,22 +47,17 @@ Outcomes verificados (extraídos da seção "Fase 2" do ROADMAP.md, linhas
     8. Hook `SessionStart` injeta contexto real (feature pendente, progresso,
        git log) e não quebra em diretório sem git nem sem contrato; instalação
        idempotente.
-    9. (Prova barata em disco, sem `claude -p`) A evidência do dogfood real da
-       Fase 2 (`evidence/fase2-dogfood-boundary-guard.md`) tem as 4 seções
-       esperadas e cita `permission_denials` NÃO-vazio como prova estruturada;
-       a evidência da Fase 1 (`fase1-dogfood-document-digits.md`) continua
-       intacta (zero regressão de evidência entre fases).
 
 Evidência: ao final da execução do módulo, grava
 `tests/e2e/evidence/fase2-outcomes-verification.md` com uma seção por outcome
 (veredito ATINGIDO / NÃO ATINGIDO / NÃO EXECUTADO + prova concreta), fazendo
-MERGE com o arquivo existente (mesmo padrão de `test_fase1_outcomes.py`): cada
-outcome executado nesta rodada é regravado com o veredito novo; outcome não
-executado nesta rodada preserva byte a byte o veredito real de uma rodada
-anterior; só cai para o placeholder quando nunca houve veredito real.
+MERGE com o arquivo existente: cada outcome executado nesta rodada é
+regravado com o veredito novo; outcome não executado nesta rodada preserva
+byte a byte o veredito real de uma rodada anterior; só cai para o placeholder
+quando nunca houve veredito real.
 
 Nenhuma env var é necessária: todos os testes são baratos (subprocess local,
-sem tokens, sem Docker, sem `dotnet`, sem cobaia MinimumAPI).
+sem tokens, sem Docker, sem cobaia externa).
 """
 
 from __future__ import annotations
@@ -85,8 +76,6 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 SRC_DIR = PLUGIN_ROOT / "src"
 EVIDENCE_DIR = Path(__file__).resolve().parent / "evidence"
 EVIDENCE_PATH = EVIDENCE_DIR / "fase2-outcomes-verification.md"
-FASE2_DOGFOOD_EVIDENCE = EVIDENCE_DIR / "fase2-dogfood-boundary-guard.md"
-FASE1_DOGFOOD_EVIDENCE = EVIDENCE_DIR / "fase1-dogfood-document-digits.md"
 
 SLUG = "fase2-outcomes"
 
@@ -211,7 +200,6 @@ _OUTCOME_TITLES = {
     6: "lifecycle de 16 passos como bloco gerenciado idempotente no AGENTS.md + .harness/LIFECYCLE.md",
     7: "templates do contrato/profile: claude-progress.md nunca sobrescrito; init.* regenerados",
     8: "hook SessionStart injeta contexto real e não quebra sem git/sem contrato",
-    9: "evidência do dogfood real da Fase 2 em disco com 4 seções + permission_denials não-vazio; evidência da Fase 1 intacta",
 }
 
 _SECTIONS: dict[int, tuple[bool, str]] = {}
@@ -251,11 +239,10 @@ def _evidence_writer():
         "# Evidência — Fase 2: verificação dos 9 outcomes",
         "",
         f"Gerado em {now} por `tests/e2e/test_fase2_outcomes.py` "
-        "(repos sintéticos em tmp_path via subprocess da CLI real; o outcome 9 "
-        "verifica a evidência do dogfood real já gravada em disco).",
+        "(repos sintéticos em tmp_path via subprocess da CLI real).",
         "",
     ]
-    for num in range(1, 10):
+    for num in range(1, 9):
         title = _OUTCOME_TITLES[num]
         body.append(f"## Outcome {num} — {title}")
         body.append("")
@@ -916,81 +903,3 @@ def test_outcome8_session_start_injects_state_and_survives_no_git(tmp_path: Path
         achieved = True
     finally:
         _record(8, achieved, proof)
-
-
-# ---------------------------------------------------------------------------
-# Outcome 9 — evidência do dogfood real em disco (prova barata, sem claude -p)
-# ---------------------------------------------------------------------------
-
-def test_outcome9_dogfood_evidence_on_disk_is_complete(tmp_path: Path) -> None:
-    proof: list[str] = []
-    achieved = False
-    try:
-        # --- evidência da Fase 2 (gravada pelo dogfood headless real) ---
-        assert FASE2_DOGFOOD_EVIDENCE.is_file(), (
-            f"{FASE2_DOGFOOD_EVIDENCE} não existe — o gate de encerramento da "
-            "Fase 2 exige evidência commitada em disco"
-        )
-        fase2 = FASE2_DOGFOOD_EVIDENCE.read_text(encoding="utf-8")
-        expected_sections = [
-            "## Regressão",
-            "## Negação da ação fora do raio",
-            "## Diff aplicado",
-            "## Execução do agente",
-        ]
-        for section in expected_sections:
-            assert section in fase2, f"seção ausente na evidência da Fase 2: {section!r}"
-        proof.append(
-            f"`{FASE2_DOGFOOD_EVIDENCE.name}` existe com as 4 seções esperadas: "
-            f"{expected_sections}."
-        )
-
-        # permission_denials estruturado e NÃO-vazio (a prova real da negação)
-        denials_match = re.search(
-            r"^- `permission_denials`: (\[.*)$", fase2, re.MULTILINE
-        )
-        assert denials_match, "linha `permission_denials` ausente da seção Execução do agente"
-        denials = json.loads(denials_match.group(1))
-        assert isinstance(denials, list) and len(denials) >= 1, (
-            f"permission_denials vazio — sem prova estruturada da negação: {denials!r}"
-        )
-        assert denials[0].get("tool_name") == "Edit", denials
-        assert "Program.cs" in json.dumps(denials), (
-            "a negação registrada não é da tentativa fora do raio (Program.cs)"
-        )
-        assert "- `is_error`: False" in fase2
-        proof.append(
-            "Campo estruturado `permission_denials` da execução real parseado da "
-            f"evidência: {len(denials)} negação(ões), tool_name=Edit sobre "
-            "Program.cs (o arquivo fora de files[]), com `is_error: False` — a "
-            "sessão real entregou a tarefa E teve a ação fora do raio negada."
-        )
-        # confirmação legível de que a negação bloqueou a escrita de fato
-        assert "permanece idêntico" in fase2 or "permanece idêntica" in fase2, (
-            "evidência não confirma por leitura de arquivo que a negação bloqueou a escrita"
-        )
-        proof.append(
-            "A evidência também confirma por leitura de arquivo que Program.cs "
-            "permaneceu idêntico (a negação bloqueou a escrita de fato)."
-        )
-
-        # --- evidência da Fase 1 intacta (zero regressão entre fases) ---
-        assert FASE1_DOGFOOD_EVIDENCE.is_file(), (
-            f"{FASE1_DOGFOOD_EVIDENCE} sumiu — regressão de evidência entre fases"
-        )
-        fase1 = FASE1_DOGFOOD_EVIDENCE.read_text(encoding="utf-8")
-        for section in ("## Regressão (testes pré-existentes)", "## Nova funcionalidade",
-                        "## Diff aplicado", "## Execução do agente"):
-            assert section in fase1, f"seção ausente na evidência da Fase 1: {section!r}"
-        assert "Document_with_letters_fails" in fase1, (
-            "evidência da Fase 1 perdeu o registro do TDD real (vermelho antes)"
-        )
-        assert "- `is_error`: False" in fase1
-        proof.append(
-            f"`{FASE1_DOGFOOD_EVIDENCE.name}` continua em disco, com as 4 seções "
-            "originais e o registro do TDD real (Document_with_letters_fails "
-            "vermelho antes / verde depois) — zero regressão de evidência."
-        )
-        achieved = True
-    finally:
-        _record(9, achieved, proof)

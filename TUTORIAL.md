@@ -8,7 +8,7 @@ Este tutorial mostra, passo a passo e com exemplos reais, como:
    natural até a evidência executável de que ficou pronto.
 
 Ao longo do texto usamos um projeto de exemplo real: uma API Python/FastAPI
-chamada `miojo-simulator` (backend em `backend/`, frontend estático em
+chamada `projeto-exemplo` (backend em `backend/`, frontend estático em
 `frontend/`, testes pytest em `tests/`). Qualquer stack serve — .NET, Node,
 Go — só mudam os comandos de teste que você informa na entrevista.
 
@@ -94,8 +94,8 @@ prova**.
    (`npm publish`, `pip upload`, `twine upload`, `gh release`) e `git push`
    sempre ficam fora da superfície automática.
 6. **Generaliza entre stacks.** O mesmo pipeline foi provado em dogfood real
-   contra uma API C#/.NET (MinimumAPI) e uma API Python/FastAPI
-   (miojo-simulator) — só muda o `test_command` e o `test_glob`.
+   contra uma API C#/.NET e uma API Python/FastAPI (projeto-exemplo) — só
+   muda o `test_command` e o `test_glob`.
 
 ---
 
@@ -123,7 +123,7 @@ O harness é criado **no repositório que você quer governar** — não no repo
 plugin. Abra a sessão lá:
 
 ```powershell
-cd C:\Projetos\miojo-simulator
+cd C:\Projetos\projeto-exemplo
 claude --plugin-dir C:\Projetos\Harness-creator
 ```
 
@@ -240,7 +240,7 @@ mesma.
 ```powershell
 # na próxima abertura, o --plugin-dir já não é necessário para TRABALHAR —
 # a governança está compilada no próprio projeto:
-cd C:\Projetos\miojo-simulator
+cd C:\Projetos\projeto-exemplo
 claude
 ```
 
@@ -281,7 +281,7 @@ Parte B: **trabalhar por contrato**.
 
 # Parte B — Implementar uma demanda num repo que já tem harness
 
-Cenário: o `miojo-simulator` já passou pela Parte A. Chega a demanda:
+Cenário: o `projeto-exemplo` já passou pela Parte A. Chega a demanda:
 
 > *"O endpoint `GET /leaderboard` aceita `?limit=` sem validação — `limit=-1`
 > vira `LIMIT -1` no SQLite e devolve a tabela inteira. Validar o parâmetro:
@@ -292,7 +292,7 @@ Cenário: o `miojo-simulator` já passou pela Parte A. Chega a demanda:
 Abra a sessão no projeto (com `--plugin-dir`, porque vamos usar uma skill):
 
 ```powershell
-cd C:\Projetos\miojo-simulator
+cd C:\Projetos\projeto-exemplo
 claude --plugin-dir C:\Projetos\Harness-creator
 ```
 
@@ -429,7 +429,7 @@ Isso pega o contrato aprovado e compila a **sessão autônoma**:
 Agora abra a sessão normal (sem `--plugin-dir`) e peça:
 
 ```powershell
-cd C:\Projetos\miojo-simulator
+cd C:\Projetos\projeto-exemplo
 claude
 ```
 
@@ -565,6 +565,5 @@ próxima feature pronta respeitando `depends[]`.
 - [README.md](README.md) — o que o plugin é e como está estruturado
 - [GUIDE.md](GUIDE.md) — referência completa do dia a dia, seção por seção
 - [CHANGELOG.md](CHANGELOG.md) — histórico de versões
-- `tests/e2e/evidence/` — evidências dos dogfoods reais (MinimumAPI e
-  miojo-simulator) que provam cada mecanismo descrito aqui em sessão
-  `claude -p` de verdade
+- `tests/e2e/evidence/` — evidências dos dogfoods reais que provam cada
+  mecanismo descrito aqui em sessão `claude -p` de verdade

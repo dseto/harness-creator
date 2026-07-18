@@ -1,7 +1,7 @@
 # Relatório — Verificação dos Outcomes da Fase 1 (Delegação Baseada em Contratos)
 
 **Data:** 2026-07-15
-**Cobaia:** cópia real de `C:\Projetos\MinimumAPI` (nunca o repo original — ver confirmação na seção 6)
+**Cobaia:** cópia real da cobaia .NET externa (nunca o repo original — ver confirmação na seção 6)
 **Escopo:** confirmar, com prova executável e não com leitura de código, se a implementação da
 Fase 1 (feita em sessão anterior) entrega os outcomes prometidos em `ROADMAP.md` para um
 desenvolvedor que usa o harness para implementar uma alteração real.
@@ -19,14 +19,14 @@ confirmação (quem analisa/escreve o teste não é quem o executa e relata):
    E2E real já existentes no repo (`tests/e2e/conftest.py`, `tests/e2e/test_headless.py`,
    `tests/e2e/test_contract_dogfood.py`). Extraiu 6 outcomes concretos e escreveu
    `tests/e2e/test_fase1_outcomes.py` — 5 testes, todos operando via subprocess da CLI real
-   (`python -m harness.cli ...`), nunca import in-process, sobre uma cópia fresca da MinimumAPI
+   (`python -m harness.cli ...`), nunca import in-process, sobre uma cópia fresca da cobaia .NET
    real (fixture `api_project`). Não executou a suíte pesada — só `--collect-only` e `ruff check`.
 2. **Execução real + relato — Claude Sonnet 5.** Rodou os testes de verdade (bateria barata sem
    tokens/dotnet, depois bateria cara com `claude -p` headless real), leu a evidência gerada em
    disco, investigou a causa-raiz de qualquer falha lendo o código relevante, e reportou sem
    tentar consertar nada.
 
-Nenhum dos dois agentes editou `C:\Projetos\MinimumAPI` (o original) — só a cópia isolada por
+Nenhum dos dois agentes editou a cobaia .NET externa (o original) — só a cópia isolada por
 teste (`tmp_path`), criada pela fixture `api_project`.
 
 ## 2. Os 6 outcomes avaliados
@@ -68,7 +68,7 @@ implementação falhou neles, mas porque o teste que deveria prová-los tem um d
 
 ```
 python -m harness.cli analyze --dir <cópia> -> exit 0
-csharp: evidence = "MinimumAPI/MinimumAPI.csproj" (arquivo real confirmado em disco)
+csharp: evidence = "Cobaia/Cobaia.csproj" (arquivo real confirmado em disco)
 test_command: {"value": "dotnet test", ...} com evidence real
 test_glob: validado contra arquivo *.Tests.cs real
 package_manager: None (nenhum lockfile .NET) + entrada correspondente em unknowns[]
@@ -80,7 +80,7 @@ e o motivo está em `unknowns[]`, exatamente como o contrato do `analyzer.py` pr
 ### Outcomes 2 e 3 — NÃO EXECUTADOS, causa-raiz identificada
 
 O teste `test_outcomes2_3_plan_skill_uses_profile_and_never_self_approves` invoca
-`claude -p ... --plugin-dir C:\Projetos\Harness-creator` numa cópia da MinimumAPI que **não tem
+`claude -p ... --plugin-dir C:\Projetos\Harness-creator` numa cópia da cobaia .NET que **não tem
 `.harness/harness.yaml` compilado nem `.claude/settings.json` gerado**. Sem esse baseline de
 permissões, o Claude Code em modo headless (`-p`, sem TTY) nega automaticamente qualquer ação
 `ask` — comportamento já documentado na docstring de `tests/e2e/test_headless.py`. Resultado:
@@ -113,7 +113,7 @@ enquanto não for corrigido, os outcomes 2 e 3 permanecem sem prova real, positi
   exit 0, arquivo existe.
 - **5:** `feature_list.json` compilado bate **byte a byte** com o `Plans.md` de teste — 2
   features, `files`/`verify_cmd`/`depends` exatos, caminhos reais da cópia
-  (`MinimumAPI/Validators/CustomerValidators.cs` etc.), nunca placeholder.
+  (`Cobaia/Validators/CustomerValidators.cs` etc.), nunca placeholder.
 - **6:** marcar T-01 `passes:true` e recompilar mudando só a `desc` de T-02 preserva o
   `passes:true` de T-01 (identidade intacta). Contraprova: mudar o `verify_cmd` de T-01 zera
   `passes` — evidência antiga não vale para um comando de verificação novo.
@@ -136,7 +136,7 @@ com o bug do outcome 2/3 (seção 6).
 ## 6. Integridade do original
 
 ```
-git -C C:\Projetos\MinimumAPI status --short
+git -C <caminho da cobaia .NET> status --short
 (saída vazia)
 ```
 

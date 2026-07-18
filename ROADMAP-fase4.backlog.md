@@ -978,7 +978,7 @@ blocos relevantes:
 
 - **🎯 Objetivo:** Ampliar `tests/e2e/test_contract_dogfood.py` (NUNCA
   recomeçar do zero — já tem os gates das Fases 1/2/3 na mesma cobaia
-  `MinimumAPI`) com o gate final da Fase 4: prova (a) zero regressão das
+  .NET externa) com o gate final da Fase 4: prova (a) zero regressão das
   Fases 1-3 na MESMA cobaia e (b) a novidade real da Fase 4 — o padrão
   Produtor-Revisor rodando com **REVISÃO INDEPENDENTE DE VERDADE**.
   **Redesenhado por reflect+judge** (achado crítico #1): a versão anterior
@@ -1028,7 +1028,7 @@ blocos relevantes:
   >
   > **Gap real de T-02, desenhado para produzir uma rejeição objetiva e
   > determinística no round 1 (não uma opinião subjetiva do revisor).**
-  > Leia `MinimumAPI/Validators/CustomerValidators.cs` de verdade na cobaia
+  > Leia `Cobaia/Validators/CustomerValidators.cs` de verdade na cobaia
   > copiada (`api_project`) e confirme que existem DOIS validators que
   > compartilham uma regra de campo (tipicamente
   > `CreateCustomerRequestValidator` e `UpdateCustomerRequestValidator`
@@ -1040,10 +1040,10 @@ blocos relevantes:
   > `spec.md` como critério de aceitação) — este é o critério objetivo que
   > o revisor vai checar por leitura direta do arquivo, sem precisar de
   > julgamento subjetivo. Escreva DOIS `[Fact]` novos em
-  > `MinimumAPI.Tests/CustomerValidatorTests.cs` (um por validator; ACRESCENTE,
+  > `Cobaia.Tests/CustomerValidatorTests.cs` (um por validator; ACRESCENTE,
   > não apague os existentes) e confirme TDD vermelho real para os dois
   > antes de qualquer correção. O `verify_cmd` de T-02 em `feature_list.json`
-  > deve ser o MESMO `dotnet test MinimumAPI.Tests` de sempre (sem filtro
+  > deve ser o MESMO `dotnet test Cobaia.Tests` de sempre (sem filtro
   > estreito — mantém o precedente do repo de rodar a suíte inteira).
   >
   > Fluxo do novo teste (múltiplas sessões `claude -p` reais, cada uma

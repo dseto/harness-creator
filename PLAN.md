@@ -189,13 +189,13 @@ o plano estimava ~12). Desvios deliberados:
 Aceitação rodada contra os 3 critérios da seção "Verificação" acima — todos
 atingidos e superados:
 
-1. **Suíte**: 87 testes (77 unit + 8 E2E com cópia real da MinimumAPI .NET +
+1. **Suíte**: 87 testes (77 unit + 8 E2E com cópia real da cobaia .NET +
    2 headless reais opt-in), 85 passam sempre + 2 skipped por padrão
    (`HARNESS_E2E_HEADLESS=1` pra rodar, custam tokens reais). Zero falhas.
 2. **Hook isolado**: validado por unit tests e, ao vivo, com payloads .NET
-   reais (`Edit`/`Bash` via stdin) contra `MinimumAPI-harness`.
+   reais (`Edit`/`Bash` via stdin) contra a cobaia `.NET-harness`.
 3. **E2E real**: roteiro manual de 7 casos rodado numa sessão real do Claude
-   Code contra `MinimumAPI-harness` — todos ✅ (leitura livre, edição/
+   Code contra a cobaia `.NET-harness` — todos ✅ (leitura livre, edição/
    execução/rede gateadas, TDD bloqueando teste e runner, audit score 100).
 
 Além do escopo original: descoberta e correção de 2 bugs que só apareceram

@@ -133,7 +133,7 @@ humano vira exceção de política, não rotina.
 `--expect-fail` no `verify` + par red→green no feature-lock, política
 `contract_policy` no schema do yaml, `--approve-policy` no `team generate`.
 
-**Gate E2E:** demanda real na MinimumAPI ponta a ponta com **zero toque
+**Gate E2E:** demanda real num repo sintético ponta a ponta com **zero toque
 humano** (analyze → plan → judge → auto-approve → compile → verify → review →
 passes), MAIS prova negativa obrigatória: contrato tier-alto (toca test_glob
 sem TDD / floor / arquivo fora da superfície segura) TEM que escalar em vez de

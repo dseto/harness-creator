@@ -8,7 +8,7 @@
 # NÃO ATINGIDO — nunca "NÃO EXECUTADO") em tests/e2e/evidence/fase1-outcomes-verification.md,
 # e `$env:PYTHONPATH = "src"; python -m pytest tests -q` verde sem apagar esses vereditos.
 # [SUBAGENTE 03] é opt-in de verdade (HARNESS_E2E_HEADLESS=1, custa tokens reais, exige
-# `claude` autenticada no PATH e a cobaia C:\Projetos\MinimumAPI em disco).
+# `claude` autenticada no PATH e a cobaia .NET externa em disco).
 #
 # Decisão de arquitetura registrada (Bug 2): entre as duas alternativas do relatório —
 # (a) _evidence_writer ler+mesclar o .md existente vs (b) rodar tudo num único processo
@@ -57,8 +57,8 @@
   >   approval_policy: auto
   > verification:
   >   enforce_tdd: false
-  >   test_command: "dotnet test MinimumAPI.Tests"
-  >   test_glob: "MinimumAPI.Tests/**/*.cs"
+  >   test_command: "dotnet test Cobaia.Tests"
+  >   test_glob: "Cobaia.Tests/**/*.cs"
   > ```
   > com um comentário Python explicando: `enforce_tdd: false` porque o hook `guard_test_runner` gerado com `true` responde `ask` a qualquer invocação do test_command e headless nega todo `ask` (achado de `test_headless.py`); `approval_policy: auto` libera Bash/Write/Edit no settings.json compilado — mas `edit_test` e `network` continuam SEMPRE gateados (`_ALWAYS_GATED` em `governance/approval.py`), o que não atrapalha: a skill plan só escreve sob `.harness/work/`, fora do `test_glob`.
   > (2) compilar via subprocess da CLI real, mantendo a disciplina do módulo (nunca import in-process — diferente do dogfood, que importa `compile_project`): `compile_proc = _run_cli(['compile', '--dir', str(api_project)], cwd=api_project)` + `assert compile_proc.returncode == 0, compile_proc.stderr` + assert de que `<api_project>/.claude/settings.json` existe. Registre em `proof2` que o baseline foi compilado (política `auto`, caminho do settings).
@@ -78,7 +78,7 @@
 ### [SUBAGENTE 03] - RE-EXECUÇÃO real: as duas baterias + veredito dos 6 outcomes
 > ✅ CONCLUÍDO — 6/6 outcomes ATINGIDO, prova real, evidência em tests/e2e/evidence/fase1-outcomes-verification.md
 > ⚠️ Opt-in e caro: invoca o binário `claude` REAL em modo headless (tokens reais, exige CLI
-> autenticada no PATH) e a cobaia `C:\Projetos\MinimumAPI` em disco. O objetivo é PROVA, não
+> autenticada no PATH) e a cobaia `.NET externa` em disco. O objetivo é PROVA, não
 > PASS forçado: se o teste dos outcomes 2/3 falhar com o setup corrigido, o veredito
 > "NÃO ATINGIDO" com a prova registrada é um resultado VÁLIDO desta tarefa — reporte-o ao
 > humano em vez de mexer na skill ou afrouxar asserts.
@@ -87,16 +87,16 @@
   - Ler: `tests/e2e/test_fase1_outcomes.py` (estado final pós 01+02), `ROADMAP-fase1.outcomes-report.md` (o que cada outcome exige como prova)
   - Modificar: NENHUM arquivo de código. Únicos efeitos em disco permitidos: `tests/e2e/evidence/fase1-outcomes-verification.md` (regravado pelos próprios testes) e artefatos temporários de pytest em tmp.
 - **🤖 Prompt para o Claude Code:**
-  > "Claude, execute a verificação final dos 6 outcomes da Fase 1. Pré-checagens: `shutil.which('claude')` não pode ser None (senão pare e reporte 'claude CLI ausente — tarefa bloqueada'); `Test-Path C:\Projetos\MinimumAPI` deve ser True. Depois rode, NESTA ordem, cada comando num shell limpo:
+  > "Claude, execute a verificação final dos 6 outcomes da Fase 1. Pré-checagens: `shutil.which('claude')` não pode ser None (senão pare e reporte 'claude CLI ausente — tarefa bloqueada'); `Test-Path <caminho da cobaia .NET>` deve ser True. Depois rode, NESTA ordem, cada comando num shell limpo:
   > 1. Bateria barata (grava vereditos reais de 1/4/5/6 por cima de qualquer estado semeado): `$env:PYTHONPATH = "src"; python -m pytest tests/e2e/test_fase1_outcomes.py -q` — espere 4 passed, 1 skipped.
   > 2. Bateria cara (outcomes 2/3, claude real, pode levar alguns minutos): `$env:HARNESS_E2E_HEADLESS = "1"; $env:PYTHONPATH = "src"; python -m pytest tests/e2e/test_fase1_outcomes.py -k outcomes2_3 -v -s` — capture a saída completa. Se falhar, NÃO conserte código: o writer de evidência (corrigido) já registrou o veredito NÃO ATINGIDO com a prova; leia o assert e a evidência, e registre a causa no seu relato.
   > 3. Prova anti-clobber em condições reais (o gate padrão do repo NÃO pode apagar os vereditos caros — é exatamente o cenário do Bug 2): num shell SEM `HARNESS_E2E_HEADLESS` (confirme com `Test-Path Env:HARNESS_E2E_HEADLESS` retornando False, ou remova com `Remove-Item Env:HARNESS_E2E_HEADLESS -ErrorAction SilentlyContinue`), rode `$env:PYTHONPATH = "src"; python -m pytest tests -q` — suíte inteira verde (E2E opt-in skipados) E, depois dela, os vereditos dos outcomes 2/3 continuam no arquivo de evidência.
-  > 4. Integridade do original: `git -C C:\Projetos\MinimumAPI status --short` — saída vazia.
+  > 4. Integridade do original: `git -C <caminho da cobaia .NET> status --short` — saída vazia.
   > Ao final, relate a tabela dos 6 outcomes (número, título, veredito, uma linha de prova) lida do arquivo de evidência. NUNCA rode a suíte inteira com `HARNESS_E2E_HEADLESS=1` setado — isso dispararia também `tests/e2e/test_headless.py` (2 sessões claude extras, tokens desnecessários)."
 - **🧪 Critério de Validação (DoD):**
   - [x] Passo 1: `$env:PYTHONPATH = "src"; python -m pytest tests/e2e/test_fase1_outcomes.py -q` — `4 passed, 1 skipped`
   - [x] Passo 2 executou de verdade (passou OU falhou com prova — ambos fecham a tarefa): `$env:HARNESS_E2E_HEADLESS = "1"; $env:PYTHONPATH = "src"; python -m pytest tests/e2e/test_fase1_outcomes.py -k outcomes2_3 -v -s` terminou sem skip (proibido `1 skipped` aqui) — passou, 54.94s
   - [x] Evidência completa, sem buraco: `(Select-String -Path tests/e2e/evidence/fase1-outcomes-verification.md -Pattern "Veredito: \*\*(ATINGIDO|NÃO ATINGIDO)\*\*").Count` retorna 6 e `Select-String -Path tests/e2e/evidence/fase1-outcomes-verification.md -Pattern "NÃO EXECUTADO"` retorna 0 matches
   - [x] Anti-clobber sob o gate padrão: `Remove-Item Env:HARNESS_E2E_HEADLESS -ErrorAction SilentlyContinue; $env:PYTHONPATH = "src"; python -m pytest tests -q` verde E, na sequência, o check de evidência do item anterior AINDA retorna 6/0 (a suíte inteira não apagou os vereditos caros)
-  - [x] Cobaia original intacta: `git -C C:\Projetos\MinimumAPI status --short` — saída vazia
+  - [x] Cobaia original intacta: `git -C <caminho da cobaia .NET> status --short` — saída vazia
   - [x] Relato final ao humano com a tabela dos 6 vereditos — 6/6 ATINGIDO

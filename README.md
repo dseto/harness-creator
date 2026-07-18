@@ -136,41 +136,14 @@ $env:PYTHONPATH = "src"
 python -m pytest tests -q          # unit + E2E
 ```
 
-A suíte E2E (`tests/e2e/`) usa uma cópia real da MinimumAPI (.NET) como
-cobaia — compile, audit, hooks via stdin, drift e merge, tudo em subprocess
-como na vida real. Precisa de `C:\Projetos\MinimumAPI` no disco (ou
-`HARNESS_E2E_API_SRC` apontando pra outra API); sem ela os E2E são skipped.
-Não precisa de dotnet — os E2E operam só em arquivos.
+A suíte E2E (`tests/e2e/`) roda inteira sobre repos sintéticos criados em
+`tmp_path` (Node, Python, YAML) — compile, audit, hooks via stdin, drift e
+merge, tudo em subprocess como na vida real, sem depender de nenhum projeto
+externo ao plugin.
 
-Uma segunda cobaia, `miojo-simulator-3.0` (Python/FastAPI/pytest —
-`HARNESS_E2E_MIOJO_SRC`, default `C:\Projetos\miojo-simulator-3.0`), prova
-que o harness generaliza além de C#/.NET (`tests/e2e/test_contract_dogfood_miojo.py`).
-
-Dogfood real de segurança (opt-in, `HARNESS_E2E_DOGFOOD=1`, exige `claude`
-no PATH) — `tests/e2e/test_boundary_guard_security_fix_{minimumapi,miojo}.py`
-disparam sessão `claude -p` headless de verdade nas duas cobaias tentando
-command smuggling e `replace_all` bypass no `boundary_guard.py`, confirmando
-`deny` via `permission_denials` estruturado **e** prova de disco (nunca
-texto de resposta).
-
-Headless real (`tests/e2e/test_headless.py`) — invoca o binário `claude -p`
-de verdade contra o playground compilado e confere o campo
-`permission_denials` do JSON de saída. Custa tokens reais e exige `claude`
-autenticado no PATH; **opt-in**, sempre skipped a menos que:
-
-```powershell
-$env:HARNESS_E2E_HEADLESS = "1"
-python -m pytest tests/e2e/test_headless.py -v
-```
-
-Achado que esses testes documentam: `claude -p` sem TTY **nunca trava** numa
-ação `ask` — nega sozinho e a sessão termina normal (exit 0). Pra detectar o
-bloqueio num script, não dá pra confiar no exit code: tem que checar
-`permission_denials` no `--output-format json`.
-
-Playground manual (com dotnet de verdade):
-
-```powershell
-python scripts/make_playground.py   # gera C:\Projetos\MinimumAPI-harness
-# roteiro de teste: MinimumAPI-harness\HARNESS-TEST-REPORT.md
-```
+Achado que a suíte documenta (via `harness.cli` chamado com
+`--output-format json`, mesmo padrão usado pelo `claude -p` real): uma ação
+negada nunca precisa travar a sessão — o hook responde `deny` e quem chama
+decide o que fazer. Pra detectar o bloqueio num script, não dá pra confiar no
+exit code isolado: tem que checar o campo estruturado da decisão
+(`permissionDecision`/`permission_denials`).

@@ -413,7 +413,7 @@
 > ✅ CONCLUÍDO — dogfood real rodado, evidência em tests/e2e/evidence/fase3-dogfood-verify-lock.md
 - **🎯 Objetivo:** Ampliar `tests/e2e/test_contract_dogfood.py` (NUNCA
   recomeçar do zero — já tem os gates de Fase 1 e Fase 2 na mesma cobaia
-  `MinimumAPI`) com o gate final da Fase 3: uma sessão `claude -p` headless
+  .NET externa) com o gate final da Fase 3: uma sessão `claude -p` headless
   real prova (a) zero regressão das Fases 1/2 na MESMA cobaia (reaproveitar
   o padrão de asserts já usado nos dois testes existentes) e (b) a novidade
   real da Fase 3 — `harness verify T-01` rodado depois da correção real grava

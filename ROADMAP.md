@@ -326,7 +326,7 @@ toques do contrato: **aprovar o plano e aceitar o release**.
 **Nenhuma fase (1–4) é considerada concluída só por `pytest tests -q` verde em
 repos sintéticos `tmp_path`.** Cada fase fecha com um teste E2E real, opt-in
 (mesmo padrão de custo/skip de `tests/e2e/test_headless.py`), rodado numa
-**cópia fresca de `C:\Projetos\MinimumAPI`** (a cobaia real que o repo já usa
+**cópia fresca da cobaia .NET externa** (a cobaia real que o repo já usa
 via `tests/e2e/conftest.py`), que prova duas coisas ao mesmo tempo — nunca só
 uma:
 
@@ -389,5 +389,5 @@ Três achados da revisão de coerência continuam valendo e estão absorvidos:
 | 4. Team Factory L3 | revisão e distribuição por agentes; humano só assina e aceita | `.claude/agents/*.md`, catálogo de padrões, estado `pending→in_review→rejected\|approved` [design próprio; fonte usa PASS/FIX/REDO], veto ligado ao feature-lock | aprova arquitetura do time (1×) + aceita release | F1–F3 |
 
 Toda fase fecha com o **Gate de Encerramento E2E Dogfood** (seção acima):
-cobaia real (`MinimumAPI`), zero regressão das fases anteriores + nova
+cobaia real (a cobaia .NET), zero regressão das fases anteriores + nova
 funcionalidade real provada, evidência em markdown para conferência humana.

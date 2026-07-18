@@ -160,7 +160,7 @@ governa Edit/Write/Bash dentro do raio de impacto de um contrato) — 2 bugs
 reais encontrados por auditoria independente (Fable) contra o `ROADMAP.md`,
 confirmados por reflect (Opus), corrigidos com TDD e provados em condições
 reais (2 dogfood E2E novos, sessão `claude -p` headless de verdade, cobaias
-MinimumAPI e miojo-simulator-3.0), validados de ponta a ponta por uma
+externas), validados de ponta a ponta por uma
 segunda rodada independente (Fable + subagentes, reproduzindo do zero).
 
 ### Corrigido
@@ -188,14 +188,13 @@ segunda rodada independente (Fable + subagentes, reproduzindo do zero).
   isoladamente (smuggling via `&&`/`;`/`|`/command substitution nas duas
   direções; `replace_all` com features mistas evidência/sem-evidência) —
   suíte completa: 389 passed, 8 skipped, zero regressão.
-- `tests/e2e/test_boundary_guard_security_fix_minimumapi.py` e
-  `tests/e2e/test_boundary_guard_security_fix_miojo.py` (opt-in,
+- Dois testes E2E de dogfood real de segurança (opt-in,
   `HARNESS_E2E_DOGFOOD=1`) — sessão `claude -p` headless real tentando os
-  dois ataques numa cobaia fresca, confirmando `deny` via
+  dois ataques em cobaias externas frescas, confirmando `deny` via
   `permission_denials` estruturado **e** prova de disco (arquivo malicioso
   nunca criado, feature sem evidência continua `passes:false`).
-- `tests/e2e/test_contract_dogfood_miojo.py` — primeiro dogfood real numa
-  segunda cobaia (`miojo-simulator-3.0`, Python/FastAPI/pytest), provando
+- Primeiro dogfood real numa segunda cobaia (`projeto-exemplo-3.0`,
+  Python/FastAPI/pytest), provando
   que o harness generaliza além de C#/.NET: gap real corrigido (`GET
   /leaderboard?limit=` sem validação de faixa — SQLite trata `LIMIT`
   negativo como "sem limite").
@@ -394,8 +393,8 @@ qualquer código.
 - `tests/e2e/test_contract_flow.py` — E2E do fluxo completo
   analyze → spec/Plans → gate de aprovação → compile-contract.
 - `tests/e2e/test_contract_dogfood.py` — gate de encerramento da fase: contrato
-  aprovado + `claude -p` real implementando uma melhoria genuína na cobaia
-  `MinimumAPI` (validação de `Document` só por dígitos), provada por
+  aprovado + `claude -p` real implementando uma melhoria genuína numa cobaia
+  externa (validação de `Document` só por dígitos), provada por
   `dotnet test` real antes/depois; evidência em
   `tests/e2e/evidence/fase1-dogfood-document-digits.md`.
 - `tests/e2e/test_fase1_outcomes.py` — suíte de verificação independente dos

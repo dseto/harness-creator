@@ -13,7 +13,7 @@
 #   - 🟡 Fase 2: [SUBAGENTE 02] (depende de 01) e [SUBAGENTE 04] (depende de 01 e 03) — paralelo, arquivos disjuntos (04 usa tests/test_cli.py dedicado, não mais test_analyzer.py/test_contract.py)
 #   - 🟠 Fase 3: [SUBAGENTE 05] e [SUBAGENTE 06] (ambos dependem de 04 — CLI completa) — paralelo, arquivos disjuntos
 #   - 🔴 Fase 4: [SUBAGENTE 07] (depende de tudo acima — documenta CLI, skill e E2E prontos) — sequencial
-#   - 🏁 Fase 5: [SUBAGENTE 08] (depende de 04 — CLI completa; roda por último como gate final, opt-in) — prova real: cópia de C:\Projetos\MinimumAPI, contrato aprovado, Claude real implementando, dotnet test real
+#   - 🏁 Fase 5: [SUBAGENTE 08] (depende de 04 — CLI completa; roda por último como gate final, opt-in) — prova real: cópia da cobaia .NET externa, contrato aprovado, Claude real implementando, dotnet test real
 
 > 🏁 DEMANDA FECHADA — 2026-07-16
 > Correção consolidada em `ROADMAP-fase1.correction.backlog.md` (2 bugs do arnês de teste:
@@ -116,7 +116,7 @@
   > "Claude, crie `tests/e2e/test_contract_flow.py` seguindo o padrão de subprocess dos E2E existentes (invocar `python -m harness.cli ...` com env PYTHONPATH=src, cwd controlado, sem rede, sem Docker). Cenário num repo sintético node criado em tmp_path (package.json com script test + package-lock.json + um arquivo `src/index.test.js`): (1) `analyze --dir` → exit 0, stdout JSON com language javascript, package_manager npm, test_command do script, e `.harness/repo-profile.json` gravado; (2) escrever `.harness/work/demo/spec.md` SEM approved_by + `Plans.md` com 2 tarefas válidas → `compile-contract --dir --slug demo` → exit 1, stderr contém 'não aprovado', e `.harness/feature_list.json` NÃO existe; (3) preencher approved_by/approved_at → recompilar → exit 0, feature_list.json com 2 features passes:false; (4) marcar passes:true na T-01 à mão, editar a desc da T-02 no Plans.md, recompilar → T-01 preserva passes:true, T-02 continua false. Use os formatos exatos de contract.py. Não modifique conftest nem os E2E existentes."
 - **🧪 Critério de Validação (DoD):**
   - [x] `$env:PYTHONPATH = "src"; python -m pytest tests/e2e/test_contract_flow.py -v` — verde
-  - [x] `$env:PYTHONPATH = "src"; python -m pytest tests -q` — suíte inteira verde (E2E MinimumAPI podem estar skipped sem a cobaia; zero falhas)
+  - [x] `$env:PYTHONPATH = "src"; python -m pytest tests -q` — suíte inteira verde (E2E da cobaia .NET podem estar skipped sem a cobaia; zero falhas)
   - [x] `python -m ruff check tests/e2e/test_contract_flow.py` — limpo
 
 ---
@@ -138,10 +138,10 @@
 
 ---
 
-### [SUBAGENTE 08] - E2E dogfood real: contrato completo na MinimumAPI + Claude real implementando
+### [SUBAGENTE 08] - E2E dogfood real: contrato completo na cobaia .NET + Claude real implementando
 > ✅ CONCLUÍDO — rodado de verdade, 1 passed in 46.99s, evidência em tests/e2e/evidence/fase1-dogfood-document-digits.md
-> ⚠️ Gate final da Fase 1, não um teste unitário sintético. Roda numa CÓPIA fresca de
-> `C:\Projetos\MinimumAPI` (repo real, mesma cobaia que `tests/e2e/conftest.py` já usa),
+> ⚠️ Gate final da Fase 1, não um teste unitário sintético. Roda numa CÓPIA fresca da
+> cobaia .NET externa (repo real, mesma cobaia que `tests/e2e/conftest.py` já usa),
 > aprova um contrato de verdade, invoca o binário `claude` de verdade em modo headless pra
 > implementar uma melhoria REAL, e prova com `dotnet test` real — não com asserção sobre o
 > texto de saída do Claude. Segue o mesmo padrão opt-in de `tests/e2e/test_headless.py`
@@ -149,26 +149,26 @@
 > `pytest tests -q` do cabeçalho deste backlog.
 - **🎯 Objetivo:** Provar de ponta a ponta que analyze→spec/Plans aprovado→compile-contract→execução real produz uma melhoria de código genuína e verificável, na cobaia real do projeto.
 - **📂 Escopo de Arquivos:**
-  - Ler: `tests/e2e/conftest.py` (fixture `api_project`, função `copy_api_source`, `API_SRC` — a cópia gerada tem `MinimumAPI/` + `MinimumAPI.Tests/` com `CustomerValidatorTests.cs` já presente), `tests/e2e/test_headless.py` (padrão real: `claude -p <prompt> --output-format json`, timeout, skip se `claude` ausente do PATH, checar `permission_denials`/`is_error` no JSON — NÃO confiar em exit code), `scripts/make_playground.py` (harness.yaml de exemplo com `governance.approval_policy`, `verification.test_command: "dotnet test"`; nota de que sem `.sln` o comando real é `dotnet test MinimumAPI.Tests`), `src/harness/contract.py` (formato exato de spec.md/Plans.md — usar o exemplo literal do docstring do módulo), `src/harness/analyzer.py`, `src/harness/cli.py`, `src/harness/compiler.py` (`compile_project`, `governance.approval_policy: auto` libera Edit em arquivos de código sem prompt; `edit_test`/rede continuam sempre gateados independente da política — por isso a tarefa do contrato desta melhoria toca SÓ o arquivo de validação, nunca o arquivo de teste)
+  - Ler: `tests/e2e/conftest.py` (fixture `api_project`, função `copy_api_source`, `API_SRC` — a cópia gerada tem `Cobaia/` + `Cobaia.Tests/` com `CustomerValidatorTests.cs` já presente), `tests/e2e/test_headless.py` (padrão real: `claude -p <prompt> --output-format json`, timeout, skip se `claude` ausente do PATH, checar `permission_denials`/`is_error` no JSON — NÃO confiar em exit code), `scripts/make_playground.py` (harness.yaml de exemplo com `governance.approval_policy`, `verification.test_command: "dotnet test"`; nota de que sem `.sln` o comando real é `dotnet test Cobaia.Tests`), `src/harness/contract.py` (formato exato de spec.md/Plans.md — usar o exemplo literal do docstring do módulo), `src/harness/analyzer.py`, `src/harness/cli.py`, `src/harness/compiler.py` (`compile_project`, `governance.approval_policy: auto` libera Edit em arquivos de código sem prompt; `edit_test`/rede continuam sempre gateados independente da política — por isso a tarefa do contrato desta melhoria toca SÓ o arquivo de validação, nunca o arquivo de teste)
   - Modificar (criar): `tests/e2e/test_contract_dogfood.py`
 - **🤖 Prompt para o Claude Code:**
   > "Claude, crie `tests/e2e/test_contract_dogfood.py`. Marque o módulo inteiro com
   > `pytestmark = pytest.mark.skipif(os.environ.get('HARNESS_E2E_DOGFOOD') != '1', reason='opt-in: custa tokens reais e exige dotnet+claude no PATH (rode com HARNESS_E2E_DOGFOOD=1)')`,
   > e adicione um fixture `autouse=True` que dá skip se `shutil.which('claude')` ou
   > `shutil.which('dotnet')` forem `None` (mesmo padrão de `test_headless.py`). Use a fixture
-  > `api_project` de `tests/e2e/conftest.py` (cobaia real de `C:/Projetos/MinimumAPI`, já skip se
-  > `HARNESS_E2E_API_SRC`/MinimumAPI não existir no disco).
+  > `api_project` de `tests/e2e/conftest.py` (cobaia real .NET externa, já skip se
+  > `HARNESS_E2E_API_SRC`/cobaia não existir no disco).
   >
-  > O gap real a corrigir (confirmado por leitura de `C:\Projetos\MinimumAPI\Validators\CustomerValidators.cs`):
+  > O gap real a corrigir (confirmado por leitura de `<cobaia .NET>\Validators\CustomerValidators.cs`):
   > `CreateCustomerRequestValidator` valida `Document` só por tamanho (`MinimumLength(11)`/`MaximumLength(20)`),
   > sem checar que é só dígitos — hoje um documento tipo `'abc12345678'` passa na validação.
   >
   > Passos do teste (nessa ordem, cada assert usando prova real de subprocess, nunca confiança
   > no texto do Claude):
-  > 1. TDD real antes de tudo: edite (via Python, não via Claude) `<cobaia>/MinimumAPI.Tests/CustomerValidatorTests.cs`
+  > 1. TDD real antes de tudo: edite (via Python, não via Claude) `<cobaia>/Cobaia.Tests/CustomerValidatorTests.cs`
   >    adicionando um `[Fact] Document_with_letters_fails` que cria um `CreateCustomerRequest`
   >    com `Document: '1234567890a'` e `ShouldHaveValidationErrorFor(x => x.Document)`. Rode
-  >    `dotnet test MinimumAPI.Tests` (cwd=cobaia, subprocess, timeout generoso ~180s) e
+  >    `dotnet test Cobaia.Tests` (cwd=cobaia, subprocess, timeout generoso ~180s) e
   >    **assert que FALHA** (prova que o teste é real e vermelho antes da correção).
   > 2. Rode `python -m harness.cli analyze --dir <cobaia>` (subprocess, env PYTHONPATH=src) —
   >    assert exit 0, profile no stdout JSON tem `csharp` em `languages` e `.harness/repo-profile.json`
@@ -181,23 +181,23 @@
   >    sempre-ativo de `compiler.py`):
   >    ```
   >    ## [T-01] Documento deve conter apenas dígitos
-  >    - files: `MinimumAPI/Validators/CustomerValidators.cs`
-  >    - verify: `dotnet test MinimumAPI.Tests`
+  >    - files: `Cobaia/Validators/CustomerValidators.cs`
+  >    - verify: `dotnet test Cobaia.Tests`
   >    ```
   > 4. Rode `python -m harness.cli compile-contract --dir <cobaia> --slug dogfood-document-digits`
   >    — assert exit 0 e `.harness/feature_list.json` com 1 feature `passes: false`.
   > 5. Compile TAMBÉM um `harness.yaml` de governança nessa cobaia (mecanismo já existente,
   >    `compile_project` de `harness.compiler` — igual `scripts/make_playground.py` faz) com
-  >    `governance.approval_policy: auto` e `verification.test_command: 'dotnet test MinimumAPI.Tests'`,
+  >    `governance.approval_policy: auto` e `verification.test_command: 'dotnet test Cobaia.Tests'`,
   >    pra que a edição do arquivo de produção não fique presa em `ask` num headless sem TTY
   >    (headless nunca aprova `ask` sozinho — nega e segue, documentado em `test_headless.py`).
   > 6. Invoque `claude` real e headless (`subprocess.run(['claude', '-p', <prompt>, '--output-format', 'json'], cwd=<cobaia>, timeout=180)`)
   >    com um prompt que cita literalmente a tarefa T-01 do Plans.md e instrui: implementar a
   >    regra em `CreateCustomerRequestValidator` (`RuleFor(x => x.Document)` ganha
   >    `.Matches(@'^\d+$').WithMessage('O documento deve conter apenas dígitos.')` ou equivalente)
-  >    e rodar `dotnet test MinimumAPI.Tests` ele mesmo antes de terminar, só declarando feito se
+  >    e rodar `dotnet test Cobaia.Tests` ele mesmo antes de terminar, só declarando feito se
   >    o comando passar. Assert `out['is_error'] is False`.
-  > 7. PROVA FINAL (não confie no que o Claude disse): rode `dotnet test MinimumAPI.Tests` de novo,
+  > 7. PROVA FINAL (não confie no que o Claude disse): rode `dotnet test Cobaia.Tests` de novo,
   >    via subprocess, fora do Claude — assert `returncode == 0` (suíte inteira verde, incluindo o
   >    `Document_with_letters_fails` que estava vermelho no passo 1) E que os 3 testes que já
   >    existiam antes da mudança (`Valid_request_passes`, `Empty_name_fails`, `Short_document_fails`)
@@ -220,4 +220,4 @@
   - [x] Com o ambiente real disponível: `$env:HARNESS_E2E_DOGFOOD = "1"; $env:PYTHONPATH = "src"; python -m pytest tests/e2e/test_contract_dogfood.py -v -s` — verde (pode levar minutos: dotnet restore + build + claude real)
   - [x] `python -m ruff check tests/e2e/test_contract_dogfood.py` — limpo
   - [x] `Test-Path tests/e2e/evidence/fase1-dogfood-document-digits.md` retorna `True` após a execução real, e o arquivo tem as 4 seções (`Select-String -Path tests/e2e/evidence/fase1-dogfood-document-digits.md -Pattern "^## "` retorna 4 linhas)
-  - [x] Confirmação humana pós-execução: `git -C C:\Projetos\MinimumAPI diff --stat` continua vazio (a tarefa só editou a CÓPIA em tmp, nunca o repo original)
+  - [x] Confirmação humana pós-execução: `git -C <cobaia .NET> diff --stat` continua vazio (a tarefa só editou a CÓPIA em tmp, nunca o repo original)

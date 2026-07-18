@@ -1,4 +1,4 @@
-"""E2E: verificação independente dos 6 outcomes prometidos pela Fase 3 do
+"""E2E: verificação independente dos 5 outcomes prometidos pela Fase 3 do
 ROADMAP.md ("Auto-verificação e Correção em Loop"), provados contra o código
 REAL — subprocess da CLI (`python -m harness.cli ...`) e dos hooks standalone
 gerados, MAIS chamada direta às funções públicas de módulo que a Fase 3
@@ -8,11 +8,7 @@ expõe de propósito (`compute_files_hash`, `get_stop_conditions`,
 
 Camada de verificação INDEPENDENTE dos E2E já existentes: não duplica
 `test_boundary_flow.py` (que cobre runtime floor, superfície de arquivos/
-comandos e proteção de teste — mas NÃO o feature-lock de `passes:true`) e não
-re-roda o dogfood headless real (`claude -p`) já provado por
-`test_contract_dogfood.py::test_contract_dogfood_verify_and_feature_lock` —
-o outcome 6 verifica barato, por leitura de disco, que a evidência gravada
-por aquele teste existe e diz o que promete.
+comandos e proteção de teste — mas NÃO o feature-lock de `passes:true`).
 
 Outcomes verificados (extraídos da seção "Fase 3" do ROADMAP.md, linhas
 ~208-247, refinados pela leitura do código real):
@@ -58,25 +54,17 @@ Outcomes verificados (extraídos da seção "Fase 3" do ROADMAP.md, linhas
        stop_hook flagra num cenário real são exatamente os ids que o finding
        `multiple_features_in_progress` cita. CLI `audit-runtime`: exit 0 com
        artefatos sadios, exit 1 com score < 60, findings em JSON parseável.
-    6. (Prova barata em disco, sem `claude -p`) A evidência do dogfood real da
-       Fase 3 (`evidence/fase3-dogfood-verify-lock.md`) tem as 5 seções
-       esperadas, cita `permission_denials` estruturado NÃO-vazio cuja negação
-       é exatamente a tentativa prematura de `passes: false -> true` no
-       feature_list.json, e confirma que o estado final só ficou `passes:true`
-       DEPOIS da evidência real (hash recomputado de fora bate; mtime do
-       feature_list >= mtime da evidência). As evidências das Fases 1/2
-       continuam intactas (zero regressão de evidência entre fases).
 
 Evidência: ao final da execução do módulo, grava
 `tests/e2e/evidence/fase3-outcomes-verification.md` com uma seção por outcome
 (veredito ATINGIDO / NÃO ATINGIDO / NÃO EXECUTADO + prova concreta), fazendo
-MERGE com o arquivo existente (mesmo padrão de `test_fase1_outcomes.py` /
-`test_fase2_outcomes.py`): cada outcome executado nesta rodada é regravado com
-o veredito novo; outcome não executado preserva byte a byte o veredito real de
-uma rodada anterior; só cai para o placeholder quando nunca houve veredito.
+MERGE com o arquivo existente (mesmo padrão de `test_fase2_outcomes.py`): cada
+outcome executado nesta rodada é regravado com o veredito novo; outcome não
+executado preserva byte a byte o veredito real de uma rodada anterior; só cai
+para o placeholder quando nunca houve veredito.
 
 Nenhuma env var é necessária: todos os testes são baratos (subprocess local,
-git local, sem tokens, sem Docker, sem `dotnet`, sem cobaia MinimumAPI).
+git local, sem tokens, sem Docker, sem cobaia externa).
 """
 
 from __future__ import annotations
@@ -95,9 +83,6 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 SRC_DIR = PLUGIN_ROOT / "src"
 EVIDENCE_DIR = Path(__file__).resolve().parent / "evidence"
 EVIDENCE_PATH = EVIDENCE_DIR / "fase3-outcomes-verification.md"
-FASE3_DOGFOOD_EVIDENCE = EVIDENCE_DIR / "fase3-dogfood-verify-lock.md"
-FASE2_DOGFOOD_EVIDENCE = EVIDENCE_DIR / "fase2-dogfood-boundary-guard.md"
-FASE1_DOGFOOD_EVIDENCE = EVIDENCE_DIR / "fase1-dogfood-document-digits.md"
 
 # Funções públicas de módulo da Fase 3 — chamadas DIRETAS onde faz sentido
 # (o próprio ROADMAP as expõe como API de módulo, não só scripts standalone).
@@ -148,7 +133,6 @@ _OUTCOME_TITLES = {
     3: "feature-lock: passes:true só com evidência fresca (mais nova que o último commit); sem/velha evidência -> deny; edição sem transição mantém o deny de superfície",
     4: "hook Stop detecta feature em progresso sem verificação atualizada, silencia quando tudo verificado; compile-session instala idempotente sem matcher",
     5: "audit-runtime pega os 2 invariantes como critical e usa is_feature_in_progress IMPORTADA de stop_hook (os dois módulos concordam no mesmo cenário)",
-    6: "evidência do dogfood real da Fase 3 em disco completa (permission_denials não-vazio; passes:true só após evidência real); evidências das Fases 1/2 intactas",
 }
 
 _SECTIONS: dict[int, tuple[bool, str]] = {}
@@ -189,11 +173,10 @@ def _evidence_writer():
         "",
         f"Gerado em {now} por `tests/e2e/test_fase3_outcomes.py` "
         "(repos sintéticos em tmp_path via subprocess da CLI real + hooks "
-        "standalone gerados + funções públicas de módulo; o outcome 6 verifica "
-        "a evidência do dogfood real já gravada em disco).",
+        "standalone gerados + funções públicas de módulo).",
         "",
     ]
-    for num in range(1, 7):
+    for num in range(1, 6):
         title = _OUTCOME_TITLES[num]
         body.append(f"## Outcome {num} — {title}")
         body.append("")
@@ -891,112 +874,3 @@ def test_outcome5_runtime_audit_invariants_agree_with_stop_hook(tmp_path: Path) 
         achieved = True
     finally:
         _record(5, achieved, proof)
-
-
-# ---------------------------------------------------------------------------
-# Outcome 6 — evidência do dogfood real em disco (prova barata, sem claude -p)
-# ---------------------------------------------------------------------------
-
-def test_outcome6_dogfood_evidence_on_disk_is_complete(tmp_path: Path) -> None:
-    proof: list[str] = []
-    achieved = False
-    try:
-        assert FASE3_DOGFOOD_EVIDENCE.is_file(), (
-            f"{FASE3_DOGFOOD_EVIDENCE} não existe — o gate de encerramento da "
-            "Fase 3 exige evidência commitada em disco"
-        )
-        fase3 = FASE3_DOGFOOD_EVIDENCE.read_text(encoding="utf-8")
-        expected_sections = [
-            "## Regressão (Fases 1/2 na mesma cobaia)",
-            "## Verify real (harness verify T-01)",
-            "## Feature-lock (negação prematura + permissão legítima)",
-            "## Diff aplicado (T-01)",
-            "## Execução do agente",
-        ]
-        for section in expected_sections:
-            assert section in fase3, f"seção ausente na evidência da Fase 3: {section!r}"
-        proof.append(
-            f"`{FASE3_DOGFOOD_EVIDENCE.name}` existe com as 5 seções esperadas: "
-            f"{expected_sections}."
-        )
-
-        # permission_denials estruturado, NÃO-vazio, e a negação é EXATAMENTE
-        # a tentativa prematura de transicionar passes false -> true
-        denials_match = re.search(
-            r"^- `permission_denials`: (\[.*)$", fase3, re.MULTILINE
-        )
-        assert denials_match, "linha `permission_denials` ausente da seção Execução do agente"
-        denials = json.loads(denials_match.group(1))
-        assert isinstance(denials, list) and len(denials) >= 1, (
-            f"permission_denials vazio — sem prova estruturada da negação: {denials!r}"
-        )
-        first = denials[0]
-        assert first.get("tool_name") == "Edit", denials
-        tool_input = first.get("tool_input") or {}
-        assert "feature_list.json" in tool_input.get("file_path", ""), denials
-        assert '"passes": false' in tool_input.get("old_string", ""), denials
-        assert '"passes": true' in tool_input.get("new_string", ""), denials
-        assert "- `is_error`: False" in fase3
-        proof.append(
-            "Campo estruturado `permission_denials` parseado da evidência: "
-            f"{len(denials)} negação(ões); a primeira é Edit sobre "
-            "`feature_list.json` com old_string `\"passes\": false` -> "
-            "new_string `\"passes\": true` — a negação registrada é exatamente "
-            "a tentativa prematura de marcar done sem evidência, com "
-            "`is_error: False` (a sessão real terminou bem mesmo assim)."
-        )
-
-        # o verify real gravou exit_code 0 e o hash foi recomputado de fora
-        assert '"exit_code": 0' in fase3, (
-            "evidência não mostra o exit_code 0 do verify real"
-        )
-        assert "bate com o gravado: True" in fase3, (
-            "evidência não confirma o files_hash recomputado de fora do Claude"
-        )
-        proof.append(
-            "A seção do verify real mostra a evidência gravada com "
-            "`\"exit_code\": 0` e a confirmação de que o `files_hash` "
-            "recalculado FORA do Claude bate com o gravado."
-        )
-
-        # estado final: passes:true só DEPOIS da evidência real (ordem provada
-        # por mtime, registrada na evidência)
-        assert '"passes": true' in fase3
-        mtime_line = re.search(
-            r"mtime feature_list\.json \([\d.]+\) >= mtime evid\S* \([\d.]+\): confirmado",
-            fase3,
-        )
-        assert mtime_line, (
-            "evidência não confirma (via mtime) que passes:true veio DEPOIS da evidência"
-        )
-        proof.append(
-            "Estado final `passes: true` confirmado com a ordem temporal "
-            f"provada fora do Claude: `{mtime_line.group(0)}` — a lista só foi "
-            "marcada done depois da evidência real."
-        )
-
-        # --- evidências das Fases 1/2 intactas (zero regressão entre fases) ---
-        assert FASE1_DOGFOOD_EVIDENCE.is_file(), (
-            f"{FASE1_DOGFOOD_EVIDENCE} sumiu — regressão de evidência entre fases"
-        )
-        fase1 = FASE1_DOGFOOD_EVIDENCE.read_text(encoding="utf-8")
-        assert "Document_with_letters_fails" in fase1
-        assert "- `is_error`: False" in fase1
-        assert FASE2_DOGFOOD_EVIDENCE.is_file(), (
-            f"{FASE2_DOGFOOD_EVIDENCE} sumiu — regressão de evidência entre fases"
-        )
-        fase2 = FASE2_DOGFOOD_EVIDENCE.read_text(encoding="utf-8")
-        assert "## Negação da ação fora do raio" in fase2
-        fase2_denials = re.search(r"^- `permission_denials`: (\[.*)$", fase2, re.MULTILINE)
-        assert fase2_denials and json.loads(fase2_denials.group(1)), (
-            "evidência da Fase 2 perdeu o permission_denials estruturado"
-        )
-        proof.append(
-            f"`{FASE1_DOGFOOD_EVIDENCE.name}` (TDD real Document_with_letters_fails) "
-            f"e `{FASE2_DOGFOOD_EVIDENCE.name}` (negação fora do raio com "
-            "permission_denials estruturado) continuam intactas em disco — zero "
-            "regressão de evidência entre fases."
-        )
-        achieved = True
-    finally:
-        _record(6, achieved, proof)

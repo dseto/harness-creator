@@ -1,6 +1,6 @@
 # Evidência — Fase 2: verificação dos 9 outcomes
 
-Gerado em 2026-07-16T10:15:00.552082+00:00 por `tests/e2e/test_fase2_outcomes.py` (repos sintéticos em tmp_path via subprocess da CLI real; o outcome 9 verifica a evidência do dogfood real já gravada em disco).
+Gerado em 2026-07-18T02:02:41.108037+00:00 por `tests/e2e/test_fase2_outcomes.py` (repos sintéticos em tmp_path via subprocess da CLI real).
 
 ## Outcome 1 — compile-session compila permissions.allow EXATAMENTE da superfície enumerada do contrato
 
@@ -32,7 +32,7 @@ Veredito: **ATINGIDO**
 Merge não-destrutivo: regra manual `Bash(echo regra-manual)` sobreviveu à recompilação; nenhuma regra duplicada (idempotência).
 Contrato encolhido (T-02 removida do Plans.md) e recompilado: `Edit/Write(src/util.py)` e `Bash(pytest tests -q)` SUMIRAM do allow (a autonomia é do tamanho do contrato ATUAL), regra manual preservada.
 
-_Atualizado em 2026-07-16T10:15:00.552082+00:00 por esta rodada._
+_Atualizado em 2026-07-18T02:02:41.108037+00:00 por esta rodada._
 
 ## Outcome 2 — runtime floor (git push/rede/segredos) NUNCA vira allow — com contrato hostil, sem contrato, ou contrato abandonado
 
@@ -44,7 +44,7 @@ Observação (registrada, não é falha do outcome): com o contrato hostil o set
 Sem contrato ativo: `compile-session` -> exit 1 (stderr manda rodar `compile-contract` primeiro) e NENHUM `.claude/settings.json` é escrito — não existe política compilada sem contrato aprovado.
 Contrato abandonado (feature_list.json removido após a instalação): `git push` e Write em `.env` continuam DENY (floor incondicional, avaliado ANTES da checagem de contrato), enquanto Edit em arquivo comum volta a allow ('sem contrato ativo').
 
-_Atualizado em 2026-07-16T10:15:00.552082+00:00 por esta rodada._
+_Atualizado em 2026-07-18T02:02:41.108037+00:00 por esta rodada._
 
 ## Outcome 3 — boundary_guard nega fora da superfície com razão legível e permite dentro do raio
 
@@ -54,7 +54,7 @@ Edit em `src/nao_declarado.py` (fora de files[]) -> deny com razão legível que
 Bash `python scripts/deploy.py --prod` (fora de verify/lint/typecheck/build/install/git-local) -> deny com razão: `comando fora da superficie compilada do contrato (verify_cmd/lint/typecheck/build/install/git local); replaneje via /harness-creator:plan se precisar de outro comando`
 Dentro do raio, tudo allow sem prompt: Edit em files[], verify_cmd, lint/typecheck/build do profile, `git status`/`git commit` do ritual.
 
-_Atualizado em 2026-07-16T10:15:00.552082+00:00 por esta rodada._
+_Atualizado em 2026-07-18T02:02:41.108037+00:00 por esta rodada._
 
 ## Outcome 4 — arquivo que casa test_glob só é editável se declarado em files[] do contrato
 
@@ -63,7 +63,7 @@ Veredito: **ATINGIDO**
 `tests/test_app.py` casa o test_glob E está em files[] da T-01 -> allow (razão: `arquivo de teste declarado em files[] de uma tarefa do contrato ativo`) — tarefa TDD declarada pode tocar o próprio teste.
 `tests/test_other.py` casa o test_glob e NÃO está em files[] de nenhuma tarefa -> deny (razão: `arquivo de teste protegido: nenhuma tarefa do contrato ativo declara este arquivo em files[] - enfraquecimento de teste fora do escopo aprovado`) — o allow do raio não deixa o agente afrouxar teste fora do escopo aprovado.
 
-_Atualizado em 2026-07-16T10:15:00.552082+00:00 por esta rodada._
+_Atualizado em 2026-07-18T02:02:41.108037+00:00 por esta rodada._
 
 ## Outcome 5 — compile-session remove o hook legado guard_tests.py sem tocar outros hooks
 
@@ -73,7 +73,7 @@ Mecanismo antigo (`harness compile`, enforce_tdd: true) instalou `guard_tests.py
 Após `compile-session`: `guard_tests.py` REMOVIDO de hooks.PreToolUse (a proteção de teste agora é por-tarefa no boundary_guard), `guard_test_runner.py` PRESERVADO intacto, `boundary_guard.py` registrado. Matchers finais: ['Bash', 'Edit|Write|Bash'].
 Segunda rodada de `compile-session`: uma única entrada do boundary_guard (idempotente).
 
-_Atualizado em 2026-07-16T10:15:00.552082+00:00 por esta rodada._
+_Atualizado em 2026-07-18T02:02:41.108037+00:00 por esta rodada._
 
 ## Outcome 6 — lifecycle de 16 passos como bloco gerenciado idempotente no AGENTS.md + .harness/LIFECYCLE.md
 
@@ -84,7 +84,7 @@ Bloco do lifecycle: 16 passos numerados (1 linha por passo), citando init/claude
 `.harness/LIFECYCLE.md` existe com os 16 passos detalhados (um parágrafo por passo).
 Segunda rodada: um único bloco lifecycle (substituído in-place), bloco do compiler e texto humano seguem intactos.
 
-_Atualizado em 2026-07-16T10:15:00.552082+00:00 por esta rodada._
+_Atualizado em 2026-07-18T02:02:41.108037+00:00 por esta rodada._
 
 ## Outcome 7 — templates do contrato/profile: claude-progress.md nunca sobrescrito; init.* regenerados
 
@@ -95,7 +95,7 @@ Veredito: **ATINGIDO**
 `claude-progress.md` substituído por progresso real e `compile-session` re-rodado: o arquivo permaneceu byte a byte igual (nunca sobrescrito).
 Profile mudado (npm -> pnpm) e recompilado: `init.sh` regenerado com `pnpm install --frozen-lockfile` (sem resto de `npm ci`), e a regra de instalação no allow acompanhou a troca.
 
-_Atualizado em 2026-07-16T10:15:00.552082+00:00 por esta rodada._
+_Atualizado em 2026-07-18T02:02:41.108037+00:00 por esta rodada._
 
 ## Outcome 8 — hook SessionStart injeta contexto real e não quebra sem git/sem contrato
 
@@ -106,16 +106,5 @@ Hook invocado com payload real: `additionalContext` contém a feature pendente (
 Segunda rodada de `compile-session`: continua UMA entrada em hooks.SessionStart (idempotente).
 Hook apontado (via payload cwd) para diretório sem git e sem `.harness/`: exit 0, JSON válido, contexto degrada com elegância ('Nenhum contrato ativo') — não quebra a sessão.
 
-_Atualizado em 2026-07-16T10:15:00.552082+00:00 por esta rodada._
-
-## Outcome 9 — evidência do dogfood real da Fase 2 em disco com 4 seções + permission_denials não-vazio; evidência da Fase 1 intacta
-
-Veredito: **ATINGIDO**
-
-`fase2-dogfood-boundary-guard.md` existe com as 4 seções esperadas: ['## Regressão', '## Negação da ação fora do raio', '## Diff aplicado', '## Execução do agente'].
-Campo estruturado `permission_denials` da execução real parseado da evidência: 1 negação(ões), tool_name=Edit sobre Program.cs (o arquivo fora de files[]), com `is_error: False` — a sessão real entregou a tarefa E teve a ação fora do raio negada.
-A evidência também confirma por leitura de arquivo que Program.cs permaneceu idêntico (a negação bloqueou a escrita de fato).
-`fase1-dogfood-document-digits.md` continua em disco, com as 4 seções originais e o registro do TDD real (Document_with_letters_fails vermelho antes / verde depois) — zero regressão de evidência.
-
-_Atualizado em 2026-07-16T10:15:00.552082+00:00 por esta rodada._
+_Atualizado em 2026-07-18T02:02:41.108037+00:00 por esta rodada._
 
