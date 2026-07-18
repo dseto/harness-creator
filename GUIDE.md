@@ -118,7 +118,11 @@ demanda e escreve um contrato em `.harness/work/<slug>/`:
 - **`spec.md`** — o quê: escopo, critérios de aceitação executáveis,
   unknowns, stop conditions.
 - **`Plans.md`** — o como: tarefas com arquivos afetados e comando de
-  verificação de cada uma.
+  verificação de cada uma. Campo opcional `cwd` por tarefa: diretório
+  relativo à raiz onde `verify_cmd` roda — necessário em monorepo
+  (`backend/`+`frontend/`), onde um comando como `ng test` só resolve o
+  binário de dentro do workspace do frontend; sem `cwd`, `verify_cmd` roda
+  na raiz do repo.
 
 Você revisa e aprova (ou pede ajuste) esse contrato. **O gate exige
 `approved_by`/`approved_at` preenchidos no frontmatter do `spec.md` — a skill

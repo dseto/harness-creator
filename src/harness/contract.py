@@ -49,13 +49,19 @@ quem for gerar este arquivo, ex.: skill `plan`):
     - O que não foi observado no repo-profile (se houver).
 
 Exemplo LITERAL e COMPLETO de `Plans.md` válido — cada tarefa é um bloco
-`## [T-XX] <descrição>` seguido de bullets `files`/`verify` (obrigatórios)
-e `depends` (opcional, lista de ids desta tarefa depende; vazio por
-padrão). A sintaxe de `depends` já nasce aqui porque o ROADMAP define
-`Plans.md` como tendo "sequência de tarefas, **dependências**, arquivos
-afetados" e a Fase 4 promete um Supervisor que despacha "respeitando
-dependências do Plans.md" — mas este módulo APENAS parseia e preserva o
-campo; nenhuma lógica de ordenação/dispatch é implementada aqui:
+`## [T-XX] <descrição>` seguido de bullets `files`/`verify` (obrigatórios),
+`depends` (opcional, lista de ids desta tarefa depende; vazio por padrão)
+e `cwd` (opcional, diretório relativo à raiz do repo onde `verify_cmd`
+roda — default a própria raiz). A sintaxe de `depends` já nasce aqui porque
+o ROADMAP define `Plans.md` como tendo "sequência de tarefas,
+**dependências**, arquivos afetados" e a Fase 4 promete um Supervisor que
+despacha "respeitando dependências do Plans.md" — mas este módulo APENAS
+parseia e preserva o campo; nenhuma lógica de ordenação/dispatch é
+implementada aqui. `cwd` existe porque, em monorepo (`backend/`+`frontend/`
+sob uma raiz comum), um `verify_cmd` como `ng test` só resolve o binário
+rodando de dentro do workspace do frontend — mas `feature_list.json`
+sempre é procurado na raiz (`target_dir`), então `cwd` afeta SÓ o diretório
+do subprocess do `verify_cmd`, nunca onde o contrato é resolvido:
 
     ## [T-01] Criar módulo de configuração
     - files: `src/harness/config.py`, `tests/test_config.py`
@@ -65,6 +71,11 @@ campo; nenhuma lógica de ordenação/dispatch é implementada aqui:
     - files: `src/harness/compiler.py`
     - verify: `pytest tests/test_compiler.py -q`
     - depends: T-01
+
+    ## [T-03] Testar componente Angular do frontend
+    - files: `frontend/src/app/x.component.ts`, `frontend/src/app/x.component.spec.ts`
+    - verify: `ng test --include=**/x.component.spec.ts`
+    - cwd: `frontend`
 
 Saída de `compile_contract` — `.harness/feature_list.json`:
 
@@ -78,6 +89,7 @@ Saída de `compile_contract` — `.harness/feature_list.json`:
           "files": ["src/harness/config.py", "tests/test_config.py"],
           "verify_cmd": "pytest tests/test_config.py -q",
           "depends": [],
+          "cwd": null,
           "passes": false
         },
         {
@@ -86,6 +98,16 @@ Saída de `compile_contract` — `.harness/feature_list.json`:
           "files": ["src/harness/compiler.py"],
           "verify_cmd": "pytest tests/test_compiler.py -q",
           "depends": ["T-01"],
+          "cwd": null,
+          "passes": false
+        },
+        {
+          "id": "T-03",
+          "desc": "Testar componente Angular do frontend",
+          "files": ["frontend/src/app/x.component.ts", "frontend/src/app/x.component.spec.ts"],
+          "verify_cmd": "ng test --include=**/x.component.spec.ts",
+          "depends": [],
+          "cwd": "frontend",
           "passes": false
         }
       ]
@@ -108,7 +130,7 @@ FEATURE_LIST_FILE = ".harness/feature_list.json"
 
 _FRONTMATTER_DELIM = "---"
 _TASK_HEADER_RE = re.compile(r"^##\s*\[(?P<id>[^\]]+)\]\s*(?P<desc>.*)$")
-_FIELD_RE = re.compile(r"^-\s*(?P<key>files|verify|depends)\s*:\s*(?P<value>.*)$", re.IGNORECASE)
+_FIELD_RE = re.compile(r"^-\s*(?P<key>files|verify|depends|cwd)\s*:\s*(?P<value>.*)$", re.IGNORECASE)
 _BACKTICK_RE = re.compile(r"`([^`]+)`")
 
 
@@ -129,6 +151,7 @@ class Task:
     files: list[str]
     verify_cmd: str
     depends: list[str] = field(default_factory=list)
+    cwd: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -242,8 +265,12 @@ def parse_plans(plans_path: Path) -> list[Task]:
         verify_values = _split_list(raw_fields["verify"])
         verify_cmd = verify_values[0] if verify_values else raw_fields["verify"].strip()
         depends = _split_list(raw_fields["depends"]) if raw_fields.get("depends") else []
+        cwd_values = _split_list(raw_fields["cwd"]) if raw_fields.get("cwd") else []
+        cwd = cwd_values[0] if cwd_values else None
 
-        tasks.append(Task(id=task_id, desc=desc, files=files, verify_cmd=verify_cmd, depends=depends))
+        tasks.append(Task(
+            id=task_id, desc=desc, files=files, verify_cmd=verify_cmd, depends=depends, cwd=cwd,
+        ))
 
     return tasks
 
@@ -299,6 +326,7 @@ def compile_contract(target_dir: Path, slug: str) -> Path:
             old is not None
             and old.get("verify_cmd") == task.verify_cmd
             and old.get("files") == task.files
+            and old.get("cwd") == task.cwd
             and old.get("passes")
         )
         features.append({
@@ -307,6 +335,7 @@ def compile_contract(target_dir: Path, slug: str) -> Path:
             "files": task.files,
             "verify_cmd": task.verify_cmd,
             "depends": task.depends,
+            "cwd": task.cwd,
             "passes": passes,
         })
 

@@ -167,6 +167,26 @@ def test_parse_plans_depends_absent_defaults_to_empty_list(tmp_path: Path) -> No
     assert task_by_id["T-01"].depends == []
 
 
+def test_parse_plans_cwd_present_is_parsed(tmp_path: Path) -> None:
+    plans_path = tmp_path / "Plans.md"
+    plans_path.write_text(
+        "## [T-03] Testar frontend\n"
+        "- files: `frontend/src/x.ts`\n"
+        "- verify: `ng test`\n"
+        "- cwd: `frontend`\n",
+        encoding="utf-8",
+    )
+    tasks = parse_plans(plans_path)
+    assert tasks[0].cwd == "frontend"
+
+
+def test_parse_plans_cwd_absent_defaults_to_none(tmp_path: Path) -> None:
+    plans_path = tmp_path / "Plans.md"
+    plans_path.write_text(BASIC_PLANS, encoding="utf-8")
+    tasks = parse_plans(plans_path)
+    assert tasks[0].cwd is None
+
+
 def test_parse_plans_missing_verify_raises_naming_task(tmp_path: Path) -> None:
     plans_path = tmp_path / "Plans.md"
     plans_path.write_text(PLANS_MISSING_VERIFY, encoding="utf-8")
@@ -200,6 +220,7 @@ def test_compile_contract_approved_compiles_with_correct_schema(tmp_path: Path) 
     assert t01["files"] == ["src/harness/config.py", "tests/test_config.py"]
     assert t01["verify_cmd"] == "pytest tests/test_config.py -q"
     assert t01["depends"] == []
+    assert t01["cwd"] is None
     assert t01["passes"] is False
 
     t02 = next(f for f in data["features"] if f["id"] == "T-02")
@@ -263,6 +284,31 @@ def test_recompile_only_desc_change_preserves_passes(tmp_path: Path) -> None:
     by_id = {f["id"]: f for f in recompiled["features"]}
     assert by_id["T-01"]["passes"] is True
     assert by_id["T-01"]["desc"] == "Criar modulo de configuracao (nome revisado)"
+
+
+def test_recompile_cwd_change_invalidates_passes(tmp_path: Path) -> None:
+    plans_with_cwd = (
+        "## [T-01] Testar frontend\n"
+        "- files: `frontend/src/x.ts`\n"
+        "- verify: `ng test`\n"
+        "- cwd: `frontend`\n"
+    )
+    _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, plans_with_cwd)
+    out_path = compile_contract(tmp_path, "exemplo-feature")
+
+    data = json.loads(out_path.read_text(encoding="utf-8"))
+    data["features"][0]["passes"] = True
+    out_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    # Muda so o cwd (id/files/verify_cmd permanecem iguais).
+    changed_plans = plans_with_cwd.replace("- cwd: `frontend`\n", "- cwd: `frontend-v2`\n")
+    contract_dir = tmp_path / ".harness" / "work" / "exemplo-feature"
+    (contract_dir / "Plans.md").write_text(changed_plans, encoding="utf-8")
+
+    compile_contract(tmp_path, "exemplo-feature")
+    recompiled = json.loads(out_path.read_text(encoding="utf-8"))
+    assert recompiled["features"][0]["cwd"] == "frontend-v2"
+    assert recompiled["features"][0]["passes"] is False
 
 
 def test_recompile_removed_task_disappears_from_output(tmp_path: Path) -> None:

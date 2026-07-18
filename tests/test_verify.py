@@ -151,3 +151,54 @@ def test_compute_files_hash_is_deterministic_for_same_input(tmp_path: Path) -> N
 def test_compute_files_hash_does_not_raise_for_missing_file(tmp_path: Path) -> None:
     result = compute_files_hash(["nao-existe.txt"], tmp_path)
     assert result.startswith("sha256:")
+
+
+def _cwd_check_cmd(tmp_path: Path) -> str:
+    """verify_cmd que só sai 0 se `marker.txt` existir no cwd do subprocess —
+    prova que `run_verify` de fato mudou o cwd, não só passou no teste por
+    coincidência (o comando falha rodando da raiz)."""
+    script = tmp_path / "check_cwd.py"
+    _write(script, "import pathlib, sys\nsys.exit(0 if pathlib.Path('marker.txt').is_file() else 1)\n")
+    return f'"{sys.executable}" "{script}"'
+
+
+def test_run_verify_runs_in_feature_cwd_when_declared(tmp_path: Path) -> None:
+    _write(tmp_path / "frontend" / "marker.txt", "ok")
+    verify_cmd = _cwd_check_cmd(tmp_path)
+    _write_feature_list(
+        tmp_path,
+        [
+            {"id": "T-01", "desc": "x", "files": [], "verify_cmd": verify_cmd,
+             "depends": [], "cwd": "frontend", "passes": False}
+        ],
+    )
+    evidence_path = run_verify(tmp_path, "T-01")
+    assert evidence_path.is_file()
+
+
+def test_run_verify_without_cwd_field_runs_at_target_dir_root(tmp_path: Path) -> None:
+    """Sem `cwd`, o mesmo check falha porque marker.txt só existe em
+    frontend/ — confirma que o comportamento sem `cwd` não mudou (raiz)."""
+    _write(tmp_path / "frontend" / "marker.txt", "ok")
+    verify_cmd = _cwd_check_cmd(tmp_path)
+    _write_feature_list(
+        tmp_path,
+        [
+            {"id": "T-01", "desc": "x", "files": [], "verify_cmd": verify_cmd,
+             "depends": [], "passes": False}
+        ],
+    )
+    with pytest.raises(VerifyFailedError):
+        run_verify(tmp_path, "T-01")
+
+
+def test_run_verify_nonexistent_cwd_raises_verify_error(tmp_path: Path) -> None:
+    _write_feature_list(
+        tmp_path,
+        [
+            {"id": "T-01", "desc": "x", "files": [], "verify_cmd": _true_cmd(),
+             "depends": [], "cwd": "nao-existe", "passes": False}
+        ],
+    )
+    with pytest.raises(VerifyError, match="nao-existe"):
+        run_verify(tmp_path, "T-01")

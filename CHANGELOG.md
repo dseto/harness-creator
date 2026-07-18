@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.15.6 — 2026-07-18
+
+Fix de bug real achado durante implementação no `elegant-heisenberg`
+(dogfooding): `harness verify` sempre rodava `verify_cmd` com `cwd` = raiz
+do projeto. Num monorepo (`backend/`+`frontend/`), um `verify_cmd` como
+`ng test`/`npx playwright test` só resolve o binário de dentro do workspace
+do frontend — rodando na raiz, falha com `'ng' não é reconhecido`. Sem
+alternativa, a evidência das tarefas de frontend (T-07/T-08/T-09) teve que
+ser gravada manualmente chamando `compute_files_hash` direto, fora de
+`harness verify`.
+
+### Adicionado
+- `Plans.md` aceita campo opcional `cwd` por tarefa (`src/harness/contract.py`
+  — `Task.cwd`, `_FIELD_RE`, `parse_plans`): diretório relativo à raiz onde
+  `verify_cmd` roda. Propagado para `feature_list.json` e incluído na
+  identidade da tarefa — mudar `cwd` invalida `passes:true` preservado na
+  recompilação, igual a mudar `files`/`verify_cmd`.
+- `src/harness/verify.py::run_verify` — `subprocess.run` usa
+  `target_dir / feature["cwd"]` quando declarado (senão `target_dir`,
+  comportamento inalterado); `feature_list.json` continua sempre resolvido
+  na raiz (`target_dir`), só o `cwd` do comando muda. `cwd` inexistente
+  levanta `VerifyError` citando o caminho, antes de tentar rodar o comando.
+- 6 testes novos (`tests/test_contract.py`: parse de `cwd` presente/ausente,
+  mudança de `cwd` invalida `passes`; `tests/test_verify.py`: `verify_cmd`
+  roda no `cwd` declarado, comportamento inalterado sem `cwd`, `cwd`
+  inexistente levanta erro claro).
+
 ## 0.15.5 — 2026-07-18
 
 Fix de bug real achado durante implementação no `elegant-heisenberg`

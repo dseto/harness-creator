@@ -7,6 +7,13 @@ edição sobre `feature_list.json` (outro escopo) nem ordena por `depends[]`
 (idem) — apenas executa o comando de UMA feature e, em caso de sucesso,
 grava a prova em `.harness/evidence/<feature_id>.json`.
 
+Campo opcional `cwd` da feature (ver `contract.py`): diretório relativo a
+`target_dir` onde `verify_cmd` roda via subprocess — existe para monorepo
+(`backend/`+`frontend/`), onde um comando como `ng test` só resolve o
+binário de dentro do workspace do frontend. Afeta SÓ o `cwd` do
+subprocess; `target_dir` (resolução de `feature_list.json` e
+`compute_files_hash`) nunca muda.
+
 Schema exato da evidência (outras tarefas do ROADMAP dependem deste
 formato — não mudar sem atualizar consumidores):
 
@@ -108,10 +115,19 @@ def run_verify(target_dir: Path, feature_id: str) -> Path:
     verify_cmd = feature["verify_cmd"]
     files = feature.get("files", [])
 
+    verify_cwd = target_dir
+    feature_cwd = feature.get("cwd")
+    if feature_cwd:
+        verify_cwd = target_dir / feature_cwd
+        if not verify_cwd.is_dir():
+            raise VerifyError(
+                f"feature '{feature_id}': cwd '{feature_cwd}' não existe em {target_dir}"
+            )
+
     result = subprocess.run(
         verify_cmd,
         shell=True,
-        cwd=target_dir,
+        cwd=verify_cwd,
         capture_output=True,
         text=True,
         timeout=_VERIFY_TIMEOUT_SECONDS,
