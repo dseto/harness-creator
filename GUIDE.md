@@ -160,7 +160,10 @@ Isso compila a **Fase 2** do roadmap (Execução Autônoma no Raio de Impacto):
   `spec.md`/`Plans.md` do PRÓXIMO contrato nascem, e eles nunca estão nos
   `files[]` do contrato ativo) — sem essa exceção, planejar a próxima feature
   esbarraria na superfície da feature corrente. O floor de segredo continua
-  precedendo essa exceção.
+  precedendo essa exceção. `files[]` aceita path exato, prefixo de diretório
+  (termina em `/` — libera qualquer arquivo novo dentro, útil pra migrations)
+  e glob (`*`/`?`) — o candidato é casado direto contra o padrão, nunca
+  depende do arquivo já existir em disco.
 - **Lifecycle de 16 passos** — bloco gerenciado adicional no `AGENTS.md`
   (ler AGENTS.md → rodar `init.*` → ler progresso → escolher UMA feature →
   implementar → verificar → autocorrigir → registrar evidência → commit em

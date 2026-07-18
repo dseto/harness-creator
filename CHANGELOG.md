@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.15.5 — 2026-07-18
+
+Fix de bug real achado durante implementação no `elegant-heisenberg`
+(dogfooding): `boundary_guard` negava `Write` de uma migration EF Core nova
+(`Migrations/20260718020000_AddTarefaDescricao.cs`) declarada em `files[]`
+como diretório (`backend/.../Migrations/`), e teria o mesmo problema com
+qualquer glob (`Migrations/*.cs`) apontando pra arquivo ainda inexistente —
+`_collect_allowed_files` só expandia glob via `os.walk` do disco, e um
+arquivo que o `Write` está prestes a CRIAR nunca existe no disco no momento
+em que o hook roda. Autorização pontual foi necessária na sessão-alvo.
+
+### Corrigido
+- `src/harness/boundary_guard.py` — `_collect_allowed_files` não faz mais
+  disco-walk; devolve `(literais, prefixos_de_diretório, padrões_glob)` e um
+  novo `_path_in_surface(path, surface)` casa o path do CANDIDATO
+  diretamente contra prefixo/glob, sem depender do arquivo já existir.
+  `files[]` com entrada terminada em `/` agora vale como prefixo de
+  diretório (qualquer arquivo novo dentro é liberado); glob (`*`/`?`) casa
+  contra o candidato sem depender de `os.walk`.
+- 2 testes novos em `tests/test_boundary_guard.py` (arquivo novo sob
+  diretório declarado; arquivo novo casando glob declarado, ambos ausentes
+  do disco no momento da checagem).
+
 ## 0.15.4 — 2026-07-17
 
 Fix de gap de usabilidade relatado por outra sessão: com um contrato ativo,

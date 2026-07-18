@@ -625,34 +625,40 @@ def _profile_extra_value(profile, key):
 
 
 def _collect_allowed_files(feature_list, cwd=None):
-    allowed = set()
-    globs_to_expand = []
+    """Devolve (literais_exatos, prefixos_de_diretorio, padroes_glob_compilados)
+    a partir de `files[]` de todas as tarefas.
+
+    NAO faz mais disco-walk para expandir glob: um `Write` cria arquivo que
+    ainda nao existe no disco no momento em que o hook roda, entao casar glob
+    so contra arquivos ja existentes nunca reconhece o proprio arquivo que a
+    tarefa esta tentando criar (ex.: migration nova, teste novo). Em vez
+    disso o candidato e casado direto contra o padrao em `_path_in_surface`.
+    `cwd` mantido no parametro por compat de assinatura, sem uso.
+    """
+    literals = set()
+    prefixes = []
+    patterns = []
 
     for feat in (feature_list or {}).get("features", []) or []:
         for f in feat.get("files") or []:
             normalized = str(f).replace("\\\\", "/")
             if "*" in normalized or "?" in normalized:
-                globs_to_expand.append(normalized)
+                patterns.append(_glob_to_regex(normalized))
+            elif normalized.endswith("/"):
+                prefixes.append(normalized)
             else:
-                allowed.add(normalized)
+                literals.add(normalized)
 
-    if globs_to_expand and cwd:
-        from pathlib import Path
-        import os
-        base = Path(cwd) if cwd else Path(".")
-        for glob_pattern in globs_to_expand:
-            pattern = _glob_to_regex(glob_pattern)
-            for root, dirs, files in os.walk(str(base)):
-                for fname in files:
-                    full_path = os.path.join(root, fname)
-                    rel_path = os.path.relpath(full_path, str(base)).replace("\\\\", "/")
-                    if pattern.match(rel_path):
-                        allowed.add(rel_path)
-    else:
-        for g in globs_to_expand:
-            allowed.add(g)
+    return literals, prefixes, patterns
 
-    return allowed
+
+def _path_in_surface(path, surface):
+    literals, prefixes, patterns = surface
+    if path in literals:
+        return True
+    if any(path.startswith(prefix) for prefix in prefixes):
+        return True
+    return any(pattern.match(path) for pattern in patterns)
 
 
 def _collect_allowed_bash_commands(feature_list, profile):
@@ -935,21 +941,21 @@ def _evaluate_file(path, cwd):
     if feature_list is None:
         return "allow", "sem contrato ativo — boundary_guard não gateia fora de uma sessão de contrato"
 
-    allowed_files = _collect_allowed_files(feature_list)
+    surface = _collect_allowed_files(feature_list, cwd)
     profile = _load_json(cwd, PROFILE_PATH)
     test_glob = _profile_entry_value(profile, "test_glob")
 
     if test_glob:
         pattern = _glob_to_regex(test_glob)
         if pattern.match(path):
-            if path in allowed_files:
+            if _path_in_surface(path, surface):
                 return "allow", "arquivo de teste declarado em files[] de uma tarefa do contrato ativo"
             return "deny", (
                 "arquivo de teste protegido: nenhuma tarefa do contrato ativo declara "
                 "este arquivo em files[] - enfraquecimento de teste fora do escopo aprovado"
             )
 
-    if path in allowed_files:
+    if _path_in_surface(path, surface):
         return "allow", "arquivo declarado em files[] de uma tarefa do contrato ativo"
     return "deny", (
         "arquivo fora da superficie do contrato ativo (nenhuma tarefa declara este "

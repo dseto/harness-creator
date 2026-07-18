@@ -163,6 +163,36 @@ def test_edit_file_not_declared_denies(tmp_path: Path) -> None:
     assert out["permissionDecision"] == "deny"
 
 
+def test_write_new_file_under_declared_directory_prefix_allows(tmp_path: Path) -> None:
+    """files[] pode declarar um diretorio (ex. "Migrations/") em vez de um
+    arquivo exato — uma migration nova dentro dele deve ser permitida mesmo
+    sem existir no disco ainda (Write cria arquivo que nao existe)."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["backend/Migrations/"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                              "tool_input": {"file_path": "backend/Migrations/20260718_New.cs",
+                                             "content": "x"}})
+    assert out["permissionDecision"] == "allow"
+
+
+def test_write_new_file_matching_declared_glob_allows_even_if_not_on_disk(tmp_path: Path) -> None:
+    """Glob em files[] deve casar contra o path do candidato diretamente,
+    nao depender de disco-walk — senao um arquivo genuinamente novo (que
+    ainda nao existe) nunca reconhece seu proprio glob declarado."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["backend/Migrations/*.cs"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                              "tool_input": {"file_path": "backend/Migrations/20260718_New.cs",
+                                             "content": "x"}})
+    assert out["permissionDecision"] == "allow"
+
+
 def test_write_contract_authoring_dir_allows_even_with_active_contract(tmp_path: Path) -> None:
     """Autoria do PRÓXIMO contrato (.harness/work/<slug-novo>/{spec,Plans}.md)
     nunca está em files[] do contrato ativo — deve ser sempre gravável, senão
