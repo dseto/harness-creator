@@ -875,6 +875,190 @@ def test_feature_lock_replace_all_importable_copy_denies(tmp_path: Path) -> None
     assert "feat-2" in reason
 
 
+# ---------------- SUBAGENTE 02: mensagem de JSON invalido no feature-lock ----------------
+
+_SUPERFICIE_GENERICA_MSG = "arquivo fora da superficie do contrato ativo"
+
+
+def test_feature_list_edit_producing_invalid_json_denies_with_json_message(tmp_path: Path) -> None:
+    """old_string fecha uma chave que new_string nao reabre -> JSON quebrado
+    -> deny citando JSON invalido, NAO a mensagem generica de superficie."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {
+        "tool_name": "Edit", "cwd": str(tmp_path),
+        "tool_input": {
+            "file_path": ".harness/feature_list.json",
+            "old_string": '"passes": false}',
+            "new_string": '"passes": true',
+        },
+    })
+    assert out["permissionDecision"] == "deny", out
+    reason = out["permissionDecisionReason"]
+    assert "JSON" in reason
+    assert "invalido" in reason.lower() or "inválido" in reason.lower()
+    assert _SUPERFICIE_GENERICA_MSG not in reason
+
+
+def test_feature_list_write_producing_invalid_json_denies_with_json_message(tmp_path: Path) -> None:
+    """Mesmo caminho via Write (content bruto quebrado)."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {
+        "tool_name": "Write", "cwd": str(tmp_path),
+        "tool_input": {
+            "file_path": ".harness/feature_list.json",
+            "content": '{"contract": "x", "features": [',  # JSON truncado
+        },
+    })
+    assert out["permissionDecision"] == "deny", out
+    reason = out["permissionDecisionReason"]
+    assert "JSON" in reason
+    assert "invalido" in reason.lower() or "inválido" in reason.lower()
+    assert _SUPERFICIE_GENERICA_MSG not in reason
+
+
+def test_feature_list_edit_old_string_not_found_denies_with_specific_message(tmp_path: Path) -> None:
+    """old_string que nao bate literalmente no current_text (ex.: espaco a
+    mais) -> deny citando old_string nao encontrado, NAO a mensagem
+    generica de superficie (achado do reflect/Fable: segundo caminho pro
+    mesmo sintoma, replace() vira no-op silencioso, JSON continua valido)."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {
+        "tool_name": "Edit", "cwd": str(tmp_path),
+        "tool_input": {
+            "file_path": ".harness/feature_list.json",
+            "old_string": '"passes":  false',  # espaco extra: nao bate literalmente
+            "new_string": '"passes": true',
+        },
+    })
+    assert out["permissionDecision"] == "deny", out
+    reason = out["permissionDecisionReason"]
+    assert "old_string" in reason
+    assert "encontrado" in reason.lower() or "nao foi encontrado" in reason.lower()
+    assert _SUPERFICIE_GENERICA_MSG not in reason
+
+
+def test_feature_list_edit_old_string_not_found_importable_copy_denies(tmp_path: Path) -> None:
+    """Mesma checagem na copia IMPORTAVEL (evaluate_feature_list_edit)."""
+    from harness.boundary_guard import evaluate_feature_list_edit
+
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    result = evaluate_feature_list_edit("Edit", {
+        "old_string": '"passes":  false',
+        "new_string": '"passes": true',
+    }, tmp_path)
+    assert result is not None
+    decision, reason = result
+    assert decision == "deny"
+    assert "old_string" in reason
+
+
+def test_feature_list_transition_without_evidence_message_unchanged(tmp_path: Path) -> None:
+    """Nao-regressao: transicao sem evidencia fresca continua citando
+    'feature-lock: transicao' (mensagem intocada pelo SUBAGENTE 02)."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    script = _script(tmp_path)
+    new_content = _feature_list_json([
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": True}
+    ])
+    out = _run_hook(script, {
+        "tool_name": "Write", "cwd": str(tmp_path),
+        "tool_input": {"file_path": ".harness/feature_list.json", "content": new_content},
+    })
+    assert out["permissionDecision"] == "deny"
+    reason = out["permissionDecisionReason"]
+    assert "feature-lock" in reason
+    assert "sem evidencia fresca" in reason or "sem evidência fresca" in reason
+
+
+# ---------------- SUBAGENTE 01: CLI do harness liberada sob contrato ativo ----------------
+
+
+def test_harness_cli_python_module_form_allows(tmp_path: Path) -> None:
+    """python -m harness.cli <subcomando enumerado> deve ser allow, mesmo
+    sem nenhum verify_cmd/lint/build que case por acaso."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "python -m harness.cli analyze --dir ."}})
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_harness_cli_console_script_form_allows(tmp_path: Path) -> None:
+    """A forma console-script (`harness <sub>`) tambem liberada."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "harness analyze --dir ."}})
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_harness_compile_contract_via_python_module_allows(tmp_path: Path) -> None:
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {
+        "tool_name": "Bash", "cwd": str(tmp_path),
+        "tool_input": {"command": "python -m harness.cli compile-contract --dir . --slug x"},
+    })
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_harness_cli_smuggled_with_floor_command_still_denies(tmp_path: Path) -> None:
+    """`harness analyze && git push origin main` continua deny — o floor
+    roda antes de qualquer allow, mesmo colado a um subcomando liberado."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {
+        "tool_name": "Bash", "cwd": str(tmp_path),
+        "tool_input": {"command": "harness analyze && git push origin main"},
+    })
+    assert out["permissionDecision"] == "deny", out
+    assert "runtime floor" in out["permissionDecisionReason"]
+
+
+def test_harness_run_subcommand_is_not_in_enumerated_allowlist(tmp_path: Path) -> None:
+    """Prova negativa: `run` (orquestrador com rede fora do floor) foi
+    deliberadamente deixado de fora da lista enumerada."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "harness run --dir ."}})
+    assert out["permissionDecision"] == "deny", out
+
+
 def test_feature_lock_replace_all_false_flips_only_first(tmp_path: Path) -> None:
     """Controle: replace_all ausente/false mantém count=1 — só a 1ª feature
     (feat-1, com evidência fresca) transiciona -> ALLOW."""

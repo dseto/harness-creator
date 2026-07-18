@@ -217,6 +217,22 @@ def test_hostile_secret_variants_are_not_echoed_in_allow() -> None:
     assert "Edit(src/util.py)" in allow
 
 
+# ---------------- SUBAGENTE 01: subcomandos do harness na superficie ----------------
+
+def test_harness_cli_subcommands_are_in_allow() -> None:
+    rules = render_session_permissions(FEATURE_LIST, None)
+    allow = rules["allow"]
+    assert "Bash(harness analyze*)" in allow
+    assert "Bash(python -m harness.cli verify*)" in allow
+
+
+def test_harness_run_subcommand_is_never_in_allow() -> None:
+    rules = render_session_permissions(FEATURE_LIST, None)
+    allow = rules["allow"]
+    assert not any(rule.startswith("Bash(harness run") for rule in allow)
+    assert not any(rule.startswith("Bash(python -m harness.cli run") for rule in allow)
+
+
 # ---------------- compile_session_permissions ----------------
 
 def test_compile_without_feature_list_raises(tmp_path: Path) -> None:

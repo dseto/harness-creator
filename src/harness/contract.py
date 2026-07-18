@@ -118,12 +118,16 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from harness.boundary_guard import is_floor_bash_command
 
 WORK_DIR = ".harness/work"
 FEATURE_LIST_FILE = ".harness/feature_list.json"
@@ -289,7 +293,54 @@ def _load_existing_features(feature_list_path: Path) -> dict[str, dict[str, Any]
     return {f["id"]: f for f in data.get("features", []) if "id" in f}
 
 
-def compile_contract(target_dir: Path, slug: str) -> Path:
+def _dry_check_verify_cmd(verify_cmd: str, cwd: Path, timeout: float = 8.0) -> str | None:
+    """Roda `verify_cmd` com timeout curto e devolve um warning (string) se
+    o comando falhar rápido — sinal de possível erro de flag/opção inválida
+    (heurística fail-fast: `--dry-run-verify`, advisory, nunca bloqueia).
+
+    Invariante de segurança NÃO-NEGOCIÁVEL (achado do llm-as-judge/Opus):
+    nunca executa um `verify_cmd` que bata no runtime floor
+    (push/rede/publicação) — sem essa checagem, este dry-check seria uma
+    via de bypass do floor sob contrato ativo. Checada ANTES de qualquer
+    subprocess.
+    """
+    if is_floor_bash_command(verify_cmd):
+        return (
+            f"verify_cmd '{verify_cmd}' bate no runtime floor "
+            "(push/rede/publicacao) — dry-check NUNCA executa esse tipo de "
+            "comando; se isso e inesperado, revise Plans.md"
+        )
+
+    try:
+        proc = subprocess.run(
+            verify_cmd,
+            shell=True,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        # Comando ainda rodando no timeout = sinal de teste de verdade em
+        # andamento (subprocess.run já mata o processo internamente ao
+        # levantar TimeoutExpired) — trata como são, sem warning.
+        return None
+    except (FileNotFoundError, OSError) as exc:
+        return f"verify_cmd '{verify_cmd}' — comando não encontrado: {exc}"
+
+    if proc.returncode != 0:
+        stderr = proc.stderr.strip()
+        last_line = stderr.splitlines()[-1] if stderr else "(sem stderr)"
+        return (
+            f"verify_cmd '{verify_cmd}' falhou rápido (exit {proc.returncode}) — "
+            f"pode ser flag/opção inválida OU, se a tarefa ainda não foi "
+            f"implementada, o resultado esperado de um teste que ainda falha "
+            f"(fluxo TDD): {last_line}"
+        )
+    return None
+
+
+def compile_contract(target_dir: Path, slug: str, *, dry_run_verify: bool = False) -> Path:
     """Compila `.harness/work/<slug>/{spec.md,Plans.md}` -> `.harness/feature_list.json`.
 
     GATE OBRIGATÓRIO: se `approved_by` ou `approved_at` estiverem ausentes ou
@@ -300,6 +351,11 @@ def compile_contract(target_dir: Path, slug: str) -> Path:
     relação ao `feature_list.json` existente preservam `passes: true`; ids
     novos entram com `passes: false`; ids removidos do Plans.md somem da
     saída.
+
+    `dry_run_verify=True` (opt-in, `--dry-run-verify` na CLI): antes de
+    escrever `feature_list.json`, roda cada `verify_cmd` distinto (por
+    `(verify_cmd, cwd)`) com timeout curto e escreve um warning em stderr se
+    ele falhar rápido — nunca levanta exceção, nunca impede a escrita.
     """
     target_dir = target_dir.resolve()
     contract_dir = target_dir / WORK_DIR / slug
@@ -338,6 +394,18 @@ def compile_contract(target_dir: Path, slug: str) -> Path:
             "cwd": task.cwd,
             "passes": passes,
         })
+
+    if dry_run_verify:
+        seen_pairs: set[tuple[str, str | None]] = set()
+        for task in tasks:
+            key = (task.verify_cmd, task.cwd)
+            if key in seen_pairs:
+                continue
+            seen_pairs.add(key)
+            check_cwd = (target_dir / task.cwd) if task.cwd else target_dir
+            warning = _dry_check_verify_cmd(task.verify_cmd, cwd=check_cwd, timeout=8.0)
+            if warning is not None:
+                print(f"aviso: {warning}", file=sys.stderr)
 
     payload = {
         "contract": slug,

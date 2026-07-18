@@ -49,6 +49,11 @@ def main() -> None:
     cc = sub.add_parser("compile-contract", help="Compila .harness/work/<slug> -> .harness/feature_list.json")
     cc.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
     cc.add_argument("--slug", required=True, help="Identificador do contrato em .harness/work/<slug>")
+    cc.add_argument(
+        "--dry-run-verify", action="store_true",
+        help="Roda cada verify_cmd com timeout curto e avisa (stderr) se falhar "
+        "rápido — não bloqueia a compilação",
+    )
 
     cs = sub.add_parser(
         "compile-session",
@@ -168,7 +173,7 @@ def main() -> None:
         from harness.contract import ContractError, compile_contract
 
         try:
-            result = compile_contract(Path(args.dir), args.slug)
+            result = compile_contract(Path(args.dir), args.slug, dry_run_verify=args.dry_run_verify)
         except ContractError as exc:
             print(f"erro: {exc}", file=sys.stderr)
             sys.exit(1)

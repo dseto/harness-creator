@@ -342,9 +342,12 @@ def evaluate_feature_list_edit(
 
     Retorna `("allow"|"deny", motivo)` se a edição transicionar alguma
     feature de `passes` != `true` para `passes: true` (caso especial de
-    feature-lock). Retorna `None` se não houver nenhuma transição — o
-    chamador deve delegar ao comportamento genérico de superfície
-    (`_evaluate_file`), que hoje já resulta em `deny` para este path.
+    feature-lock), se o JSON proposto for inválido, ou se o `old_string` de
+    um `Edit` não bater no `current_text` (edit que vira no-op silencioso).
+    Retorna `None` só quando o JSON é válido, o `old_string` foi encontrado e
+    aplicado, mas não há transição para `passes:true` nenhuma — o chamador
+    deve delegar ao comportamento genérico de superfície (`_evaluate_file`),
+    que hoje já resulta em `deny` para este path.
     """
     base = Path(cwd) if cwd else Path(".")
     feature_list_path = base / FEATURE_LIST_RELATIVE_PATH
@@ -357,6 +360,13 @@ def evaluate_feature_list_edit(
     else:  # Edit
         old_string = tool_input.get("old_string") or ""
         new_string = tool_input.get("new_string") or ""
+        if old_string and old_string not in current_text:
+            return "deny", (
+                "feature_list.json: old_string do Edit não foi encontrado no "
+                "arquivo atual — se está editando mais de uma feature no mesmo "
+                "Edit, confira se o bloco bate exatamente com o conteúdo atual; "
+                "edite uma feature por vez se não tiver certeza"
+            )
         if tool_input.get("replace_all"):
             proposed_text = current_text.replace(old_string, new_string)
         else:
@@ -368,8 +378,11 @@ def evaluate_feature_list_edit(
         old_data = {}
     try:
         new_data = json.loads(proposed_text)
-    except json.JSONDecodeError:
-        return None  # JSON proposto inválido — não dá pra avaliar transições, delega
+    except json.JSONDecodeError as exc:
+        return "deny", (
+            f"feature_list.json: edição proposta produz JSON inválido ({exc}) — "
+            "edite uma feature por vez ou corrija a sintaxe antes de tentar de novo"
+        )
 
     transitioned = _transitions_to_true(old_data, new_data)
     if not transitioned:
@@ -470,6 +483,22 @@ FIXED_GIT_SEQUENCES = [
     ["git", "add"],
     ["git", "commit"],
 ]
+
+# --- subcomandos do proprio harness sempre liberados quando ha contrato
+# ativo: a ferramenta que GERENCIA o contrato nao pode ficar presa no
+# guard que ela mesma gerou. Cobre as duas formas de invocacao
+# documentadas nas skills (python -m harness.cli) e o console-script real
+# (harness). NAO inclui 'run' (orquestrador da era congelada, chama a
+# API Anthropic — rede fora do floor — e nao estava na fricao relatada).
+_HARNESS_SUBCOMMANDS = [
+    "compile", "audit", "audit-runtime", "analyze", "preflight",
+    "compile-contract", "compile-session", "verify", "team", "review",
+    "supervise", "audit-team",
+]
+FIXED_HARNESS_SEQUENCES = (
+    [["harness", sub] for sub in _HARNESS_SUBCOMMANDS]
+    + [["python", "-m", "harness.cli", sub] for sub in _HARNESS_SUBCOMMANDS]
+)
 
 FEATURE_LIST_PATH = ".harness/feature_list.json"
 PROFILE_PATH = ".harness/repo-profile.json"
@@ -864,6 +893,13 @@ def _evaluate_feature_list_edit(tool_name, tool_input, cwd):
     else:
         old_string = tool_input.get("old_string") or ""
         new_string = tool_input.get("new_string") or ""
+        if old_string and old_string not in current_text:
+            return "deny", (
+                "feature_list.json: old_string do Edit nao foi encontrado no "
+                "arquivo atual - se esta editando mais de uma feature no mesmo "
+                "Edit, confira se o bloco bate exatamente com o conteudo atual; "
+                "edite uma feature por vez se nao tiver certeza"
+            )
         if tool_input.get("replace_all"):
             proposed_text = current_text.replace(old_string, new_string)
         else:
@@ -875,8 +911,11 @@ def _evaluate_feature_list_edit(tool_name, tool_input, cwd):
         old_data = {}
     try:
         new_data = json.loads(proposed_text)
-    except ValueError:
-        return None
+    except ValueError as exc:
+        return "deny", (
+            "feature_list.json: edicao proposta produz JSON invalido (" + str(exc) + ") - "
+            "edite uma feature por vez ou corrija a sintaxe antes de tentar de novo"
+        )
 
     transitioned = _transitions_to_true(old_data, new_data)
     if not transitioned:
@@ -984,7 +1023,9 @@ def _evaluate_bash(command, cwd):
 
     profile = _load_json(cwd, PROFILE_PATH)
     allowed_commands = _collect_allowed_bash_commands(feature_list, profile)
-    allowed_sequences = FIXED_GIT_SEQUENCES + [_tokenize(c) for c in allowed_commands]
+    allowed_sequences = (
+        FIXED_GIT_SEQUENCES + FIXED_HARNESS_SEQUENCES + [_tokenize(c) for c in allowed_commands]
+    )
 
     # Allow assimetrico ao floor: o floor casa 'aparece em qualquer janela'
     # (intocado, acima); o allow segmenta o comando nos operadores de controle

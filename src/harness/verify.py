@@ -41,6 +41,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from harness.boundary_guard import is_floor_bash_command
 from harness.contract import FEATURE_LIST_FILE
 
 EVIDENCE_DIR = ".harness/evidence"
@@ -114,6 +115,13 @@ def run_verify(target_dir: Path, feature_id: str) -> Path:
     feature = _load_feature(target_dir, feature_id)
     verify_cmd = feature["verify_cmd"]
     files = feature.get("files", [])
+
+    if is_floor_bash_command(verify_cmd):
+        raise VerifyError(
+            f"feature '{feature_id}': verify_cmd '{verify_cmd}' bate no "
+            "runtime floor (push/rede/publicacao) — nunca executado, "
+            "mesmo vindo de um contrato compilado"
+        )
 
     verify_cwd = target_dir
     feature_cwd = feature.get("cwd")

@@ -149,10 +149,24 @@ def _profile_dict(package_manager: str = "npm") -> dict:
     }
 
 
+# Subcomandos do proprio harness liberados desde o SUBAGENTE 01 do backlog
+# de correcao de friccao (2026-07-18) — espelha _HARNESS_SUBCOMMANDS de
+# session_permissions.py/boundary_guard.py (NAO inclui "run").
+_HARNESS_SUBCOMMANDS = [
+    "compile", "audit", "audit-runtime", "analyze", "preflight",
+    "compile-contract", "compile-session", "verify", "team", "review",
+    "supervise", "audit-team",
+]
+_HARNESS_CLI_ALLOW = (
+    [f"Bash(harness {sub}*)" for sub in _HARNESS_SUBCOMMANDS]
+    + [f"Bash(python -m harness.cli {sub}*)" for sub in _HARNESS_SUBCOMMANDS]
+)
+
 # Superfície EXATA esperada em permissions.allow para PLANS_TWO_TASKS +
 # _profile_dict("npm"), na ordem determinística de render_session_permissions:
 # Edit/Write por arquivo (união na ordem de aparição), Bash(verify_cmd)
-# distintos, extras (lint, typecheck, build), instalação, git local fixo.
+# distintos, extras (lint, typecheck, build), instalação, git local fixo,
+# subcomandos do harness (SUBAGENTE 01, ver acima).
 EXPECTED_ALLOW = [
     "Edit(src/app.py)",
     "Write(src/app.py)",
@@ -171,6 +185,7 @@ EXPECTED_ALLOW = [
     "Bash(git diff*)",
     "Bash(git add*)",
     "Bash(git commit*)",
+    *_HARNESS_CLI_ALLOW,
 ]
 
 # Mecanismo legado (compiler.py) com enforce_tdd LIGADO: instala guard_tests.py

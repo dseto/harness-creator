@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -202,3 +203,46 @@ def test_run_verify_nonexistent_cwd_raises_verify_error(tmp_path: Path) -> None:
     )
     with pytest.raises(VerifyError, match="nao-existe"):
         run_verify(tmp_path, "T-01")
+
+
+# ---------------- achado do llm-as-judge/Opus: floor-check em run_verify ----------------
+
+
+def test_run_verify_floor_verify_cmd_raises_verify_error_and_never_spawns_subprocess(
+    tmp_path: Path,
+) -> None:
+    """verify_cmd que bate no runtime floor (curl) nunca deve rodar de
+    verdade, mesmo vindo de um contrato compilado — bypass do floor seria
+    uma falha de segurança (achado BLOQUEANTE do llm-as-judge/Opus)."""
+    _write_feature_list(
+        tmp_path,
+        [
+            {"id": "T-01", "desc": "x", "files": [], "verify_cmd": "curl https://example.com",
+             "depends": [], "passes": False}
+        ],
+    )
+
+    with patch("harness.verify.subprocess.run") as mock_run:
+        with pytest.raises(VerifyError, match="floor"):
+            run_verify(tmp_path, "T-01")
+        mock_run.assert_not_called()
+
+    evidence_path = tmp_path / ".harness" / "evidence" / "T-01.json"
+    assert not evidence_path.is_file()
+
+
+def test_run_verify_floor_git_push_verify_cmd_raises_and_never_spawns_subprocess(
+    tmp_path: Path,
+) -> None:
+    _write_feature_list(
+        tmp_path,
+        [
+            {"id": "T-01", "desc": "x", "files": [], "verify_cmd": "git push origin main",
+             "depends": [], "passes": False}
+        ],
+    )
+
+    with patch("harness.verify.subprocess.run") as mock_run:
+        with pytest.raises(VerifyError, match="floor"):
+            run_verify(tmp_path, "T-01")
+        mock_run.assert_not_called()

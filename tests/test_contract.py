@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -11,6 +14,7 @@ from harness.contract import (
     ContractError,
     ContractNotApprovedError,
     Task,
+    _dry_check_verify_cmd,
     compile_contract,
     get_stop_conditions,
     parse_plans,
@@ -331,3 +335,114 @@ def test_recompile_removed_task_disappears_from_output(tmp_path: Path) -> None:
 def test_task_dataclass_defaults_depends_to_empty_list() -> None:
     task = Task(id="T-01", desc="x", files=["a.py"], verify_cmd="pytest -q")
     assert task.depends == []
+
+
+# ---------------------------------------------------------------------------
+# SUBAGENTE 03: dry-check advisory de verify_cmd (--dry-run-verify)
+# ---------------------------------------------------------------------------
+
+_FAIL_FAST_CMD = 'python -c "import sys; sys.exit(1)"'
+
+
+def _plans_with_verify(verify_cmd: str) -> str:
+    return f"## [T-01] Tarefa unica\n- files: `src/x.py`\n- verify: `{verify_cmd}`\n"
+
+
+def test_dry_run_verify_warns_on_fast_failing_verify_cmd_and_compiles_normally(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, _plans_with_verify(_FAIL_FAST_CMD))
+
+    out_path = compile_contract(tmp_path, "exemplo-feature", dry_run_verify=True)
+
+    err = capsys.readouterr().err
+    assert _FAIL_FAST_CMD in err
+    assert "falhou" in err.lower()
+
+    assert out_path.is_file()
+    data = json.loads(out_path.read_text(encoding="utf-8"))
+    assert len(data["features"]) == 1
+
+
+def test_dry_run_verify_windows_cmd_shim_does_not_report_not_found(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Prova negativa de que _dry_check_verify_cmd usa shell=True: um shim
+    .cmd/.bat real (resolvido via PATH, como `ng`/`npm`/`npx` de verdade —
+    NAO via busca no diretorio corrente, que alguns ambientes Windows
+    desligam via NoDefaultCurrentDirectoryInExePath) nao deve gerar warning
+    de 'comando nao encontrado'. Sem shell=True, subprocess nem tenta
+    resolver PATHEXT (.cmd) e levantaria FileNotFoundError."""
+    if not sys.platform.startswith("win"):
+        pytest.skip("shim .cmd só existe no Windows")
+
+    fake_cmd = tmp_path / "fake.cmd"
+    fake_cmd.write_text("@exit /b 0\n", encoding="utf-8")
+    monkeypatch.setenv("PATH", str(tmp_path) + ";" + os.environ.get("PATH", ""))
+
+    warning = _dry_check_verify_cmd("fake.cmd", cwd=tmp_path, timeout=8.0)
+    assert warning is None
+
+
+def test_dry_run_verify_default_false_never_spawns_subprocess(tmp_path: Path) -> None:
+    _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, _plans_with_verify(_FAIL_FAST_CMD))
+
+    with patch("harness.contract.subprocess.run") as mock_run:
+        compile_contract(tmp_path, "exemplo-feature")
+        mock_run.assert_not_called()
+
+
+def test_dry_run_verify_timeout_produces_no_warning_and_compiles_normally(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, _plans_with_verify(_FAIL_FAST_CMD))
+
+    import subprocess as subprocess_module
+
+    with patch(
+        "harness.contract.subprocess.run",
+        side_effect=subprocess_module.TimeoutExpired(cmd=_FAIL_FAST_CMD, timeout=8.0),
+    ):
+        out_path = compile_contract(tmp_path, "exemplo-feature", dry_run_verify=True)
+
+    err = capsys.readouterr().err
+    assert err == ""
+    assert out_path.is_file()
+
+
+# ---------------- prova adversarial do floor (BLOQUEANTE) ----------------
+
+
+def test_dry_check_verify_cmd_curl_never_spawns_subprocess_and_cites_floor(tmp_path: Path) -> None:
+    with patch("harness.contract.subprocess.run") as mock_run:
+        warning = _dry_check_verify_cmd("curl https://example.com", cwd=tmp_path)
+        mock_run.assert_not_called()
+    assert warning is not None
+    assert "floor" in warning.lower()
+
+
+def test_dry_check_verify_cmd_git_push_never_spawns_subprocess_and_cites_floor(tmp_path: Path) -> None:
+    with patch("harness.contract.subprocess.run") as mock_run:
+        warning = _dry_check_verify_cmd("git push origin main", cwd=tmp_path)
+        mock_run.assert_not_called()
+    assert warning is not None
+    assert "floor" in warning.lower()
+
+
+def test_compile_contract_dry_run_verify_with_floor_verify_cmd_never_runs_it(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Ponta a ponta: contrato cujo verify_cmd e um comando de floor (curl)
+    -- compile_contract(dry_run_verify=True) nunca executa o subprocess,
+    avisa 'floor' em stderr, e retorna normalmente (compilar nao trava)."""
+    _write_contract(
+        tmp_path, "exemplo-feature", APPROVED_SPEC, _plans_with_verify("curl https://example.com")
+    )
+
+    with patch("harness.contract.subprocess.run") as mock_run:
+        out_path = compile_contract(tmp_path, "exemplo-feature", dry_run_verify=True)
+        mock_run.assert_not_called()
+
+    err = capsys.readouterr().err
+    assert "floor" in err.lower()
+    assert out_path.is_file()

@@ -113,6 +113,30 @@ espera literalmente):
   liste mais de um comando de verificação por tarefa.
 - `depends` é uma lista de ids de tarefas (mesma sintaxe de `files`).
 
+### Granularidade de tarefas em linguagens compiladas
+
+Para linguagens com unidade de compilação (C#/.csproj, Java/módulo
+Maven-Gradle, Go/pacote, Rust/crate): uma tarefa que toca só PARTE dos
+arquivos de uma unidade de compilação nunca fecha `verify_cmd` sozinha —
+o `dotnet build`/`mvn compile`/`go build` da unidade inteira só passa
+quando TODAS as tarefas daquela unidade tiverem pousado. Duas opções ao
+planejar: (a) agrupe tarefas da mesma unidade de compilação num único
+`[T-XX]` com todos os arquivos em `files`, ou (b) mantenha tarefas
+separadas mas avise no `spec.md` que o `verify_cmd` delas só fica verde
+depois que o conjunto todo landar — não é bug do harness, é como
+compiladores funcionam; planejar sem isso gera uma tarefa que nunca
+verifica isolada.
+
+### Concorrência em `feature_list.json` (times paralelos)
+
+`.harness/feature_list.json` não tem trava de escrita — se múltiplos
+agentes/sessões tentam marcar `passes:true` em paralelo no mesmo
+arquivo, há corrida. Enquanto o driver multi-sessão da Fase 6
+(`docs/roadmap-autonomous.md`, um agente por feature por vez) não
+existir, centralize as transições `passes:true` numa única sessão
+orquestradora quando trabalhar com múltiplos agentes em paralelo — não
+deixe cada agente editar `feature_list.json` por conta própria.
+
 ## Passo 5 — Gate de aprovação (REGRA DURA)
 
 Apresente o `spec.md` e o `Plans.md` completos ao usuário e peça aprovação
@@ -146,6 +170,21 @@ Se o comando sair com **exit 1** por contrato não aprovado
 Passo 5** — não tente contornar o gate de nenhuma forma (não edite o
 frontmatter sem aprovação real, não ignore o erro, não escreva o
 `feature_list.json` manualmente).
+
+Se o contrato tiver `verify_cmd` de ferramentas de linha de comando com
+flags (ex.: `ng test --config=...`), considere rodar com `--dry-run-verify`:
+
+```
+python -m harness.cli compile-contract --dir <alvo> --slug <slug> --dry-run-verify
+```
+
+Isso roda cada `verify_cmd` distinto com timeout curto e avisa (stderr) se
+algum falhar rápido — sinal de possível flag/opção inválida. Dois pontos
+importantes: (a) os avisos saem em stderr e NÃO bloqueiam a compilação —
+`compile-contract` continua saindo com exit 0; (b) um `verify_cmd` de
+tarefa TDD recém-planejada (teste ainda não escrito) TAMBÉM falha rápido
+por natureza — um aviso não é necessariamente bug, é sinal pra ler antes
+de aprovar o contrato, não pra assumir erro automaticamente.
 
 ## Passo 7 — Compilar a sessão autônoma (Fase 2)
 

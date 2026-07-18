@@ -56,7 +56,9 @@ Exemplo de saída de `render_session_permissions`:
         "Bash(git log*)",
         "Bash(git diff*)",
         "Bash(git add*)",
-        "Bash(git commit*)"
+        "Bash(git commit*)",
+        "Bash(harness analyze*)",
+        "Bash(python -m harness.cli verify*)"
       ]
     }
 """
@@ -83,6 +85,19 @@ _GIT_LOCAL_ALLOW: list[str] = [
     "Bash(git add*)",
     "Bash(git commit*)",
 ]
+
+# Subcomandos do proprio harness: mesma liberacao do boundary_guard
+# (FIXED_HARNESS_SEQUENCES), espelhada aqui pra settings.json nao mentir
+# sobre a superficie (mesmo motivo do _GIT_LOCAL_ALLOW acima).
+_HARNESS_SUBCOMMANDS = [
+    "compile", "audit", "audit-runtime", "analyze", "preflight",
+    "compile-contract", "compile-session", "verify", "team", "review",
+    "supervise", "audit-team",
+]
+_HARNESS_CLI_ALLOW: list[str] = (
+    [f"Bash(harness {sub}*)" for sub in _HARNESS_SUBCOMMANDS]
+    + [f"Bash(python -m harness.cli {sub}*)" for sub in _HARNESS_SUBCOMMANDS]
+)
 
 # package_manager.value (analyzer.py) -> comando de instalação real.
 _INSTALL_COMMAND_BY_PACKAGE_MANAGER: dict[str, str] = {
@@ -179,6 +194,7 @@ def render_session_permissions(
             allow.append(f"Bash({install_cmd})")
 
     allow.extend(_GIT_LOCAL_ALLOW)
+    allow.extend(_HARNESS_CLI_ALLOW)
 
     # Filtro final: nenhuma entrada do runtime floor sobrevive, não importa
     # de onde veio (verify_cmd, extras do profile, comando de instalação,
