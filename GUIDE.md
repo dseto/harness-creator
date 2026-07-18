@@ -155,7 +155,12 @@ Isso compila a **Fase 2** do roadmap (Execução Autônoma no Raio de Impacto):
   escapa: cada segmento entre `;`/`&&`/`||`/`|` precisa prefixar um comando
   da superfície liberada, e command substitution (`$(...)`/crase) é negada
   de cara — um agente não consegue colar uma ação arbitrária atrás de um
-  `verify_cmd`/lint/git local aprovado.
+  `verify_cmd`/lint/git local aprovado. **Exceção de autoria de contrato**:
+  `Write`/`Edit` sob `.harness/work/**` são sempre liberados (é onde o
+  `spec.md`/`Plans.md` do PRÓXIMO contrato nascem, e eles nunca estão nos
+  `files[]` do contrato ativo) — sem essa exceção, planejar a próxima feature
+  esbarraria na superfície da feature corrente. O floor de segredo continua
+  precedendo essa exceção.
 - **Lifecycle de 16 passos** — bloco gerenciado adicional no `AGENTS.md`
   (ler AGENTS.md → rodar `init.*` → ler progresso → escolher UMA feature →
   implementar → verificar → autocorrigir → registrar evidência → commit em

@@ -476,6 +476,10 @@ PROFILE_PATH = ".harness/repo-profile.json"
 EVIDENCE_DIR = ".harness/evidence"
 TEAM_MANIFEST_PATH = ".harness/team/manifest.json"
 REVIEW_DIR = ".harness/review"
+# Área de autoria de contrato: spec.md/Plans.md do PRÓXIMO contrato vivem
+# aqui e nunca estão em files[] do contrato ATIVO. Sem esta exceção, planejar
+# a próxima feature ficaria bloqueado pela superfície do contrato corrente.
+WORK_DIR_PREFIX = ".harness/work/"
 
 # package_manager.value (analyzer.py) -> comando de instalação EXATO. Mesmo
 # mapeamento de harness.session_permissions/harness.templates: o valor bruto
@@ -919,6 +923,12 @@ def _evaluate_file(path, cwd):
         return "deny", (
             "runtime floor: escrita em arquivo de segredo (.env/.pem/id_rsa/"
             "credentials) e bloqueio incondicional, independente de contrato ativo"
+        )
+
+    if path.startswith(WORK_DIR_PREFIX):
+        return "allow", (
+            "area de autoria de contrato (.harness/work/**) sempre gravavel - "
+            "permite planejar o proximo contrato sem replanejar o atual"
         )
 
     feature_list = _load_json(cwd, FEATURE_LIST_PATH)

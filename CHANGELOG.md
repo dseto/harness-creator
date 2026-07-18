@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.15.4 — 2026-07-17
+
+Fix de gap de usabilidade relatado por outra sessão: com um contrato ativo,
+o `boundary_guard` bloqueava `Write`/`Edit` no `spec.md`/`Plans.md` do
+PRÓXIMO contrato (`.harness/work/<slug-novo>/`) — a superfície do contrato
+corrente só conhece os `files[]` das tarefas ativas, e a área de autoria do
+próximo contrato nunca está entre eles. Resultado: planejar a próxima feature
+(`/harness-creator:plan`) esbarrava num `deny` da própria ferramenta.
+
+### Corrigido
+- `src/harness/boundary_guard.py` — `_evaluate_file` (dentro do script gerado
+  por `render_boundary_guard`) passa a liberar incondicionalmente qualquer
+  path sob `.harness/work/**`, avaliado DEPOIS do floor de segredo
+  (`.env`/`.pem`/`id_rsa`/`credentials` escondidos lá dentro continuam `deny`)
+  e ANTES da checagem de superfície do contrato. Autoria de contrato não é
+  código sob feature-lock; bloqueá-la era um impasse (não dá pra planejar o
+  próximo contrato sem escrever fora da superfície do atual).
+- 2 testes novos em `tests/test_boundary_guard.py` (autoria em
+  `.harness/work/**` liberada mesmo com contrato ativo; segredo dentro de
+  `work/` ainda negado pelo floor).
+
 ## 0.15.3 — 2026-07-17
 
 Fix de bug relatado por outra sessão: `harness compile-contract` recusava

@@ -163,6 +163,35 @@ def test_edit_file_not_declared_denies(tmp_path: Path) -> None:
     assert out["permissionDecision"] == "deny"
 
 
+def test_write_contract_authoring_dir_allows_even_with_active_contract(tmp_path: Path) -> None:
+    """Autoria do PRÓXIMO contrato (.harness/work/<slug-novo>/{spec,Plans}.md)
+    nunca está em files[] do contrato ativo — deve ser sempre gravável, senão
+    planejar a próxima feature fica bloqueado pela superfície da atual."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    script = _script(tmp_path)
+    for rel in (".harness/work/nova-feature/spec.md",
+                ".harness/work/nova-feature/Plans.md"):
+        out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                                  "tool_input": {"file_path": rel, "content": "x"}})
+        assert out["permissionDecision"] == "allow", rel
+
+
+def test_secret_inside_work_dir_still_denies(tmp_path: Path) -> None:
+    """Floor de segredo precede a exceção de .harness/work/** — um .env
+    escondido lá dentro continua bloqueado."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                              "tool_input": {"file_path": ".harness/work/x/.env", "content": "k=v"}})
+    assert out["permissionDecision"] == "deny"
+
+
 # ---------------- superfície do contrato: Bash ----------------
 
 def test_bash_exact_verify_cmd_allows(tmp_path: Path) -> None:
