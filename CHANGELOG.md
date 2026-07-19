@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.17.0 — 2026-07-19
+
+7 itens do backlog de fricção do issue #1 (sessão real de 5 contratos
+sequenciais), priorizados por análise em múltiplas passadas (triagem →
+auditoria adversarial → arbitragem → reflexão → veredito anti-overengineering).
+
+**BREAKING CHANGE:** o hook `boundary_guard.py` passa a ser registrado com
+matcher `"*"` (era `"Edit|Write|Bash"`). Toda tool de escrita agora passa pelo
+guard. Contratos já compilados continuam válidos; recompile via
+`compile-session` para que o hook novo (com `repo_root` no state e o matcher
+abrangente) seja instalado.
+
+### Corrigido (segurança)
+- **Bypass de tool de escrita fechado:** qualquer tool fora de Edit/Write/Bash
+  (PowerShell, NotebookEdit, MultiEdit, MCP filesystem) contornava o floor
+  inteiro — nunca invocava o hook. Agora `main()` roteia explicitamente todas
+  as tools de escrita conhecidas; avaliador de PowerShell próprio (floor-first);
+  allowlist de utilitárias read-only; deny por padrão-de-nome pra MCP de escrita
+  desconhecido.
+- **Fail-open por deriva de cwd fechado:** o `cwd` do payload PreToolUse é o CWD
+  corrente (deriva via `cd`), não a raiz do projeto — sob deriva, o contrato não
+  era achado e o guard degenerava em allow. Agora a raiz é gravada
+  (`repo_root` em `compiled-state-session.json`) e o hook ancora a resolução de
+  path nela.
+- **Paridade do floor de segredo no Bash:** redirecionamento (`>`/`>>`/`tee`)
+  para arquivo de segredo agora é barrado também no caminho Bash sem contrato.
+
+### Adicionado
+- **Superfície de docs:** allowlist `docs/**` (sem verify_cmd nem aprovação),
+  excluindo explicitamente arquivos de governança (AGENTS.md/CLAUDE.md/
+  Plans.md/spec.md/harness.yaml). Elimina o motivo do bypass via shell.
+- **`harness task add-file <task-id> <path>`:** append em `files[]` de uma task
+  no Plans.md + recompila, sem editar o markdown à mão. Mantém o gate de
+  aprovação.
+- **Detecção de lock de arquivo em verify_cmd:** MSB3027/MSB3021/EBUSY/etc.
+  disparam mensagem acionável (causa provável: processo do projeto-alvo
+  rodando). Detecção-only — nunca mata processo.
+
+### Nota
+Limites residuais aceitos e documentados no floor (deploy single-user interno):
+escrita de segredo via interpretador (`python -c`) ou ofuscação do alvo por
+concatenação de aspas/ANSI-C; MCP de escrita cujo nome não contenha
+write/create/edit. Ver `ROADMAP-issue1-friccao-sessao-real.correction.backlog.md`
+e issue #1.
+
 ## 0.16.1 — 2026-07-19
 
 8 achados da auditoria skill-audit (2026-07-19) + backlog de fricção do

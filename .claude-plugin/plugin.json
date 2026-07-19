@@ -1,6 +1,6 @@
 {
   "name": "harness-creator",
   "description": "Cria, avalia e compila estrutura de harness (governança de agentes) para projetos — compilando para permissions, hooks e AGENTS.md nativos do Claude Code.",
-  "version": "0.16.1",
+  "version": "0.17.0",
   "author": { "name": "Daniel Seto" }
 }
