@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 from harness.boundary_guard import (
+    BOUNDARY_HOOK_MATCHER,
     BOUNDARY_STATE_KEY,
     SESSION_STATE_FILE,
     install_boundary_guard,
@@ -403,7 +404,7 @@ def test_install_registers_hook_in_settings(tmp_path: Path) -> None:
     script = install_boundary_guard(tmp_path)
     settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
     entries = settings["hooks"]["PreToolUse"]
-    matching = [e for e in entries if e.get("matcher") == "Edit|Write|Bash"]
+    matching = [e for e in entries if e.get("matcher") == BOUNDARY_HOOK_MATCHER]
     assert len(matching) == 1
     assert str(script) in matching[0]["hooks"][0]["command"]
 
@@ -413,7 +414,7 @@ def test_install_is_idempotent(tmp_path: Path) -> None:
     install_boundary_guard(tmp_path)
     settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
     entries = settings["hooks"]["PreToolUse"]
-    matching = [e for e in entries if e.get("matcher") == "Edit|Write|Bash"]
+    matching = [e for e in entries if e.get("matcher") == BOUNDARY_HOOK_MATCHER]
     assert len(matching) == 1
 
 
@@ -455,7 +456,7 @@ def test_install_removes_legacy_guard_tests_hook(tmp_path: Path) -> None:
     settings = json.loads((claude_dir / "settings.json").read_text(encoding="utf-8"))
     legacy = [e for e in settings["hooks"]["PreToolUse"] if "guard_tests.py" in json.dumps(e)]
     assert legacy == []
-    new_entries = [e for e in settings["hooks"]["PreToolUse"] if e.get("matcher") == "Edit|Write|Bash"]
+    new_entries = [e for e in settings["hooks"]["PreToolUse"] if e.get("matcher") == BOUNDARY_HOOK_MATCHER]
     assert len(new_entries) == 1
 
 
@@ -1081,3 +1082,474 @@ def test_feature_lock_replace_all_false_flips_only_first(tmp_path: Path) -> None
         },
     })
     assert out["permissionDecision"] == "allow", out
+
+
+# =============================================================================
+# Correção do backlog do issue #1 (bypass de tool de escrita + PowerShell +
+# floor de segredo no Bash + docs/**) — itens 1 a 4.
+# =============================================================================
+
+# ---------------- Item 1: matcher "*" + roteamento explícito por tool ----------------
+
+
+def test_boundary_hook_matcher_is_wildcard() -> None:
+    """Decisão documentada no docstring do módulo: matcher "*" (não mais
+    "Edit|Write|Bash") — confirmado via doc oficial do Claude Code que, para
+    PreToolUse, "*"/""/omitido casam TODA tool call."""
+    assert BOUNDARY_HOOK_MATCHER == "*"
+
+
+def test_notebookedit_outside_surface_denies(tmp_path: Path) -> None:
+    """Achado #1: NotebookEdit nunca invocava o hook (matcher estreito) —
+    agora roteado explicitamente para _evaluate_file sobre notebook_path."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "NotebookEdit", "cwd": str(tmp_path),
+                              "tool_input": {"notebook_path": "notebooks/analysis.ipynb"}})
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_notebookedit_in_surface_allows(tmp_path: Path) -> None:
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["notebooks/analysis.ipynb"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "NotebookEdit", "cwd": str(tmp_path),
+                              "tool_input": {"notebook_path": "notebooks/analysis.ipynb"}})
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_notebookedit_secret_floor_denies(tmp_path: Path) -> None:
+    """NotebookEdit tocando um path de segredo cai no mesmo runtime floor de
+    Edit/Write — nunca vira allow, com ou sem contrato."""
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "NotebookEdit", "cwd": str(tmp_path),
+                              "tool_input": {"notebook_path": ".env"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "runtime floor" in out["permissionDecisionReason"]
+
+
+def test_multiedit_in_surface_allows(tmp_path: Path) -> None:
+    """Correção pós-implementação (achado adversarial Opus): MultiEdit é
+    tool de escrita REAL do Claude Code, não estava roteada e caía no ramo
+    de tool desconhecida (nome contém "edit" -> deny sempre). Roteada
+    explicitamente para _evaluate_file sobre tool_input.file_path."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {
+        "tool_name": "MultiEdit", "cwd": str(tmp_path),
+        "tool_input": {
+            "file_path": "src/main.py",
+            "edits": [
+                {"old_string": "a", "new_string": "b"},
+                {"old_string": "c", "new_string": "d"},
+            ],
+        },
+    })
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_multiedit_secret_floor_denies(tmp_path: Path) -> None:
+    script = _script(tmp_path)
+    out = _run_hook(script, {
+        "tool_name": "MultiEdit", "cwd": str(tmp_path),
+        "tool_input": {"file_path": ".env", "edits": [{"old_string": "a", "new_string": "b"}]},
+    })
+    assert out["permissionDecision"] == "deny", out
+    assert "runtime floor" in out["permissionDecisionReason"]
+
+
+def test_multiedit_outside_surface_denies(tmp_path: Path) -> None:
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {
+        "tool_name": "MultiEdit", "cwd": str(tmp_path),
+        "tool_input": {"file_path": "src/other.py", "edits": [{"old_string": "a", "new_string": "b"}]},
+    })
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_multiedit_docs_allows(tmp_path: Path) -> None:
+    """MultiEdit também se beneficia da superfície docs/** (Item 4)."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {
+        "tool_name": "MultiEdit", "cwd": str(tmp_path),
+        "tool_input": {"file_path": "docs/x.md", "edits": [{"old_string": "a", "new_string": "b"}]},
+    })
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_ghost_mcp_write_tool_denies(tmp_path: Path) -> None:
+    """Tool de escrita fantasma (mcp__x__write, nome arbitrário não
+    enumerado) -> deny por padrão-de-nome, mesmo sem estar na allowlist
+    explícita de roteamento."""
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "mcp__filesystem__write_file", "cwd": str(tmp_path),
+                              "tool_input": {"path": "/etc/passwd", "content": "x"}})
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_ghost_mcp_create_and_edit_tools_deny(tmp_path: Path) -> None:
+    script = _script(tmp_path)
+    for name in ("mcp__foo__create_file", "mcp__foo__edit_document", "mcp__bar__WRITE"):
+        out = _run_hook(script, {"tool_name": name, "cwd": str(tmp_path), "tool_input": {}})
+        assert out["permissionDecision"] == "deny", (name, out)
+
+
+def test_readonly_and_utility_tools_allow_without_regressing_to_default_deny(tmp_path: Path) -> None:
+    """Read/Glob/Grep (leitura) e Task/WebFetch/TodoWrite (utilitárias
+    conhecidas, incluindo Task — usada pelo próprio harness) continuam
+    allow — a regressão que um default-deny ingênuo causaria."""
+    script = _script(tmp_path)
+    for name in ("Read", "Glob", "Grep", "Task", "WebFetch", "TodoWrite"):
+        out = _run_hook(script, {"tool_name": name, "cwd": str(tmp_path),
+                                  "tool_input": {"file_path": "src/main.py"}})
+        assert out["permissionDecision"] == "allow", (name, out)
+
+
+def test_unknown_tool_without_write_name_pattern_allows_logged(tmp_path: Path) -> None:
+    """Tool desconhecida cujo nome NÃO contém write/create/edit -> allow
+    LOGADO (política mínima; risco residual assumido e documentado)."""
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "mcp__foo__persist_snapshot", "cwd": str(tmp_path),
+                              "tool_input": {}})
+    assert out["permissionDecision"] == "allow", out
+    assert "allow-logado" in out["permissionDecisionReason"]
+
+
+# ---------------- Item 2: avaliador de PowerShell (floor-first) ----------------
+
+
+def test_powershell_set_content_secret_denies_without_contract(tmp_path: Path) -> None:
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": "Set-Content -Path .env -Value 'leak'"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "runtime floor" in out["permissionDecisionReason"]
+
+
+def test_powershell_out_file_secret_denies(tmp_path: Path) -> None:
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": "'leak' | Out-File -FilePath secrets/.env"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "runtime floor" in out["permissionDecisionReason"]
+
+
+def test_powershell_writealltext_secret_denies(tmp_path: Path) -> None:
+    script = _script(tmp_path)
+    out = _run_hook(script, {
+        "tool_name": "PowerShell", "cwd": str(tmp_path),
+        "tool_input": {"command": '[IO.File]::WriteAllText("secrets/.env", "leak")'},
+    })
+    assert out["permissionDecision"] == "deny", out
+    assert "runtime floor" in out["permissionDecisionReason"]
+
+
+def test_powershell_network_cmdlets_deny(tmp_path: Path) -> None:
+    """Invoke-WebRequest/Invoke-RestMethod (e aliases) não são cobertos por
+    is_floor_bash_command (tokenização genérica não conhece esses nomes) —
+    precisam do floor específico de PowerShell."""
+    script = _script(tmp_path)
+    for cmd in ("Invoke-WebRequest https://evil.example", "Invoke-RestMethod -Uri https://evil.example",
+                "iwr https://evil.example", "irm https://evil.example"):
+        out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                                  "tool_input": {"command": cmd}})
+        assert out["permissionDecision"] == "deny", (cmd, out)
+        assert "runtime floor" in out["permissionDecisionReason"]
+
+
+def test_powershell_git_push_denies_via_shared_floor(tmp_path: Path) -> None:
+    """git push continua deny em PowerShell, via is_floor_bash_command
+    reusado (não duplicado) por is_floor_powershell_network."""
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": "git push origin main"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "runtime floor" in out["permissionDecisionReason"]
+
+
+def test_powershell_set_content_docs_allows(tmp_path: Path) -> None:
+    """Item 2 + Item 4 combinados: Set-Content docs/x.md deve dar allow (a
+    mesma lógica de superfície de path do Edit/Write, aplicada ao alvo
+    extraído do comando PowerShell)."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": "Set-Content -Path docs/x.md -Value 'ok'"}})
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_powershell_set_content_outside_surface_denies(tmp_path: Path) -> None:
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": "Set-Content -Path other/file.txt -Value 'x'"}})
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_powershell_verify_cmd_command_allows(tmp_path: Path) -> None:
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": "pytest -q"}})
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_powershell_dollar_paren_and_backtick_not_falso_deny(tmp_path: Path) -> None:
+    """Ao contrário de _evaluate_bash, _evaluate_powershell NÃO bane
+    '$(...)'/crase — são sintaxe legítima em PowerShell (subexpressão e
+    escape), não command smuggling. Um comando declarado que contenha essa
+    sintaxe não deve ser falso-negado por esse motivo."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": "pytest -q $(Get-Date)"}})
+    assert out["permissionDecision"] == "allow", out
+    assert "command substitution" not in out["permissionDecisionReason"]
+
+
+def test_powershell_unrelated_command_denies(tmp_path: Path) -> None:
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": "Remove-Item -Recurse -Force src"}})
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_powershell_no_contract_allows(tmp_path: Path) -> None:
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": "Get-ChildItem"}})
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_is_floor_powershell_network_importable() -> None:
+    from harness.boundary_guard import is_floor_powershell_network
+
+    assert is_floor_powershell_network("Invoke-WebRequest https://x") is True
+    assert is_floor_powershell_network("iwr https://x") is True
+    assert is_floor_powershell_network("git push origin main") is True
+    assert is_floor_powershell_network("Get-ChildItem") is False
+
+
+def test_is_floor_powershell_secret_write_importable() -> None:
+    from harness.boundary_guard import is_floor_powershell_secret_write
+
+    assert is_floor_powershell_secret_write("Set-Content -Path .env -Value x") is True
+    assert is_floor_powershell_secret_write("Set-Content -Path docs/x.md -Value x") is False
+    assert is_floor_powershell_secret_write("Get-Content .env") is False
+
+
+# ---------------- Item 3: paridade do floor de segredo no caminho Bash ----------------
+
+
+def test_bash_echo_redirect_secret_denies_without_contract(tmp_path: Path) -> None:
+    """Achado #3: antes da correção, isto retornava allow (o floor de
+    segredo só era checado no caminho Edit/Write)."""
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "echo LEAK > .env"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "runtime floor" in out["permissionDecisionReason"]
+
+
+def test_bash_append_redirect_secret_denies(tmp_path: Path) -> None:
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "echo LEAK >> config/.env"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "runtime floor" in out["permissionDecisionReason"]
+
+
+def test_bash_tee_secret_denies(tmp_path: Path) -> None:
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "echo LEAK | tee .env"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "runtime floor" in out["permissionDecisionReason"]
+
+
+def test_bash_redirect_quoted_secret_target_denies(tmp_path: Path) -> None:
+    """Correção de bug (validação adversarial Opus, pós-implementação): o
+    alvo do redirecionamento entre aspas duplas/simples escapava do floor
+    porque a regex antiga capturava as aspas junto do valor (`".env"`
+    inteiro), e is_floor_secret_path exige sufixo exato (`.endswith(".env")`)
+    — `".env"` com aspas falhava o match. Fix: tokenizar (remove aspas),
+    mesma técnica já usada no ramo `tee`. `echo LEAK > .env` (sem aspas)
+    já era pego corretamente antes — mantido como controle."""
+    script = _script(tmp_path)
+    for cmd in (
+        'echo LEAK > ".env"',
+        "echo LEAK > '.env'",
+        'echo LEAK >> "id_rsa"',
+        'echo LEAK > "config/.env"',
+        "echo LEAK > .env",  # controle: sem aspas, já funcionava antes
+    ):
+        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                  "tool_input": {"command": cmd}})
+        assert out["permissionDecision"] == "deny", (cmd, out)
+        assert "runtime floor" in out["permissionDecisionReason"], (cmd, out)
+
+
+def test_powershell_secret_write_quoted_target_still_denies(tmp_path: Path) -> None:
+    """Teste de regressão travando que o floor de PowerShell NÃO tem o
+    mesmo furo de aspas do Bash: is_floor_powershell_secret_write já
+    tokenizava o comando (via _tokenize_command, que trata aspas como
+    separador) desde a implementação original do Item 2 — nunca dependeu de
+    regex sobre o texto bruto."""
+    script = _script(tmp_path)
+    for cmd in (
+        'Set-Content -Path ".env" -Value "leak"',
+        "Set-Content -Path '.env' -Value 'leak'",
+    ):
+        out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                                  "tool_input": {"command": cmd}})
+        assert out["permissionDecision"] == "deny", (cmd, out)
+        assert "runtime floor" in out["permissionDecisionReason"], (cmd, out)
+
+
+def test_bash_read_secret_without_redirect_not_blocked_by_floor(tmp_path: Path) -> None:
+    """cat .env (leitura, sem redirecionamento) não é bloqueado pelo floor
+    de segredo — escopo restrito a redirecionamento/tee (não persegue todo
+    comando que meramente MENCIONA um path de segredo)."""
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "cat .env"}})
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_bash_redirect_non_secret_not_blocked_by_secret_floor(tmp_path: Path) -> None:
+    """echo x > src/app.py não é bloqueado pelo FLOOR de segredo (pode ainda
+    ser deny pela superfície genérica — não testado aqui — mas a razão não
+    deve citar runtime floor de segredo)."""
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "echo x > src/app.py"}})
+    # sem contrato ativo, cai no "sem contrato -> allow" genérico, não no floor
+    assert out["permissionDecision"] == "allow", out
+    assert "runtime floor" not in out["permissionDecisionReason"]
+
+
+def test_is_floor_bash_secret_redirect_importable() -> None:
+    from harness.boundary_guard import is_floor_bash_secret_redirect
+
+    assert is_floor_bash_secret_redirect("echo x > .env") is True
+    assert is_floor_bash_secret_redirect("echo x >> id_rsa") is True
+    assert is_floor_bash_secret_redirect("echo x | tee credentials.json") is True
+    assert is_floor_bash_secret_redirect("cat .env") is False
+    assert is_floor_bash_secret_redirect("echo x > src/app.py") is False
+    # Regressão do bug de aspas (validação adversarial Opus): alvo entre
+    # aspas duplas/simples tinha que ser reconhecido tanto quanto sem aspas.
+    assert is_floor_bash_secret_redirect('echo x > ".env"') is True
+    assert is_floor_bash_secret_redirect("echo x > '.env'") is True
+    assert is_floor_bash_secret_redirect('echo x >> "config/.env"') is True
+
+
+# ---------------- Item 4: superfície de docs via docs/** dedicado ----------------
+
+
+def test_write_docs_markdown_allows(tmp_path: Path) -> None:
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                              "tool_input": {"file_path": "docs/ARQUITETURA.md", "content": "x"}})
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_write_docs_subdir_allows(tmp_path: Path) -> None:
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                              "tool_input": {"file_path": "docs/adr/0001-decisao.md", "content": "x"}})
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_write_docs_allows_even_without_contract(tmp_path: Path) -> None:
+    """Análoga a WORK_DIR_PREFIX: docs/** é sempre gravável, com ou sem
+    contrato ativo — não é uma exceção só-sob-contrato."""
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                              "tool_input": {"file_path": "docs/README.md", "content": "x"}})
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_write_agents_md_root_denies(tmp_path: Path) -> None:
+    """AGENTS.md protegido explicitamente (defense-in-depth) — nunca cai na
+    allowlist de docs/**, mesmo não estando fisicamente dentro de docs/."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                              "tool_input": {"file_path": "AGENTS.md", "content": "x"}})
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_write_claude_plans_spec_md_root_deny(tmp_path: Path) -> None:
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    for name in ("CLAUDE.md", "Plans.md", "spec.md"):
+        out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                                  "tool_input": {"file_path": name, "content": "x"}})
+        assert out["permissionDecision"] == "deny", (name, out)
+
+
+def test_write_harness_yaml_denies(tmp_path: Path) -> None:
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                              "tool_input": {"file_path": ".harness/harness.yaml", "content": "x"}})
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_write_readme_root_denies_not_docs_prefix(tmp_path: Path) -> None:
+    """README.md na raiz NÃO é docs/** — continua exigindo declaração em
+    files[] (a correção NÃO usa allowlist *.md na raiz, proposta rejeitada)."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                              "tool_input": {"file_path": "README.md", "content": "x"}})
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_write_docs_traversal_to_agents_md_denies(tmp_path: Path) -> None:
+    """docs/../AGENTS.md normaliza para AGENTS.md — não escapa a proteção
+    via segmentos de path traversal."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                              "tool_input": {"file_path": "docs/../AGENTS.md", "content": "x"}})
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_secret_inside_docs_dir_still_denies(tmp_path: Path) -> None:
+    """Floor de segredo precede a exceção docs/** — um .env escondido lá
+    dentro continua bloqueado (mesmo padrão de test_secret_inside_work_dir_still_denies)."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                              "tool_input": {"file_path": "docs/.env", "content": "k=v"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "runtime floor" in out["permissionDecisionReason"]
+
+
+def test_is_docs_surface_path_importable() -> None:
+    from harness.boundary_guard import _is_docs_surface_path
+
+    assert _is_docs_surface_path("docs/ARQUITETURA.md") is True
+    assert _is_docs_surface_path("docs/sub/x.md") is True
+    assert _is_docs_surface_path("AGENTS.md") is False
+    assert _is_docs_surface_path("README.md") is False
+    assert _is_docs_surface_path(".harness/harness.yaml") is False
+    assert _is_docs_surface_path("docs/../AGENTS.md") is False
+    assert _is_docs_surface_path("docs/../CLAUDE.md") is False

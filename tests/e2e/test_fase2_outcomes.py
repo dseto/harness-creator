@@ -680,7 +680,11 @@ def test_outcome5_legacy_guard_tests_removed_others_preserved(tmp_path: Path) ->
         )
         assert "boundary_guard.py" in dump
         matchers = sorted(e["matcher"] for e in entries)
-        assert matchers == ["Bash", "Edit|Write|Bash"], matchers
+        # boundary_guard.py agora registra com matcher "*" (casa toda tool
+        # call — roteamento explícito por tool acontece dentro de main() do
+        # script gerado; ver docstring de harness.boundary_guard), não mais
+        # "Edit|Write|Bash".
+        assert matchers == ["*", "Bash"], matchers
         proof.append(
             "Após `compile-session`: `guard_tests.py` REMOVIDO de hooks.PreToolUse "
             "(a proteção de teste agora é por-tarefa no boundary_guard), "

@@ -1,27 +1,113 @@
 """Dispatcher único de fronteira: `boundary_guard.py` — Fase 2 do ROADMAP.
 
 Substitui o padrão de N guards por ação (um hook por matcher) por UM único
-hook `PreToolUse` que cobre `Edit`, `Write` e `Bash` ao mesmo tempo,
-decidindo `allow`/`deny` a partir da superfície do contrato ATIVO
-(`.harness/feature_list.json`, compilado por `contract.py`). Resolve a
-latência de N subprocessos por tool call que o design anterior (um guard
-por ação, em `compiler.py`) pagava.
+hook `PreToolUse` que cobre `Edit`, `Write`, `MultiEdit`, `NotebookEdit`,
+`PowerShell` e `Bash` ao mesmo tempo, decidindo `allow`/`deny` a partir da
+superfície do contrato ATIVO (`.harness/feature_list.json`, compilado por
+`contract.py`). Resolve a latência de N subprocessos por tool call que o
+design anterior (um guard por ação, em `compiler.py`) pagava.
 
-Duas garantias, nesta ordem, sempre:
+**Matcher do hook e roteamento explícito (correção do backlog do issue #1,
+achado #1 — "bypass de tool de escrita")** — o matcher registrado é `"*"`,
+não `"Edit|Write|Bash"`: CONFIRMADO via consulta à documentação oficial do
+Claude Code (`https://code.claude.com/docs/en/hooks`, seção de matcher
+patterns) que, para `PreToolUse`, o matcher filtra pelo NOME da tool e
+`"*"`/`""`/omitido casam TODA tool call — não assumido a partir do padrão de
+`session_start.py:212` (aquele é matcher de `SessionStart`, que casa a
+ORIGEM da sessão — startup/resume/clear/compact —, namespace DIFERENTE de
+`PreToolUse`, que casa nome de tool; a semântica de `"*"` coincidiu nos dois
+casos, mas por MOTIVOS diferentes, confirmados independentemente). Com
+matcher `"Edit|Write|Bash"`, qualquer tool de escrita fora desse conjunto
+(PowerShell, NotebookEdit, MCP filesystem tools) nunca invocava o hook — o
+Claude Code aplicava o allow implícito ANTES de o `else: allow` de `main()`
+sequer rodar. Alargar o matcher sozinho não bastaria (só trocaria "nunca
+avaliado" por "avaliado só pelo fallback genérico"); por isso `main()` agora
+roteia EXPLICITAMENTE: `Edit`/`Write` → `_evaluate_file`; `MultiEdit`
+(múltiplas edições `old_string`/`new_string` sobre um ÚNICO arquivo,
+`tool_input["file_path"]` — correção adicional pós-implementação, validação
+adversarial Opus: sem esta rota, `MultiEdit` caia no ramo de tool
+desconhecida e era `deny` SEMPRE, mesmo dentro da superfície aprovada, já
+que o nome contém "edit"; fail-safe mas quebrava fluxo legítimo) →
+`_evaluate_file` também, sem o caso especial de feature-lock (o formato de
+`tool_input` de `MultiEdit` — array `edits[]` — não bate com o que
+`_evaluate_feature_list_edit` espera; uma `MultiEdit` sobre
+`feature_list.json` cai na superfície genérica, hoje já `deny` por padrão —
+mesmo comportamento seguro documentado para `Edit`/`Write` sem transição);
+`NotebookEdit` → `_evaluate_file` sobre `tool_input["notebook_path"]` (com
+fallback para `file_path` — a doc oficial não expôs o schema exato de
+`tool_input` do `NotebookEdit`, então a robustez extra do fallback cobre o
+caso de o nome do campo divergir do assumido, sem enfraquecer o floor:
+qualquer path extraído ainda passa pela mesma avaliação de superfície);
+`PowerShell` → `_evaluate_powershell` (Item 2, ver mais abaixo); `Bash` →
+`_evaluate_bash`. Uma allowlist pequena e FIXA de tools read-only/utilitárias
+conhecidas
+(`Read`, `Glob`, `Grep`, `Task`, `WebFetch`, `TodoWrite`) passa sem análise —
+`Task` é usado pelo próprio harness (subagentes) e NÃO pode cair em deny.
+Para qualquer tool NÃO enumerada acima (MCP arbitrária, tool nova do Claude
+Code, etc.): política MÍNIMA para o deploy single-user interno deste
+plugin — NÃO é um framework de governança MCP abrangente, NÃO é
+default-deny-tudo (que quebraria `Task`/`WebFetch` e qualquer tool
+utilitária futura não antecipada aqui). Nome com cara de escrita
+(`mcp__*__write*`, ou contendo `create`/`edit`, case-insensitive) → `deny`;
+resto → `allow` LOGADO (a razão da decisão cita explicitamente que é
+allow-logado por política mínima). **Risco residual assumido, por
+escrito:** uma tool MCP de escrita cujo nome não contenha
+`write`/`create`/`edit` (ex.: `mcp__foo__persist`, `mcp__foo__save`) passa
+sem análise — aceitável no contexto de deploy single-user interno descrito
+no backlog; se o conjunto de MCP servers conectados mudar para incluir
+ferramentas de terceiros não confiáveis, esta política mínima deve ser
+revisada (idealmente allowlist explícita por nome, não por padrão de
+substring).
+
+Três garantias, nesta ordem, sempre:
 
 1. **Runtime floor** — roda incondicionalmente ANTES de qualquer outra
    verificação, inclusive antes de checar se existe contrato ativo:
    `git push`, publicação/rede não planejada (`curl`, `wget`, `npm publish`,
-   `pip upload`, `twine upload`, `gh release`) e escrita em arquivo de
-   segredo (`.env`, `.pem`, `id_rsa`, `*credentials*`) NUNCA viram `allow`,
-   com ou sem contrato ativo. Não é um guard a mais na cascata — é avaliado
-   primeiro, sem exceção, porque "sem contrato → allow" avaliado antes do
-   floor abriria uma falha real de segurança (push/segredos liberados em
-   qualquer repo sem `feature_list.json`).
+   `pip upload`, `twine upload`, `gh release`, e — via PowerShell —
+   `Invoke-WebRequest`/`Invoke-RestMethod`/`iwr`/`irm`) e escrita em arquivo
+   de segredo (`.env`, `.pem`, `id_rsa`, `*credentials*`) NUNCA viram
+   `allow`, com ou sem contrato ativo. Não é um guard a mais na cascata — é
+   avaliado primeiro, sem exceção, porque "sem contrato → allow" avaliado
+   antes do floor abriria uma falha real de segurança (push/segredos
+   liberados em qualquer repo sem `feature_list.json`). **Escopo do floor de
+   segredo no caminho Bash/PowerShell (correção do achado #3 do backlog do
+   issue #1):** restrito a REDIRECIONAMENTO (`>`, `>>`, `tee` no Bash;
+   `Set-Content`/`Out-File`/`Add-Content`/`>`/`[IO.File]::WriteAllText` e
+   variantes no PowerShell) cujo alvo casa `is_floor_secret_path` —
+   deliberadamente NÃO persegue escrita indireta via interpretador (`python
+   -c "open('.env','w')...`, `node -e ...`): é uma corrida armamentista de
+   custo desproporcional para este mecanismo; a redireção/cmdlets de escrita
+   cobrem o caso comum e observável (foi o vetor usado na prática no issue
+   #1). Antes desta correção, esta promessa era FALSA no caminho Bash
+   sem contrato ativo — `_evaluate_bash` retornava `allow` antes de checar o
+   alvo de qualquer redirecionamento. Mesma classe de limite aceita (não
+   corrigida, avaliada e descartada por custo desproporcional — validação
+   adversarial Opus pós-implementação): ofuscação do alvo do redirecionamento
+   via concatenação de fragmentos entre aspas adjacentes no Bash (`echo x >
+   ".e"nv`, que o shell reagrupa em `.env` mas a tokenização vê como dois
+   tokens `.e`+`nv`) ou via ANSI-C quoting (`echo x > $'\x2eenv'`) também
+   escapa do floor de redirecionamento — assumido pelo mesmo motivo do
+   interpretador acima.
 2. **Proteção contra enfraquecimento de teste** — arquivo que casa
    `test_glob` (do `repo-profile.json`) só é editável se alguma tarefa do
    contrato ativo o declarar em `files[]`; substitui o `guard_tests.py`
    estático (sempre-`ask`) do `compiler.py` por uma decisão por-tarefa.
+3. **Superfície de docs dedicada (`docs/**`, Item 4 do backlog do issue
+   #1)** — escrita sob `docs/**` é sempre permitida (análoga à exceção já
+   existente de `.harness/work/**`, sem `verify_cmd` nem gate de aprovação:
+   prosa não quebra teste), MAS com exclusão EXPLÍCITA (defense-in-depth) de
+   `AGENTS.md`, `CLAUDE.md`, `Plans.md`, `spec.md` (por nome-base,
+   case-insensitive) e `.harness/harness.yaml` (path exato) — mesmo que,
+   hoje, nenhum desses arquivos more fisicamente dentro de `docs/**` (todos
+   vivem na raiz ou em `.harness/`, então já cairiam fora do prefixo
+   `docs/`); a exclusão explícita blinda contra qualquer path que tente
+   escapar para fora de `docs/**` via segmentos `..` (o path é normalizado
+   com `posixpath.normpath` antes da checagem de prefixo). Deliberadamente
+   NÃO usa allowlist `*.md` na raiz — essa proposta original do issue #1 foi
+   REJEITADA porque abriria `AGENTS.md` (documento de governança lido no
+   início de toda sessão, `lifecycle.py:35,67`) a reescrita livre pelo
+   próprio agente que ele governa.
 
 O script gerado por `render_boundary_guard()` é standalone (stdlib apenas:
 `json`, `re`, `sys` — nada de `import harness`), porque hooks do Claude
@@ -66,6 +152,23 @@ importadas acima (na versão real) ou geradas (na versão standalone) mais o
 veto do revisor abaixo; mudou o fluxo de orquestração em si (não as peças
 de frescor), muda dos dois lados.
 
+O mesmo padrão de fonte única via `inspect.getsource()` foi ESTENDIDO
+(correção do backlog do issue #1, itens 2-4) para as peças de floor/superfície
+abaixo, todas puras e stdlib-only: `is_floor_powershell_network` (rede/
+publicação específica de PowerShell — `Invoke-WebRequest`/`Invoke-RestMethod`/
+`iwr`/`irm` —, reusando `is_floor_bash_command` para o resto, não duplicando
+`git push`/`curl`/`wget`/etc.), `is_floor_powershell_secret_write` (heurística
+de escrita-em-segredo via PowerShell), `is_floor_bash_secret_redirect`
+(heurística de redirecionamento/`tee`-em-segredo via Bash, achado #3) e
+`_is_docs_surface_path`+`DOCS_SURFACE_EXCLUDED_BASENAMES`/
+`DOCS_SURFACE_EXCLUDED_PATHS` (superfície `docs/**`, achado #4). Os
+ORQUESTRADORES que as consomem (`_evaluate_bash`, `_evaluate_file`, e o novo
+`_evaluate_powershell`) continuam SEM contraparte importável — mesma razão de
+sempre: dependem de outras peças (`_load_json`, `_collect_allowed_files`,
+`_glob_to_regex`, `_path_in_surface`) que só existem no script standalone,
+então promovê-los a importável exigiria promover a árvore inteira, fora do
+escopo desta correção.
+
 **Veto do revisor (Fase 4, padrão Produtor-Revisor)** — checagem ADICIONAL
 avaliada depois que a evidência fresca de TODAS as features transicionadas
 já foi confirmada (a checagem acima, intocada): se
@@ -109,6 +212,12 @@ BOUNDARY_HOOK_FILENAME = "boundary_guard.py"
 SESSION_STATE_FILE = ".harness/compiled-state-session.json"
 BOUNDARY_STATE_KEY = "boundary_guard_hook_command"
 LEGACY_GUARD_TESTS_MARKER = "guard_tests.py"
+
+# Matcher do hook PreToolUse registrado em .claude/settings.json. "*" casa
+# TODA tool call (confirmado via doc oficial do Claude Code — ver docstring
+# do módulo, seção "Matcher do hook e roteamento explícito"); o roteamento
+# por-tool acontece dentro de `main()` do script gerado, não no matcher.
+BOUNDARY_HOOK_MATCHER = "*"
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +270,129 @@ def is_floor_secret_path(path: str) -> bool:
         or lower.endswith("id_rsa")
         or "credentials" in basename
     )
+
+
+def is_floor_bash_secret_redirect(command: str) -> bool:
+    """True se `command` faz redirecionamento (`>`/`>>`) ou usa `tee` cujo
+    ALVO casa `is_floor_secret_path` (correção do achado #3 do backlog de
+    correção do issue #1: antes desta função, o floor de segredo só era
+    checado no caminho Edit/Write — `_evaluate_bash` retornava `allow` sem
+    olhar o alvo de nenhum redirecionamento).
+
+    Escopo DELIBERADAMENTE restrito a redirecionamento/`tee` — não persegue
+    escrita indireta via interpretador (`python -c "open('.env','w')..."`,
+    `node -e ...`): custo desproporcional para o que este mecanismo cobre; a
+    redireção é o caso comum e observável (foi o vetor citado no achado).
+
+    Correção de bug (achado adversarial pós-implementação, validação Opus):
+    a versão anterior extraía o alvo do `>`/`>>` com uma regex sobre o texto
+    BRUTO do comando (`>>?\\s*([^\\s;&|<>]+)`), que CAPTURAVA as aspas junto
+    do valor (`".env"` inteiro, aspas incluídas) — `is_floor_secret_path`
+    exige sufixo exato (`.endswith(".env")`), então `".env"`/`'.env'` (com
+    aspas) escapava do floor enquanto `.env` (sem aspas) era pego
+    corretamente. `tee` já não tinha esse bug porque usava
+    `_tokenize_command` (que trata aspas como separador, removendo-as). Fix:
+    o ramo de redirecionamento agora tokeniza o comando (mesma função,
+    mesma remoção de aspas) em vez de usar regex sobre o texto bruto —
+    consistente com o ramo `tee` logo abaixo, e sem o furo de aspas.
+
+    LIMITE ACEITO (não corrigido aqui — ver docstring do módulo, mesma
+    lista de limitações assumidas do floor): a tokenização por
+    `_tokenize_command` cobre o caso comum de aspas ENVOLVENDO o valor
+    inteiro (`> ".env"`, `> '.env'`), mas NÃO reconstrói o shell parsing
+    completo — concatenação de fragmentos entre aspas adjacentes (`>
+    ".e"nv`, que o shell reagrupa em `.env` mas aqui vira dois tokens
+    `.e`+`nv`, nenhum casando `is_floor_secret_path`) e ANSI-C quoting
+    (`> $'\\x2eenv'`) ainda escapam. Mesma classe de risco residual que a
+    escrita indireta via interpretador (`python -c "open('.env','w')"`):
+    o floor cobre o vetor comum e observável, não é airtight contra um
+    agente deliberadamente adversário ofuscando o alvo."""
+    command = command or ""
+    tokens = _tokenize_command(command)
+    if ">" in command and any(is_floor_secret_path(tok) for tok in tokens):
+        return True
+    if "tee" in tokens:
+        idx = tokens.index("tee")
+        return any(is_floor_secret_path(tok) for tok in tokens[idx + 1:])
+    return False
+
+
+_PS_NETWORK_PATTERN = re.compile(r"(?i)\b(invoke-webrequest|invoke-restmethod|iwr|irm)\b")
+_PS_WRITE_CMDLET_PATTERN = re.compile(r"(?i)\b(set-content|out-file|add-content)\b")
+_PS_WRITEALLTEXT_PATTERN = re.compile(
+    r"(?i)writealltext|writealllines|appendalltext|appendalllines"
+)
+
+
+def is_floor_powershell_network(command: str) -> bool:
+    """True se `command` (PowerShell) casa o floor de rede/publicação:
+    reusa `is_floor_bash_command` (git push/curl/wget/npm publish/pip
+    upload/twine upload/gh release — tokenização genérica, independente de
+    shell — NÃO duplicada aqui) e acrescenta os cmdlets de rede nativos do
+    PowerShell que essa tokenização não reconhece como sequência fixa
+    (`Invoke-WebRequest`/`Invoke-RestMethod` e os aliases `iwr`/`irm`)."""
+    if is_floor_bash_command(command):
+        return True
+    return bool(_PS_NETWORK_PATTERN.search(command or ""))
+
+
+def is_floor_powershell_secret_write(command: str) -> bool:
+    """True se `command` (PowerShell) PARECE escrever em arquivo (via
+    `Set-Content`/`Out-File`/`Add-Content`/redirecionamento `>`,`>>`/
+    `[IO.File]::WriteAllText` e variantes — `WriteAllLines`/`AppendAllText`/
+    `AppendAllLines`) E algum token do comando casa `is_floor_secret_path`.
+
+    Heurística CONSERVADORA por design: escaneia TODOS os tokens do comando
+    (não tenta parsing posicional exato do argumento de path — PowerShell
+    aceita `-Path`, forma posicional, ou pipeline; um parser completo é fora
+    de escopo). Prefere falso-deny a falso-allow neste caminho de floor de
+    segredo — over-deny aqui é seguro (só gera fricção), nunca abre um
+    bypass."""
+    command = command or ""
+    is_write = (
+        _PS_WRITE_CMDLET_PATTERN.search(command) is not None
+        or _PS_WRITEALLTEXT_PATTERN.search(command) is not None
+        or ">" in command
+    )
+    if not is_write:
+        return False
+    return any(is_floor_secret_path(tok) for tok in _tokenize_command(command))
+
+
+# ---------------------------------------------------------------------------
+# Superfície de docs dedicada (Python real, IMPORTÁVEL) — Item 4 do backlog
+# de correção do issue #1. Allowlist fixa restrita a `docs/**`, análoga à
+# exceção já existente `WORK_DIR_PREFIX` (`.harness/work/**`), sem
+# `verify_cmd` nem gate de aprovação — mas com exclusão EXPLÍCITA
+# (defense-in-depth) dos documentos de governança, mesmo que nenhum deles
+# more fisicamente dentro de `docs/**` hoje (todos vivem na raiz ou em
+# `.harness/`, fora do prefixo `docs/`).
+# ---------------------------------------------------------------------------
+DOCS_SURFACE_DIR_PREFIX = "docs/"
+DOCS_SURFACE_EXCLUDED_BASENAMES = frozenset({"agents.md", "claude.md", "plans.md", "spec.md"})
+DOCS_SURFACE_EXCLUDED_PATHS = frozenset({".harness/harness.yaml"})
+
+
+def _is_docs_surface_path(path: str) -> bool:
+    """True se `path` (já `/`-separado) cai na allowlist fixa `docs/**`.
+
+    Normaliza com `posixpath.normpath` ANTES de checar o prefixo `docs/` —
+    protege contra um path que tente escapar de `docs/**` via segmentos
+    `..` (ex.: `docs/../AGENTS.md` normaliza para `AGENTS.md`, que não
+    começa com `docs/`). A exclusão por nome-base (`AGENTS.md`/`CLAUDE.md`/
+    `Plans.md`/`spec.md`, case-insensitive) e por path exato
+    (`.harness/harness.yaml`) é defense-in-depth adicional, redundante com a
+    normalização acima no cenário atual, mas documentada explicitamente
+    porque é a garantia que o backlog pede por escrito."""
+    import posixpath
+
+    normalized = posixpath.normpath(path or "")
+    if normalized in DOCS_SURFACE_EXCLUDED_PATHS:
+        return False
+    basename = normalized.rsplit("/", 1)[-1].lower()
+    if basename in DOCS_SURFACE_EXCLUDED_BASENAMES:
+        return False
+    return normalized.startswith(DOCS_SURFACE_DIR_PREFIX)
 
 
 # ---------------------------------------------------------------------------
@@ -458,7 +690,8 @@ def render_boundary_guard() -> str:
     """Devolve o código-fonte (string) do hook `PreToolUse` standalone.
 
     O script gerado lê o payload JSON do stdin e decide `allow`/`deny` para
-    os matchers `Edit`, `Write` e `Bash`, na ORDEM descrita no docstring do
+    todo `tool_name` (matcher `"*"`), roteando explicitamente `Edit`/`Write`/
+    `NotebookEdit`/`PowerShell`/`Bash`, na ORDEM descrita no docstring do
     módulo. Não importa nada de `harness.*` — stdlib apenas.
 
     A faixa "runtime floor" e "frescor de feature-lock" (ver docstring do
@@ -471,7 +704,9 @@ def render_boundary_guard() -> str:
     `harness.review` (`ReviewError`, `load_review`, `is_test_diff`), que o
     hook não pode importar — ver docstring do módulo, seção "Veto do
     revisor". Idem para `_glob_to_regex`/`_is_test_diff`/`_evaluate_*`
-    (avaliação de superfície genérica), que não têm contraparte importável.
+    (avaliação de superfície genérica) e para o roteamento de `main()`, que
+    não têm contraparte importável (dependem de peças que só existem no
+    script standalone — ver docstring do módulo).
     """
     shared_sources = [
         f"_SHELL_SPLIT = re.compile({_SHELL_SPLIT.pattern!r})",
@@ -480,6 +715,16 @@ def render_boundary_guard() -> str:
         inspect.getsource(_has_sequence),
         inspect.getsource(is_floor_bash_command),
         inspect.getsource(is_floor_secret_path),
+        inspect.getsource(is_floor_bash_secret_redirect),
+        f"_PS_NETWORK_PATTERN = re.compile({_PS_NETWORK_PATTERN.pattern!r})",
+        f"_PS_WRITE_CMDLET_PATTERN = re.compile({_PS_WRITE_CMDLET_PATTERN.pattern!r})",
+        f"_PS_WRITEALLTEXT_PATTERN = re.compile({_PS_WRITEALLTEXT_PATTERN.pattern!r})",
+        inspect.getsource(is_floor_powershell_network),
+        inspect.getsource(is_floor_powershell_secret_write),
+        f"DOCS_SURFACE_DIR_PREFIX = {DOCS_SURFACE_DIR_PREFIX!r}",
+        f"DOCS_SURFACE_EXCLUDED_BASENAMES = {set(DOCS_SURFACE_EXCLUDED_BASENAMES)!r}",
+        f"DOCS_SURFACE_EXCLUDED_PATHS = {set(DOCS_SURFACE_EXCLUDED_PATHS)!r}",
+        inspect.getsource(_is_docs_surface_path),
         inspect.getsource(_parse_iso8601),
         inspect.getsource(_feature_passes_map),
         inspect.getsource(_transitions_to_true),
@@ -500,15 +745,22 @@ def render_boundary_guard() -> str:
 
     header = '''"""Hook PreToolUse gerado pelo harness-creator — NÃO editar à mão.
 
-Dispatcher único de fronteira (Edit/Write/Bash) para a superfície do
-contrato ativo (.harness/feature_list.json). Gerado por
+Dispatcher único de fronteira (Edit/Write/MultiEdit/NotebookEdit/PowerShell/Bash) para
+a superfície do contrato ativo (.harness/feature_list.json). Registrado com
+matcher "*" (casa toda tool call — ver docstring de harness.boundary_guard,
+seção "Matcher do hook e roteamento explícito", para a justificativa);
+main() roteia explicitamente cada tool conhecida e aplica uma política
+mínima de allow/deny-por-nome para tools desconhecidas (deploy single-user
+interno, ver mesma seção). Gerado por
 harness.boundary_guard.render_boundary_guard(); para mudar o
 comportamento, edite o contrato/profile e rode a instalação novamente —
 não edite este arquivo diretamente.
 
 ORDEM DE AVALIAÇÃO (não reordenar): o runtime floor roda incondicionalmente
 antes de qualquer checagem de contrato — mesmo sem .harness/feature_list.json
-no repo, git push e escrita em arquivo de segredo continuam DENY.
+no repo, git push, comandos de rede do PowerShell e escrita em arquivo de
+segredo (via Edit/Write, PowerShell ou redirecionamento/tee no Bash)
+continuam DENY.
 
 A faixa abaixo marcada "GERADO" vem de harness.boundary_guard via
 inspect.getsource() (mesma lógica da versão importável, testável via
@@ -923,6 +1175,13 @@ def _evaluate_file(path, cwd):
             "permite planejar o proximo contrato sem replanejar o atual"
         )
 
+    if _is_docs_surface_path(path):
+        return "allow", (
+            "docs/** e superficie de documentacao dedicada (Item 4) - prosa nao "
+            "quebra teste; AGENTS.md/CLAUDE.md/Plans.md/spec.md/.harness/harness.yaml "
+            "permanecem protegidos (excluidos explicitamente desta allowlist)"
+        )
+
     feature_list = _load_json(cwd, FEATURE_LIST_PATH)
     if feature_list is None:
         return "allow", "sem contrato ativo — boundary_guard não gateia fora de uma sessão de contrato"
@@ -954,6 +1213,14 @@ def _evaluate_bash(command, cwd):
         return "deny", (
             "runtime floor: comando de push/publicacao/rede nao planejado - "
             "bloqueio incondicional, independente de contrato ativo"
+        )
+
+    if is_floor_bash_secret_redirect(command):
+        return "deny", (
+            "runtime floor: redirecionamento (>/>>/tee) para arquivo de segredo "
+            "(.env/.pem/id_rsa/credentials) e bloqueio incondicional, independente "
+            "de contrato ativo - escopo restrito a redirecionamento/tee, nao "
+            "persegue escrita indireta via interpretador (python -c, node -e, etc.)"
         )
 
     feature_list = _load_json(cwd, FEATURE_LIST_PATH)
@@ -992,6 +1259,113 @@ def _evaluate_bash(command, cwd):
     )
 
 
+def _looks_like_ps_write_marker(tok):
+    lower = tok.lower()
+    return (
+        _PS_WRITE_CMDLET_PATTERN.search(tok) is not None
+        or _PS_WRITEALLTEXT_PATTERN.search(tok) is not None
+        or lower.startswith("-")
+    )
+
+
+def _extract_powershell_write_target(command):
+    """Extrai o alvo de escrita de um comando PowerShell reconhecido como
+    escrita (Set-Content/Out-File/Add-Content/redirecionamento >,>>/
+    [IO.File]::WriteAllText e variantes), pra aplicar a MESMA logica de
+    superficie de path do Edit/Write (_evaluate_file) sobre esse alvo.
+
+    Heuristica por tokenizacao generica (reusa _tokenize_command, ja
+    embutido pelo floor acima): devolve o primeiro token que NAO e o proprio
+    cmdlet/marcador de escrita, NAO e uma flag (comeca com '-'), e TEM cara
+    de path (contem '.', '/' ou '\\\\'). Nao e um parser completo de
+    PowerShell - escopo documentado no Item 2 do backlog de correcao do
+    issue #1. Devolve None se o comando nao parece um write reconhecido ou
+    nenhum token com cara de path sobra apos excluir os marcadores."""
+    if not command:
+        return None
+    is_write = (
+        _PS_WRITE_CMDLET_PATTERN.search(command) is not None
+        or _PS_WRITEALLTEXT_PATTERN.search(command) is not None
+        or ">" in command
+    )
+    if not is_write:
+        return None
+    for tok in _tokenize_command(command):
+        if _looks_like_ps_write_marker(tok):
+            continue
+        if "." in tok or "/" in tok or "\\\\" in tok:
+            return tok
+    return None
+
+
+def _evaluate_powershell(command, cwd):
+    """Avaliador DEDICADO de PowerShell (Item 2 do backlog de correcao do
+    issue #1) - deliberadamente NAO reusa _evaluate_bash: backtick e '$('
+    sao sintaxe legitima e onipresente em PowerShell (escape/subexpressao),
+    nao command smuggling, e PowerShell 5.1 nem suporta '&&'/'||'.
+
+    Ordem: floor tool-agnostico PRIMEIRO (rede/publicacao, depois escrita em
+    segredo - reusando is_floor_powershell_network/is_floor_powershell_secret_write,
+    ja embutidos acima via inspect.getsource); depois, se ha um alvo de
+    escrita reconhecido, a MESMA logica de superficie de path do Edit/Write
+    (_evaluate_file, inclui docs/** do Item 4); senao, cai na mesma logica
+    de superficie de COMANDO do Bash (verify_cmd/lint/build/install/git
+    local/harness), sem as negacoes especificas de sintaxe Bash."""
+    if is_floor_powershell_network(command):
+        return "deny", (
+            "runtime floor: comando de rede/publicacao (PowerShell) nao "
+            "planejado - bloqueio incondicional, independente de contrato ativo"
+        )
+
+    if is_floor_powershell_secret_write(command):
+        return "deny", (
+            "runtime floor: escrita em arquivo de segredo via PowerShell "
+            "(.env/.pem/id_rsa/credentials) e bloqueio incondicional, "
+            "independente de contrato ativo"
+        )
+
+    feature_list = _load_json(cwd, FEATURE_LIST_PATH)
+    if feature_list is None:
+        return "allow", "sem contrato ativo — boundary_guard não gateia fora de uma sessão de contrato"
+
+    target = _extract_powershell_write_target(command)
+    if target is not None:
+        path = _resolve_path(target, cwd)
+        return _evaluate_file(path, cwd)
+
+    profile = _load_json(cwd, PROFILE_PATH)
+    allowed_commands = _collect_allowed_bash_commands(feature_list, profile)
+    allowed_sequences = (
+        FIXED_GIT_SEQUENCES + FIXED_HARNESS_SEQUENCES
+        + [_tokenize_command(c) for c in allowed_commands]
+    )
+
+    segments = _split_shell_segments(command)
+    if segments and all(
+        _segment_prefixes_any(_tokenize_command(seg), allowed_sequences) for seg in segments
+    ):
+        return "allow", (
+            "comando declarado na superficie compilada do contrato "
+            "(verify_cmd/lint/typecheck/build/install/git local) - PowerShell"
+        )
+    return "deny", (
+        "comando fora da superficie compilada do contrato (PowerShell); "
+        "replaneje via /harness-creator:plan se precisar de outro comando"
+    )
+
+
+# Tools read-only/utilitarias CONHECIDAS que passam sem analise de escrita
+# (Item 1 do backlog de correcao do issue #1). Task e usado pelo proprio
+# harness (subagentes) e NAO pode cair no branch de tool desconhecida.
+_READONLY_ALLOWLIST_TOOLS = ("Read", "Glob", "Grep", "Task", "WebFetch", "TodoWrite")
+
+# Tool NAO enumerada acima: politica MINIMA pra deploy single-user interno -
+# nome com cara de escrita (contem write/create/edit, case-insensitive,
+# cobre mcp__*__write*) nega por padrao; resto e allow LOGADO (risco
+# residual assumido, documentado no docstring do modulo importavel).
+_UNKNOWN_WRITE_NAME_PATTERN = re.compile(r"(?i)(write|create|edit)")
+
+
 def main() -> None:
     try:
         data = json.load(sys.stdin)
@@ -1008,11 +1382,56 @@ def main() -> None:
                 decision, reason = special
             else:
                 decision, reason = _evaluate_file(path, cwd)
+        elif tool_name == "MultiEdit":
+            # MultiEdit e uma tool de escrita REAL do Claude Code (multiplas
+            # edicoes old_string/new_string sobre um UNICO arquivo,
+            # tool_input.file_path). Antes desta correcao (achado adversarial
+            # pos-implementacao, validacao Opus) MultiEdit nao estava
+            # roteada aqui e caia no ramo de tool desconhecida - o nome
+            # contem "edit", entao era deny SEMPRE, mesmo dentro da
+            # superficie aprovada (fail-safe, mas quebrava fluxo legitimo).
+            # NAO tenta o caso especial de feature-lock (_evaluate_feature_list_edit
+            # espera o formato de tool_input do Edit/Write simples, nao o
+            # array `edits[]` do MultiEdit) - uma MultiEdit sobre
+            # feature_list.json cai na superficie generica (hoje ja resulta
+            # em deny, mesmo comportamento seguro-por-padrao documentado
+            # para Edit/Write quando nao ha transicao para passes:true).
+            path = _resolve_path(tool_input.get("file_path") or "", cwd)
+            decision, reason = _evaluate_file(path, cwd)
+        elif tool_name == "NotebookEdit":
+            # tool_input do NotebookEdit documentado (tools-reference do
+            # Claude Code) usa o formato de path do Edit/Write; o campo
+            # exato nao foi exposto pela doc publica consultada, entao
+            # tentamos notebook_path (assumido) com fallback pra file_path -
+            # qualquer um dos dois ainda passa pela MESMA avaliacao de
+            # superficie/floor de _evaluate_file, sem enfraquecer nada.
+            raw_path = tool_input.get("notebook_path") or tool_input.get("file_path") or ""
+            path = _resolve_path(raw_path, cwd)
+            decision, reason = _evaluate_file(path, cwd)
+        elif tool_name == "PowerShell":
+            command = tool_input.get("command") or ""
+            decision, reason = _evaluate_powershell(command, cwd)
         elif tool_name == "Bash":
             command = tool_input.get("command") or ""
             decision, reason = _evaluate_bash(command, cwd)
+        elif tool_name in _READONLY_ALLOWLIST_TOOLS:
+            decision, reason = "allow", (
+                "ferramenta read-only/utilitaria conhecida, fora do escopo de "
+                "escrita do boundary_guard"
+            )
         else:
-            decision, reason = "allow", "ferramenta fora do escopo do boundary_guard"
+            if _UNKNOWN_WRITE_NAME_PATTERN.search(tool_name):
+                decision, reason = "deny", (
+                    "tool desconhecida com nome de escrita (contem write/create/edit) - "
+                    "boundary_guard nega por padrao ate ser roteada explicitamente; se "
+                    "for uma tool read-only legitima, adicione-a a allowlist conhecida"
+                )
+            else:
+                decision, reason = "allow", (
+                    "tool desconhecida fora do padrao de nome de escrita conhecido - "
+                    "allow-logado (politica minima de deploy single-user interno; "
+                    "risco residual assumido, ver docstring de harness.boundary_guard)"
+                )
     except Exception as exc:
         decision, reason = "deny", (
             "boundary_guard: erro interno ao avaliar a tool call (" + repr(exc) + ") - "
@@ -1049,12 +1468,20 @@ def _load_json_state(path: Path) -> dict[str, Any]:
 
 
 def install_boundary_guard(target_dir: Path) -> Path:
-    """Instala `boundary_guard.py` como o único hook `PreToolUse` de
-    Edit/Write/Bash em `target_dir`.
+    """Instala `boundary_guard.py` como o único hook `PreToolUse` em
+    `target_dir`, cobrindo TODA tool call (matcher `"*"`, não mais
+    `"Edit|Write|Bash"` — ver docstring do módulo, seção "Matcher do hook e
+    roteamento explícito", para a correção do bypass de tool de escrita e a
+    confirmação via doc oficial do Claude Code de que `"*"` casa qualquer
+    tool em `PreToolUse`). O roteamento por-tool (Edit/Write/NotebookEdit/
+    PowerShell/Bash tratadas explicitamente; allowlist read-only fixa;
+    política mínima por-nome para o resto) acontece dentro de `main()` do
+    script gerado, não no matcher.
 
     Escreve `target_dir/.harness/hooks/boundary_guard.py` e registra o hook
-    em `target_dir/.claude/settings.json` (matcher `"Edit|Write|Bash"`).
-    Merge não-destrutivo via `target_dir/.harness/compiled-state-session.json`
+    em `target_dir/.claude/settings.json` (matcher `"*"`, constante
+    `BOUNDARY_HOOK_MATCHER`). Merge não-destrutivo via
+    `target_dir/.harness/compiled-state-session.json`
     (chave própria `boundary_guard_hook_command`, preservando outras chaves
     já presentes — o arquivo é compartilhado com hooks irmãos de sessão).
 
@@ -1100,7 +1527,7 @@ def install_boundary_guard(target_dir: Path) -> Path:
         e for e in pre if not _is_old_managed(e) and not _is_legacy_guard_tests(e)
     ]
     new_entry = {
-        "matcher": "Edit|Write|Bash",
+        "matcher": BOUNDARY_HOOK_MATCHER,
         "hooks": [{"type": "command", "command": command}],
     }
     hooks["PreToolUse"] = kept_entries + [new_entry]

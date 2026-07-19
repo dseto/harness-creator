@@ -165,9 +165,11 @@ def test_boundary_flow_end_to_end(tmp_path: Path) -> None:
     # coexistem duplicando o gate de proteção de teste.
     assert "guard_tests.py" not in pre_tool_use_dump
     assert "boundary_guard.py" in pre_tool_use_dump
-    # só sobra a entrada nova (Edit|Write|Bash) — nada mais em PreToolUse.
+    # só sobra a entrada nova (matcher "*" — casa toda tool call; roteamento
+    # explícito por tool acontece dentro de main() do script gerado, ver
+    # docstring de harness.boundary_guard) — nada mais em PreToolUse.
     assert len(pre_tool_use) == 1
-    assert pre_tool_use[0]["matcher"] == "Edit|Write|Bash"
+    assert pre_tool_use[0]["matcher"] == "*"
 
     boundary_guard_path = project / ".harness" / "hooks" / "boundary_guard.py"
     assert boundary_guard_path.is_file()
