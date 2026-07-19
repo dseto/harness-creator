@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -52,13 +53,95 @@ from harness.contract import FEATURE_LIST_FILE
 EVIDENCE_DIR = ".harness/evidence"
 _VERIFY_TIMEOUT_SECONDS = 600
 
+# Item 7 do backlog issue #1 — detecção-only de "arquivo em uso" (sem
+# auto-kill). Padrão casa as duas mensagens de erro do MSBuild (.NET) que
+# apareceram ~6x na sessão real (MSB3027 = falha ao COPIAR o binário de
+# saída; MSB3021 = falha ao GERAR/vincular o binário porque outro processo
+# o mantém aberto) mais os equivalentes textuais Node/POSIX (`EBUSY`,
+# `text file busy`) e a variante Win32 (`ERROR_SHARING_VIOLATION`, "being
+# used by another process" — a frase literal que MSB3021/3027 imprimem).
+# Case-insensitive: saída de build pode vir com capitalização variável
+# dependendo do locale do MSBuild.
+_FILE_LOCK_PATTERN = re.compile(
+    r"MSB3027|MSB3021|\bEBUSY\b|text file busy|ERROR_SHARING_VIOLATION|"
+    r"being used by another process",
+    re.IGNORECASE,
+)
+
+# Extração de PID é best-effort: MSB3027/MSB3021 normalmente NÃO citam o
+# PID do processo que segura o lock (a mensagem do Win32
+# ERROR_SHARING_VIOLATION traduzida pelo MSBuild não inclui o processo
+# ofensor). Estes padrões só capturam os formatos em que algum PID
+# aparece explicitamente na saída (ex.: uma ferramenta upstream que
+# anexa "pid: 1234" à mensagem). Sem match -> None, e a mensagem aponta
+# só a causa provável, sem inventar PID.
+_PID_PATTERNS = (
+    re.compile(r"process\s+id\s*[:#]?\s*(\d+)", re.IGNORECASE),
+    re.compile(r"\(pid\s*[:=]?\s*(\d+)\)", re.IGNORECASE),
+    re.compile(r"\bpid\s*[:=]\s*(\d+)\b", re.IGNORECASE),
+)
+
+
+def detect_file_lock_hint(stdout: str, stderr: str) -> str | None:
+    """Detecta, na saída (stdout+stderr) de um `verify_cmd` que falhou, o
+    padrão de "arquivo/processo em uso" (lock) típico de build .NET
+    (MSBuild) ou Node/POSIX — DETECÇÃO-ONLY, item 7 do backlog issue #1.
+
+    Retorna `None` se nenhum padrão de `_FILE_LOCK_PATTERN` casar — em
+    particular, uma falha de teste NORMAL (assert, "N testes falharam")
+    não contém nenhum desses tokens e por isso não gera mensagem (sem
+    falso-positivo). Se casar, retorna uma string com a causa provável
+    (processo do próprio projeto-alvo, ex.: `dotnet run`/`npm start`,
+    rodando em paralelo e segurando o binário) e, SE um PID aparecer na
+    saída num formato reconhecível, o PID — nunca inventado.
+
+    REGRA DURA (rejeitada explicitamente no backlog): esta função só
+    monta uma mensagem. Ela NUNCA mata processo, nunca lista processos
+    (tasklist/Get-Process), nunca sugere comando de kill. Auto-kill foi
+    avaliado e descartado (risco de matar o processo errado > benefício).
+    """
+    combined = f"{stdout}\n{stderr}"
+    if not _FILE_LOCK_PATTERN.search(combined):
+        return None
+
+    pid = None
+    for pattern in _PID_PATTERNS:
+        match = pattern.search(combined)
+        if match:
+            pid = match.group(1)
+            break
+
+    hint = (
+        "verify_cmd falhou com um padrão de arquivo/processo em uso (lock) "
+        "-- causa provável: um processo do próprio projeto-alvo (ex.: "
+        "`dotnet run`, `npm start`) rodando em paralelo e segurando o "
+        "executável/dll de saída. Este harness NÃO mata processos "
+        "automaticamente -- fechar manualmente o processo de dev antes de "
+        "rodar o verify_cmd de novo costuma resolver."
+    )
+    if pid:
+        hint += f" PID aparente na saída do build: {pid}."
+    return hint
+
 
 class VerifyError(Exception):
     """Erro antes mesmo de rodar o `verify_cmd` (feature/contrato ausente)."""
 
 
 class VerifyFailedError(Exception):
-    """`verify_cmd` rodou mas saiu com exit code != 0 — evidência NÃO gravada."""
+    """`verify_cmd` rodou mas saiu com exit code != 0 — evidência NÃO gravada.
+
+    `file_lock_hint` (item 7 do backlog issue #1): populado automaticamente
+    via `detect_file_lock_hint(stdout, stderr)` — `None` no caso comum
+    (falha de teste normal), ou uma string acionável quando a saída casa
+    um padrão de arquivo em uso (MSB3027/MSB3021/EBUSY/"text file busy").
+    Campo puramente ADITIVO: `feature_id`/`exit_code`/`stdout`/`stderr`
+    continuam com o mesmo contrato de sempre, então qualquer consumidor
+    existente de `run_verify` que só lê esses quatro campos não quebra.
+    Escolha deliberada: a detecção entra aqui (não só no print do
+    `cli.py`) para que QUALQUER consumidor de `run_verify` — não só o
+    dispatch do comando `verify` — enxergue o sinal.
+    """
 
     def __init__(self, feature_id: str, exit_code: int, stdout: str, stderr: str) -> None:
         super().__init__(
@@ -68,6 +151,7 @@ class VerifyFailedError(Exception):
         self.exit_code = exit_code
         self.stdout = stdout
         self.stderr = stderr
+        self.file_lock_hint = detect_file_lock_hint(stdout, stderr)
 
 
 def compute_files_hash(files: list[str], target_dir: Path) -> str:

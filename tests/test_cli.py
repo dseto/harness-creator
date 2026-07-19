@@ -367,6 +367,51 @@ def test_verify_subcommand_failure_propagates_exit_code(
     assert not evidence_path.is_file()
 
 
+def test_verify_subcommand_msb3027_failure_prints_aviso_hint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Item 7 do backlog issue #1: quando o verify_cmd falha com um padrão
+    de arquivo em uso (MSB3027), o dispatch do comando `verify` imprime a
+    mensagem acionável ("aviso: ...") em stderr, além de stdout/stderr
+    crus de sempre."""
+    script = tmp_path / "fake_msbuild.py"
+    _write(
+        script,
+        "import sys\n"
+        "sys.stderr.write('error MSB3027: Could not copy bin/App.dll. "
+        "The process cannot access the file because it is being used by "
+        "another process.\\n')\n"
+        "sys.exit(1)\n",
+    )
+    verify_cmd = f'"{sys.executable}" "{script}"'
+    _write_feature_list(tmp_path, verify_cmd)
+
+    monkeypatch.setattr(sys, "argv", ["harness", "verify", "T-01", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    err = capsys.readouterr().err
+    assert "aviso:" in err
+    assert "processo do próprio projeto-alvo" in err
+
+
+def test_verify_subcommand_normal_failure_does_not_print_aviso_hint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Sem falso-positivo: falha comum (exit 3 sem menção a lock de arquivo)
+    não deve imprimir a linha "aviso: ..."."""
+    _write_feature_list(tmp_path, _exit_code_cmd(3))
+
+    monkeypatch.setattr(sys, "argv", ["harness", "verify", "T-01", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 3
+    err = capsys.readouterr().err
+    assert "aviso:" not in err
+
+
 def test_verify_subcommand_missing_feature_exits_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

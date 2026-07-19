@@ -474,6 +474,18 @@ def _dry_check_verify_cmd(verify_cmd: str, cwd: Path, timeout: float = 8.0) -> s
         return f"verify_cmd '{verify_cmd}' — comando não encontrado: {exc}"
 
     if proc.returncode != 0:
+        # Item 7 do backlog issue #1: mesma detecção-only de arquivo/processo
+        # em uso usada por `run_verify` (`harness.verify.detect_file_lock_hint`)
+        # — import local (não no topo do módulo) porque `harness.verify`
+        # importa `FEATURE_LIST_FILE` deste módulo no nível de topo; um
+        # import de módulo no topo aqui criaria um ciclo. Mesmo padrão de
+        # import tardio já usado em `cli.py` para `harness.verify`.
+        from harness.verify import detect_file_lock_hint
+
+        file_lock_hint = detect_file_lock_hint(proc.stdout, proc.stderr)
+        if file_lock_hint is not None:
+            return file_lock_hint
+
         stderr = proc.stderr.strip()
         last_line = stderr.splitlines()[-1] if stderr else "(sem stderr)"
         return (

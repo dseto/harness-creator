@@ -498,6 +498,32 @@ def test_dry_run_verify_warns_on_fast_failing_verify_cmd_and_compiles_normally(
     assert len(data["features"]) == 1
 
 
+def test_dry_check_verify_cmd_msb3027_returns_file_lock_hint_not_generic_warning(
+    tmp_path: Path,
+) -> None:
+    """Item 7 do backlog issue #1: quando a saída do dry-check casa o
+    padrão de arquivo em uso (MSB3027), _dry_check_verify_cmd devolve a
+    mensagem acionável de `detect_file_lock_hint` -- não o warning
+    genérico de "flag/opção inválida" (que confundiria o consumidor)."""
+    import subprocess as subprocess_module
+
+    fake_result = subprocess_module.CompletedProcess(
+        args="dotnet build",
+        returncode=1,
+        stdout="",
+        stderr=(
+            "error MSB3027: Could not copy bin/App.dll. The process cannot "
+            "access the file because it is being used by another process."
+        ),
+    )
+    with patch("harness.contract.subprocess.run", return_value=fake_result):
+        warning = _dry_check_verify_cmd("dotnet build", cwd=tmp_path)
+
+    assert warning is not None
+    assert "processo do próprio projeto-alvo" in warning
+    assert "flag/opção inválida" not in warning
+
+
 def test_dry_run_verify_windows_cmd_shim_does_not_report_not_found(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

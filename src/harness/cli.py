@@ -281,6 +281,8 @@ def main() -> None:
         except VerifyFailedError as exc:
             print(exc.stdout, file=sys.stderr)
             print(exc.stderr, file=sys.stderr)
+            if exc.file_lock_hint:
+                print(f"aviso: {exc.file_lock_hint}", file=sys.stderr)
             sys.exit(exc.exit_code)
         except VerifyError as exc:
             print(f"erro: {exc}", file=sys.stderr)
