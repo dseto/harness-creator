@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.16.1 — 2026-07-19
+
+8 achados da auditoria skill-audit (2026-07-19) + backlog de fricção do
+dogfood (Story 2.6 em elegant-heisenberg), sem breaking change.
+
+### Corrigido
+- `verify.py`/`contract.py`: `UnicodeDecodeError` (cp1252) em `subprocess.run`
+  de `verify_cmd` no Windows — `encoding="utf-8", errors="replace"` explícito.
+
+### Adicionado
+- `harness verify <id> --mark-passed`: flag opt-in que grava `passes:true`
+  em `feature_list.json` quando `exit_code==0`, pra sessão orquestradora
+  sequencial única (não usar com múltiplos agentes em paralelo).
+- `skills/plan/SKILL.md`: nota sobre `verify_cmd` de build compilado falhar
+  por lock de arquivo (`MSB3027`/`EBUSY`) quando um processo do próprio
+  projeto-alvo está rodando.
+
+### Alterado
+- `config/harness.yaml`: removidas 7 seções órfãs da era congelada
+  (`sandbox`/`routing`/`generation`/`eet`/`context`/`telemetry`/`mcp`),
+  nunca lidas por `HarnessConfig`. `sandbox/Dockerfile` órfão removido.
+- `skills/plan/SKILL.md`: templates de `spec.md`/`Plans.md` extraídos para
+  `skills/plan/references/contract-templates.md` (229→154 linhas,
+  progressive disclosure).
+- `boundary_guard.py`: seção standalone de `render_boundary_guard()` agora
+  é gerada via `inspect.getsource()` a partir da versão importável (14
+  funções/constantes), eliminando duplicação manual hand-synced. Sem
+  mudança de decisão allow/deny.
+
 ## 0.16.0 — 2026-07-19
 
 **BREAKING CHANGE:** subcomando `harness run` e `harness.AgentOrchestrator`
