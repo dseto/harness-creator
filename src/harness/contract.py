@@ -18,6 +18,13 @@ comando de verificação invalida (a evidência antiga não prova mais nada
 sobre o novo escopo). Tarefa removida do `Plans.md` simplesmente some do
 `feature_list.json` recompilado.
 
+Item 5 do ROADMAP (correção da fricção issue #1): `add_task_file` edita
+cirurgicamente o bullet `files:` de UMA tarefa em `Plans.md` (append,
+idempotente), sem tocar no resto do arquivo — usado por
+`harness task add-file` para não exigir edição manual de markdown toda vez
+que um campo novo obrigatório quebra specs/testes pré-existentes que
+precisam entrar na superfície de uma tarefa já compilada.
+
 Formato do diretório de contrato — `.harness/work/<slug>/`:
 
     .harness/work/<slug>/
@@ -137,6 +144,13 @@ _FRONTMATTER_DELIM = "---"
 _TASK_HEADER_RE = re.compile(r"^##\s*\[(?P<id>[^\]]+)\]\s*(?P<desc>.*)$")
 _FIELD_RE = re.compile(r"^-\s*(?P<key>files|verify|depends|cwd)\s*:\s*(?P<value>.*)$", re.IGNORECASE)
 _BACKTICK_RE = re.compile(r"`([^`]+)`")
+# Variante de _FIELD_RE dedicada à reescrita cirúrgica do bullet `files:` —
+# usada só por `add_task_file`. Difere de _FIELD_RE por preservar o prefixo
+# EXATO (indentação, espaçamento ao redor de ':', caixa de "files") num
+# grupo próprio, para que a reescrita toque somente o valor, nunca o resto
+# da linha.
+_FILES_LINE_RE = re.compile(r"^(?P<prefix>\s*-\s*files\s*:\s*)(?P<value>.*)$", re.IGNORECASE)
+_NEWLINE_RE = re.compile(r"(\r\n|\r|\n)$")
 
 
 class ContractError(Exception):
@@ -278,6 +292,135 @@ def parse_plans(plans_path: Path) -> list[Task]:
         ))
 
     return tasks
+
+
+# ---------------------------------------------------------------------------
+# add_task_file
+# ---------------------------------------------------------------------------
+
+def add_task_file(target_dir: Path, slug: str, task_id: str, new_path: str) -> bool:
+    """Adiciona `new_path` ao bullet `files:` da tarefa `task_id` em
+    `.harness/work/<slug>/Plans.md`, editando SÓ aquela linha — o resto do
+    arquivo (outras tarefas, `verify`/`depends`/`cwd`, formatação, BOM) é
+    preservado byte-a-byte. Item 5 do ROADMAP: substitui o ciclo manual de
+    editar Plans.md à mão + recompilar quando um novo arquivo passa a
+    pertencer à superfície de uma tarefa já existente.
+
+    Idempotente: se `new_path` já estiver no `files[]` da tarefa, não
+    escreve nada e devolve `False` (chamador decide como avisar). Devolve
+    `True` se o arquivo foi efetivamente modificado.
+
+    Levanta `ContractError` — e NÃO escreve nada em disco — se:
+    - `new_path` contém backtick (`` ` ``) ou vírgula (`,`) — esses são os
+      caracteres delimitadores do próprio formato `files:` (crases
+      envolvem cada item, vírgula separa itens); um path com qualquer um
+      dos dois corromperia silenciosamente o próximo `parse_plans` (crase
+      corta o item no meio, vírgula parte um path em dois). Rejeitado
+      explicitamente em vez de escapado: paths assim não existem em
+      projetos reais, e escapar complicaria o parser para um caso que não
+      precisa existir;
+    - `Plans.md` não existir;
+    - `task_id` não existir no arquivo (mensagem lista as tarefas presentes);
+    - a tarefa existir mas não tiver bullet `files:` (Plans.md malformado —
+      mesma exigência de `parse_plans`, aqui detectada cirurgicamente porque
+      esta função não depende de `parse_plans` ter sucesso no arquivo
+      inteiro: uma tarefa QUALQUER OUTRA malformada no mesmo Plans.md não
+      impede adicionar um arquivo a uma tarefa válida; só a recompilação
+      completa (chamada separadamente pelo CLI) exige o arquivo inteiro
+      parseável).
+
+    Não recompila `feature_list.json` — só edita o markdown. O chamador
+    (CLI `harness task add-file`) decide se e quando recompilar.
+    """
+    if "`" in new_path or "," in new_path:
+        raise ContractError(
+            f"path '{new_path}' contém caractere inválido (backtick/vírgula) "
+            "que corromperia o formato de files[] no Plans.md"
+        )
+
+    target_dir = target_dir.resolve()
+    plans_path = target_dir / WORK_DIR / slug / "Plans.md"
+    if not plans_path.is_file():
+        raise ContractError(f"{plans_path}: Plans.md não encontrado")
+
+    raw_bytes = plans_path.read_bytes()
+    had_bom = raw_bytes.startswith(b"\xef\xbb\xbf")
+    raw_text = raw_bytes.decode("utf-8-sig")
+    lines = raw_text.splitlines(keepends=True)
+    n = len(lines)
+
+    task_start: int | None = None
+    task_end = n
+    found_ids: list[str] = []
+    i = 0
+    while i < n:
+        header = _TASK_HEADER_RE.match(lines[i].strip())
+        if header:
+            current_id = header.group("id").strip()
+            found_ids.append(current_id)
+            if current_id == task_id:
+                task_start = i
+                j = i + 1
+                while j < n and not _TASK_HEADER_RE.match(lines[j].strip()):
+                    j += 1
+                task_end = j
+                break
+        i += 1
+
+    if task_start is None:
+        listed = ", ".join(found_ids) if found_ids else "(nenhuma)"
+        raise ContractError(
+            f"{plans_path}: tarefa '{task_id}' não encontrada — tarefas presentes: {listed}"
+        )
+
+    files_line_idx: int | None = None
+    files_match = None
+    files_nl = ""
+    for idx in range(task_start + 1, task_end):
+        raw_line = lines[idx]
+        nl_match = _NEWLINE_RE.search(raw_line)
+        nl = nl_match.group(0) if nl_match else ""
+        body = raw_line[: len(raw_line) - len(nl)] if nl else raw_line
+        match = _FILES_LINE_RE.match(body)
+        if match:
+            # Se houver mais de uma linha `files:` na tarefa (Plans.md
+            # malformado), a última vence — mesma semântica de
+            # `parse_plans` (dict sobrescrito por chave).
+            files_line_idx = idx
+            files_match = match
+            files_nl = nl
+
+    if files_line_idx is None or files_match is None:
+        raise ContractError(
+            f"{plans_path}: tarefa '{task_id}' sem campo 'files' (Plans.md malformado)"
+        )
+
+    existing_value = files_match.group("value")
+    existing_files = _split_list(existing_value)
+    if new_path in existing_files:
+        return False
+
+    value_stripped = existing_value.rstrip()
+    uses_backticks = bool(_BACKTICK_RE.findall(existing_value))
+    if not value_stripped:
+        addition = f"`{new_path}`"
+    elif uses_backticks:
+        addition = f", `{new_path}`"
+    else:
+        addition = f", {new_path}"
+
+    new_value = value_stripped + addition
+    lines[files_line_idx] = files_match.group("prefix") + new_value + files_nl
+
+    # newline="" desliga a tradução universal-newlines da escrita em modo
+    # texto: sem isso, no Windows, um "\r\n" já presente na linha (lido cru
+    # dos bytes) seria traduzido de novo para "\r\n" ao escrever, dobrando
+    # para "\r\r\n" — corrompendo TODAS as linhas do arquivo, não só a
+    # editada. Escrevemos exatamente os caracteres que já reconstruímos.
+    plans_path.write_text(
+        "".join(lines), encoding="utf-8-sig" if had_bom else "utf-8", newline=""
+    )
+    return True
 
 
 # ---------------------------------------------------------------------------

@@ -16,6 +16,7 @@ from harness.contract import (
     ContractNotApprovedError,
     Task,
     _dry_check_verify_cmd,
+    add_task_file,
     compile_contract,
     get_stop_conditions,
     parse_plans,
@@ -337,6 +338,137 @@ def test_recompile_removed_task_disappears_from_output(tmp_path: Path) -> None:
 def test_task_dataclass_defaults_depends_to_empty_list() -> None:
     task = Task(id="T-01", desc="x", files=["a.py"], verify_cmd="pytest -q")
     assert task.depends == []
+
+
+# ---------------------------------------------------------------------------
+# Item 5 do ROADMAP: `add_task_file` — append cirúrgico ao files[] de UMA
+# tarefa em Plans.md, sem passar pelo ciclo "editar markdown à mão + rodar
+# compile-contract completo antes de poder tocar nos arquivos quebrados".
+# ---------------------------------------------------------------------------
+
+def test_add_task_file_appends_to_target_task_only(tmp_path: Path) -> None:
+    contract_dir = _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, BASIC_PLANS)
+    plans_path = contract_dir / "Plans.md"
+
+    added = add_task_file(tmp_path, "exemplo-feature", "T-01", "novo/path.ts")
+
+    assert added is True
+    tasks = {t.id: t for t in parse_plans(plans_path)}
+    assert tasks["T-01"].files == [
+        "src/harness/config.py", "tests/test_config.py", "novo/path.ts",
+    ]
+    # T-02 (e o resto do arquivo) permanece intacto.
+    assert tasks["T-02"].files == ["src/harness/compiler.py"]
+    assert tasks["T-02"].verify_cmd == "pytest tests/test_compiler.py -q"
+    assert tasks["T-02"].depends == ["T-01"]
+
+
+def test_add_task_file_preserves_rest_of_file_byte_for_byte(tmp_path: Path) -> None:
+    contract_dir = _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, BASIC_PLANS)
+    plans_path = contract_dir / "Plans.md"
+
+    add_task_file(tmp_path, "exemplo-feature", "T-01", "novo/path.ts")
+
+    after = plans_path.read_text(encoding="utf-8")
+    expected = BASIC_PLANS.replace(
+        "- files: `src/harness/config.py`, `tests/test_config.py`\n",
+        "- files: `src/harness/config.py`, `tests/test_config.py`, `novo/path.ts`\n",
+    )
+    assert after == expected
+
+
+def test_add_task_file_is_idempotent_when_path_already_present(tmp_path: Path) -> None:
+    contract_dir = _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, BASIC_PLANS)
+    plans_path = contract_dir / "Plans.md"
+    before = plans_path.read_text(encoding="utf-8")
+
+    added = add_task_file(tmp_path, "exemplo-feature", "T-01", "src/harness/config.py")
+
+    assert added is False
+    assert plans_path.read_text(encoding="utf-8") == before
+
+
+def test_add_task_file_unknown_task_id_raises_and_writes_nothing(tmp_path: Path) -> None:
+    contract_dir = _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, BASIC_PLANS)
+    plans_path = contract_dir / "Plans.md"
+    before = plans_path.read_text(encoding="utf-8")
+
+    with pytest.raises(ContractError, match="T-99"):
+        add_task_file(tmp_path, "exemplo-feature", "T-99", "novo/path.ts")
+
+    assert plans_path.read_text(encoding="utf-8") == before
+
+
+def test_add_task_file_missing_plans_raises(tmp_path: Path) -> None:
+    with pytest.raises(ContractError):
+        add_task_file(tmp_path, "inexistente", "T-01", "novo/path.ts")
+
+
+def test_add_task_file_rejects_path_with_backtick_and_writes_nothing(tmp_path: Path) -> None:
+    contract_dir = _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, BASIC_PLANS)
+    plans_path = contract_dir / "Plans.md"
+    before = plans_path.read_text(encoding="utf-8")
+
+    with pytest.raises(ContractError, match="caractere inválido"):
+        add_task_file(tmp_path, "exemplo-feature", "T-01", "ba`ck.ts")
+
+    assert plans_path.read_text(encoding="utf-8") == before
+
+
+def test_add_task_file_rejects_path_with_comma_and_writes_nothing(tmp_path: Path) -> None:
+    contract_dir = _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, BASIC_PLANS)
+    plans_path = contract_dir / "Plans.md"
+    before = plans_path.read_text(encoding="utf-8")
+
+    with pytest.raises(ContractError, match="caractere inválido"):
+        add_task_file(tmp_path, "exemplo-feature", "T-01", "a,b.ts")
+
+    assert plans_path.read_text(encoding="utf-8") == before
+
+
+def test_add_task_file_recompile_surfaces_new_file(tmp_path: Path) -> None:
+    _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, BASIC_PLANS)
+
+    add_task_file(tmp_path, "exemplo-feature", "T-01", "novo/path.ts")
+    out_path = compile_contract(tmp_path, "exemplo-feature")
+
+    data = json.loads(out_path.read_text(encoding="utf-8"))
+    t01 = next(f for f in data["features"] if f["id"] == "T-01")
+    assert "novo/path.ts" in t01["files"]
+    t02 = next(f for f in data["features"] if f["id"] == "T-02")
+    assert "novo/path.ts" not in t02["files"]
+
+
+def test_add_task_file_crlf_plans_round_trips_and_stays_parseable(tmp_path: Path) -> None:
+    contract_dir = tmp_path / ".harness" / "work" / "exemplo-feature"
+    contract_dir.mkdir(parents=True)
+    (contract_dir / "spec.md").write_bytes(APPROVED_SPEC.replace("\n", "\r\n").encode("utf-8"))
+    plans_path = contract_dir / "Plans.md"
+    plans_path.write_bytes(BASIC_PLANS.replace("\n", "\r\n").encode("utf-8"))
+
+    add_task_file(tmp_path, "exemplo-feature", "T-01", "novo/path.ts")
+
+    raw = plans_path.read_bytes()
+    # nenhuma linha ganhou CR duplicado (bug de tradução universal-newlines
+    # do Windows ao reescrever texto que já contém CRLF cru).
+    assert b"\r\r\n" not in raw
+    tasks = {t.id: t for t in parse_plans(plans_path)}
+    assert tasks["T-01"].files == [
+        "src/harness/config.py", "tests/test_config.py", "novo/path.ts",
+    ]
+    assert tasks["T-02"].files == ["src/harness/compiler.py"]
+
+
+def test_add_task_file_preserves_bom(tmp_path: Path) -> None:
+    contract_dir = _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, BASIC_PLANS)
+    plans_path = contract_dir / "Plans.md"
+    plans_path.write_bytes(b"\xef\xbb\xbf" + BASIC_PLANS.encode("utf-8"))
+
+    add_task_file(tmp_path, "exemplo-feature", "T-01", "novo/path.ts")
+
+    assert plans_path.read_bytes().startswith(b"\xef\xbb\xbf")
+    tasks = {t.id: t for t in parse_plans(plans_path)}
+    assert "novo/path.ts" in tasks["T-01"].files
 
 
 # ---------------------------------------------------------------------------

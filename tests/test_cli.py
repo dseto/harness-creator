@@ -132,6 +132,125 @@ def test_compile_contract_subcommand_missing_spec_exits_one(
     assert err.startswith("erro: ")
 
 
+def test_task_add_file_subcommand_adds_and_recompiles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    contract_dir = tmp_path / ".harness" / "work" / "exemplo-feature"
+    _write(contract_dir / "spec.md", APPROVED_SPEC)
+    _write(contract_dir / "Plans.md", BASIC_PLANS)
+
+    monkeypatch.setattr(
+        sys, "argv",
+        ["harness", "task", "add-file", "T-01", "novo/path.ts",
+         "--dir", str(tmp_path), "--slug", "exemplo-feature"],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["contract"] == "exemplo-feature"
+    assert data["task_id"] == "T-01"
+    assert data["path"] == "novo/path.ts"
+    assert data["added"] is True
+
+    feature_list_path = tmp_path / ".harness" / "feature_list.json"
+    feature_data = json.loads(feature_list_path.read_text(encoding="utf-8"))
+    t01 = next(f for f in feature_data["features"] if f["id"] == "T-01")
+    assert "novo/path.ts" in t01["files"]
+
+
+def test_task_add_file_subcommand_unknown_task_exits_one_and_leaves_plans_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    contract_dir = tmp_path / ".harness" / "work" / "exemplo-feature"
+    _write(contract_dir / "spec.md", APPROVED_SPEC)
+    _write(contract_dir / "Plans.md", BASIC_PLANS)
+    plans_path = contract_dir / "Plans.md"
+    before = plans_path.read_text(encoding="utf-8")
+
+    monkeypatch.setattr(
+        sys, "argv",
+        ["harness", "task", "add-file", "T-99", "novo/path.ts",
+         "--dir", str(tmp_path), "--slug", "exemplo-feature"],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    err = capsys.readouterr().err
+    assert err.startswith("erro: ")
+    assert plans_path.read_text(encoding="utf-8") == before
+    assert not (tmp_path / ".harness" / "feature_list.json").exists()
+
+
+def test_task_add_file_subcommand_path_already_present_is_noop_and_exits_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    contract_dir = tmp_path / ".harness" / "work" / "exemplo-feature"
+    _write(contract_dir / "spec.md", APPROVED_SPEC)
+    _write(contract_dir / "Plans.md", BASIC_PLANS)
+    plans_path = contract_dir / "Plans.md"
+
+    monkeypatch.setattr(
+        sys, "argv",
+        ["harness", "task", "add-file", "T-01", "src/harness/config.py",
+         "--dir", str(tmp_path), "--slug", "exemplo-feature"],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    err = capsys.readouterr().err
+    assert "já está" in err
+
+    tasks_after = plans_path.read_text(encoding="utf-8")
+    # sem duplicação: o path só aparece uma vez no bullet files: de T-01
+    assert tasks_after.count("src/harness/config.py") == 1
+
+
+def test_task_add_file_subcommand_missing_contract_exits_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        sys, "argv",
+        ["harness", "task", "add-file", "T-01", "novo/path.ts",
+         "--dir", str(tmp_path), "--slug", "inexistente"],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    err = capsys.readouterr().err
+    assert err.startswith("erro: ")
+
+
+def test_task_add_file_subcommand_unapproved_contract_edits_plans_but_blocks_recompile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    contract_dir = tmp_path / ".harness" / "work" / "exemplo-feature"
+    _write(contract_dir / "spec.md", UNAPPROVED_SPEC)
+    _write(contract_dir / "Plans.md", BASIC_PLANS)
+    plans_path = contract_dir / "Plans.md"
+
+    monkeypatch.setattr(
+        sys, "argv",
+        ["harness", "task", "add-file", "T-01", "novo/path.ts",
+         "--dir", str(tmp_path), "--slug", "exemplo-feature"],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    # Plans.md É editado (não é o gate que essa etapa protege)...
+    assert "novo/path.ts" in plans_path.read_text(encoding="utf-8")
+    # ...mas a recompilação do feature_list.json continua barrada sem
+    # aprovação — o gate approved_by/approved_at não é contornado.
+    assert exc_info.value.code == 1
+    err = capsys.readouterr().err
+    assert err.startswith("erro: ")
+    assert not (tmp_path / ".harness" / "feature_list.json").exists()
+
+
 def test_compile_session_subcommand_success(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

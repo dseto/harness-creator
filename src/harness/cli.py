@@ -50,6 +50,22 @@ def main() -> None:
         "rápido — não bloqueia a compilação",
     )
 
+    task = sub.add_parser("task", help="Comandos sobre tarefas de um contrato (Plans.md)")
+    task_sub = task.add_subparsers(dest="task_command", required=True)
+
+    task_add_file = task_sub.add_parser(
+        "add-file",
+        help="Adiciona um path ao files[] de uma task existente em Plans.md e recompila o contrato",
+    )
+    task_add_file.add_argument("task_id", help="Id da task em Plans.md (ex.: T-01)")
+    task_add_file.add_argument("path", help="Path a adicionar ao files[] da task")
+    task_add_file.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+    task_add_file.add_argument("--slug", required=True, help="Identificador do contrato em .harness/work/<slug>")
+    task_add_file.add_argument(
+        "--dry-run-verify", action="store_true",
+        help="Repassado para a recompilação — ver `compile-contract --dry-run-verify`",
+    )
+
     cs = sub.add_parser(
         "compile-session",
         help="Compila a sessão autônoma (Fase 2): permissions, boundary guard, lifecycle, templates, SessionStart",
@@ -171,6 +187,47 @@ def main() -> None:
             "feature_list": str(result),
             "features": len(data.get("features", [])),
             "contract": args.slug,
+        }, indent=2, ensure_ascii=False))
+        sys.exit(0)
+
+    if args.command == "task" and args.task_command == "add-file":
+        from harness.contract import ContractError, ContractNotApprovedError, add_task_file, compile_contract
+
+        target_dir = Path(args.dir)
+
+        try:
+            added = add_task_file(target_dir, args.slug, args.task_id, args.path)
+        except ContractError as exc:
+            print(f"erro: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        if not added:
+            print(
+                f"aviso: '{args.path}' já está em files[] de {args.task_id} — nada a fazer",
+                file=sys.stderr,
+            )
+
+        try:
+            result = compile_contract(target_dir, args.slug, dry_run_verify=args.dry_run_verify)
+        except ContractNotApprovedError as exc:
+            print(
+                f"erro: Plans.md atualizado ({args.task_id}: +{args.path}), mas a "
+                f"recompilação foi barrada — {exc}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        except ContractError as exc:
+            print(f"erro: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        data = json.loads(result.read_text(encoding="utf-8"))
+        print(json.dumps({
+            "feature_list": str(result),
+            "features": len(data.get("features", [])),
+            "contract": args.slug,
+            "task_id": args.task_id,
+            "path": args.path,
+            "added": added,
         }, indent=2, ensure_ascii=False))
         sys.exit(0)
 
