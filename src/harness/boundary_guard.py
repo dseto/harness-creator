@@ -568,10 +568,11 @@ def _matches_any_sequence(tokens, sequences):
 
 def _split_shell_segments(command):
     """Segmenta a string do comando nos operadores de controle de shell
-    (`;`, `&&`, `||`, `|`, `&` de background), devolvendo a lista de
-    sub-comandos nao-vazios. Respeita aspas e double-quotes de shell (operadores
-    dentro de strings nao causam segmentacao). `&&`/`||` sao casados ANTES de
-    `&`/`|` isolados para nao quebrar um `&&` em dois `&`."""
+    (`;`, `&&`, `||`, `|`, `&` de background, newline `\\n` e carriage-return
+    `\\r`), devolvendo a lista de sub-comandos nao-vazios. Respeita aspas e
+    double-quotes de shell (operadores dentro de strings nao causam
+    segmentacao). `&&`/`||` sao casados ANTES de `&`/`|` isolados para nao
+    quebrar um `&&` em dois `&`."""
     if not command:
         return []
     result = []
@@ -593,7 +594,7 @@ def _split_shell_segments(command):
         elif ch == '"' and not in_single:
             in_double = not in_double
             current.append(ch)
-        elif ch in ("&", "|", ";") and not in_single and not in_double:
+        elif ch in ("&", "|", ";", "\\n", "\\r") and not in_single and not in_double:
             seg = "".join(current).strip()
             if seg:
                 result.append(seg)
@@ -1047,25 +1048,31 @@ def _evaluate_bash(command, cwd):
 
 
 def main() -> None:
-    data = json.load(sys.stdin)
-    tool_name = data.get("tool_name") or ""
-    tool_input = data.get("tool_input") or {}
-    cwd = data.get("cwd") or ""
+    try:
+        data = json.load(sys.stdin)
+        tool_name = data.get("tool_name") or ""
+        tool_input = data.get("tool_input") or {}
+        cwd = data.get("cwd") or ""
 
-    if tool_name in ("Edit", "Write"):
-        path = _resolve_path(tool_input.get("file_path") or "", cwd)
-        special = None
-        if path == FEATURE_LIST_PATH:
-            special = _evaluate_feature_list_edit(tool_name, tool_input, cwd)
-        if special is not None:
-            decision, reason = special
+        if tool_name in ("Edit", "Write"):
+            path = _resolve_path(tool_input.get("file_path") or "", cwd)
+            special = None
+            if path == FEATURE_LIST_PATH:
+                special = _evaluate_feature_list_edit(tool_name, tool_input, cwd)
+            if special is not None:
+                decision, reason = special
+            else:
+                decision, reason = _evaluate_file(path, cwd)
+        elif tool_name == "Bash":
+            command = tool_input.get("command") or ""
+            decision, reason = _evaluate_bash(command, cwd)
         else:
-            decision, reason = _evaluate_file(path, cwd)
-    elif tool_name == "Bash":
-        command = tool_input.get("command") or ""
-        decision, reason = _evaluate_bash(command, cwd)
-    else:
-        decision, reason = "allow", "ferramenta fora do escopo do boundary_guard"
+            decision, reason = "allow", "ferramenta fora do escopo do boundary_guard"
+    except Exception as exc:
+        decision, reason = "deny", (
+            "boundary_guard: erro interno ao avaliar a tool call (" + repr(exc) + ") - "
+            "fail-closed por seguranca; corrija o payload/ambiente e tente de novo"
+        )
 
     print(json.dumps({
         "hookSpecificOutput": {

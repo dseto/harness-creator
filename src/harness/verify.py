@@ -132,14 +132,20 @@ def run_verify(target_dir: Path, feature_id: str) -> Path:
                 f"feature '{feature_id}': cwd '{feature_cwd}' não existe em {target_dir}"
             )
 
-    result = subprocess.run(
-        verify_cmd,
-        shell=True,
-        cwd=verify_cwd,
-        capture_output=True,
-        text=True,
-        timeout=_VERIFY_TIMEOUT_SECONDS,
-    )
+    try:
+        result = subprocess.run(
+            verify_cmd,
+            shell=True,
+            cwd=verify_cwd,
+            capture_output=True,
+            text=True,
+            timeout=_VERIFY_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise VerifyError(
+            f"feature '{feature_id}': verify_cmd '{verify_cmd}' excedeu o "
+            f"timeout de {_VERIFY_TIMEOUT_SECONDS}s"
+        ) from exc
 
     if result.returncode != 0:
         raise VerifyFailedError(feature_id, result.returncode, result.stdout, result.stderr)

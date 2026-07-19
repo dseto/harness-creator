@@ -375,7 +375,7 @@ def _write_agents_block(target_dir: Path, artifacts: Artifacts) -> Path:
             pattern = re.compile(
                 re.escape(AGENTS_BEGIN) + ".*?" + re.escape(AGENTS_END), re.DOTALL
             )
-            text = pattern.sub(block, text, count=1)
+            text = pattern.sub(lambda _: block, text, count=1)
         else:
             text = text.rstrip() + "\n\n" + block + "\n"
     else:

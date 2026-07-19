@@ -163,7 +163,7 @@ def install_lifecycle(target_dir: Path) -> tuple[Path, Path]:
             pattern = re.compile(
                 re.escape(LIFECYCLE_BEGIN) + ".*?" + re.escape(LIFECYCLE_END), re.DOTALL
             )
-            text = pattern.sub(block, text, count=1)
+            text = pattern.sub(lambda _: block, text, count=1)
         else:
             text = text.rstrip() + "\n\n" + block + "\n"
     else:

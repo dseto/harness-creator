@@ -306,7 +306,7 @@ def _write_managed_block(path: Path, full_content: str, begin: str, end: str) ->
     text = path.read_text(encoding="utf-8")
     if begin in text and end in text:
         pattern = re.compile(re.escape(begin) + ".*?" + re.escape(end), re.DOTALL)
-        text = pattern.sub(new_block, text, count=1)
+        text = pattern.sub(lambda _: new_block, text, count=1)
     else:
         text = text.rstrip() + "\n\n" + new_block + "\n"
     path.write_text(text, encoding="utf-8")
@@ -529,7 +529,7 @@ def install_team_docs(
             block_pattern = re.compile(
                 re.escape(TEAM_BEGIN) + ".*?" + re.escape(TEAM_END), re.DOTALL
             )
-            text = block_pattern.sub(block, text, count=1)
+            text = block_pattern.sub(lambda _: block, text, count=1)
         else:
             text = text.rstrip() + "\n\n" + block + "\n"
     else:
