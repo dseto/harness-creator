@@ -1,6 +1,10 @@
 # Changelog
 
-## Não lançado — 2026-07-18
+## 0.16.0 — 2026-07-19
+
+**BREAKING CHANGE:** subcomando `harness run` e `harness.AgentOrchestrator`
+removidos — modo de execução autônoma congelado, sem uso no plugin
+compilador.
 
 Remoção final da era congelada (3 fases). Fase 0/1 já haviam apagado a
 árvore de código (`orchestrator`, `context/`, `routing/`, `telemetry/`,
@@ -24,6 +28,19 @@ documentação.
   (6 camadas: tool orchestration, TDD loop, contexto, guardrails/sandbox,
   telemetria, model routing/EET) — ficou só a descrição do modo
   compilador ativo.
+
+### Corrigido
+- `boundary_guard.py`: `_split_shell_segments` agora trata `\n`/`\r` como
+  operador de controle — comando Bash com newline embutido não escapa
+  mais do matching de prefixo permitido.
+- `boundary_guard.py`: `main()` do hook gerado envolve o corpo em
+  try/except e emite decisão `deny` explícita em erro interno (antes:
+  fail-open — exceção não tratada deixava a tool call passar).
+- `verify.py`: `subprocess.TimeoutExpired` do `verify_cmd` agora vira
+  `VerifyError` com mensagem de comando+timeout, em vez de traceback cru.
+- `compiler.py`, `lifecycle.py`, `teams.py`: `re.sub` com replacement cru
+  trocado por `lambda` — conteúdo do usuário com barra invertida (paths
+  Windows) não corrompe mais o bloco gerenciado.
 
 ## 0.15.8 — 2026-07-18
 
