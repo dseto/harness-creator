@@ -12,6 +12,7 @@ from pathlib import Path
 from harness.boundary_guard import (
     BOUNDARY_HOOK_MATCHER,
     BOUNDARY_STATE_KEY,
+    REPO_ROOT_STATE_KEY,
     SESSION_STATE_FILE,
     install_boundary_guard,
 )
@@ -1553,3 +1554,265 @@ def test_is_docs_surface_path_importable() -> None:
     assert _is_docs_surface_path(".harness/harness.yaml") is False
     assert _is_docs_surface_path("docs/../AGENTS.md") is False
     assert _is_docs_surface_path("docs/../CLAUDE.md") is False
+
+
+# ---------------- Item 6: raiz do repo fixada (deriva de cwd) ----------------
+
+
+def test_derived_cwd_with_repo_root_anchors_edit_correctly(tmp_path: Path) -> None:
+    """Cenário central do Item 6: `cwd` do payload "derivou" (ex.: o agente
+    rodou `cd frontend/` sem voltar) mas `compile-session` já gravou
+    `repo_root` em `compiled-state-session.json`. Um `Edit` sobre um arquivo
+    IN-SURFACE (path absoluto real, sob a raiz verdadeira) deve resolver
+    corretamente contra a raiz gravada — `allow`, com o motivo de
+    superfície (NÃO "sem contrato ativo": isso provaria o sintoma fail-open
+    que este item corrige, não a correção)."""
+    _contract_with_verify(tmp_path)  # files=["src/main.py"], verify_cmd="pytest -q"
+    script = _script(tmp_path)  # grava repo_root = str(tmp_path.resolve())
+
+    derived_cwd = str(tmp_path / "frontend")  # não precisa existir em disco
+    absolute_target = str(tmp_path / "src" / "main.py")
+
+    out = _run_hook(script, {
+        "tool_name": "Edit", "cwd": derived_cwd,
+        "tool_input": {"file_path": absolute_target, "old_string": "x", "new_string": "y"},
+    })
+    assert out["permissionDecision"] == "allow", out
+    assert "sem contrato ativo" not in out["permissionDecisionReason"], out
+    assert "declarado em files" in out["permissionDecisionReason"], out
+
+
+def test_derived_cwd_relative_file_path_allows_when_in_surface(tmp_path: Path) -> None:
+    """Ressalva 3b (validação Opus pós-implementação): a troca incondicional
+    de `cwd` pela âncora resolve certo pra `file_path` ABSOLUTO (teste
+    acima), mas um `file_path` RELATIVO a um `cwd` derivado (shell preso em
+    `<repo>/frontend`, tool manda `x.ts` querendo `frontend/x.ts`) tinha que
+    ser absolutizado contra o `cwd` ORIGINAL do payload ANTES do strip pela
+    âncora — senão `x.ts` bruto seria avaliado contra a raiz ancorada e daria
+    falso-deny (fail-safe, mas exatamente a classe de bug que o Item 6
+    corrige). Com a correção: `x.ts` + `cwd` payload `<repo>/frontend` vira
+    `frontend/x.ts` (absolutizado contra o cwd do payload), que a âncora
+    depois resolve certinho contra `files[]=["frontend/x.ts"]` — `allow`."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["frontend/x.ts"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    script = _script(tmp_path)  # grava repo_root = str(tmp_path.resolve())
+
+    derived_cwd = str(tmp_path / "frontend")
+    out = _run_hook(script, {
+        "tool_name": "Edit", "cwd": derived_cwd,
+        "tool_input": {"file_path": "x.ts", "old_string": "a", "new_string": "b"},
+    })
+    assert out["permissionDecision"] == "allow", out
+    assert "sem contrato ativo" not in out["permissionDecisionReason"], out
+    assert "declarado em files" in out["permissionDecisionReason"], out
+
+
+def test_derived_cwd_relative_file_path_denies_when_out_of_surface(tmp_path: Path) -> None:
+    """Prova negativa complementar: mesmo cwd derivado e mesma absolutização,
+    um `file_path` relativo que NÃO casa nenhum `files[]` continua negado —
+    a correção da Ressalva 3b não abre um allow geral, só corrige a
+    resolução do path relativo."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["frontend/y.ts"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    script = _script(tmp_path)
+
+    derived_cwd = str(tmp_path / "frontend")
+    out = _run_hook(script, {
+        "tool_name": "Edit", "cwd": derived_cwd,
+        "tool_input": {"file_path": "x.ts", "old_string": "a", "new_string": "b"},
+    })
+    assert out["permissionDecision"] == "deny", out
+    assert "fora da superficie" in out["permissionDecisionReason"], out
+
+
+def test_no_drift_relative_file_path_still_allows_identically(tmp_path: Path) -> None:
+    """Regressão (caso comum, cwd NÃO derivado): `file_path` relativo com
+    `cwd` do payload igual à raiz real continua idêntico — absolutiza contra
+    `cwd_payload` (a própria raiz), a âncora (mesma raiz) faz o strip de
+    volta, resultado igual a antes da Ressalva 3b."""
+    _contract_with_verify(tmp_path)  # files=["src/main.py"]
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
+                              "tool_input": {"file_path": "src/main.py"}})
+    assert out["permissionDecision"] == "allow", out
+    assert "declarado em files" in out["permissionDecisionReason"], out
+
+
+def test_derived_cwd_with_repo_root_still_denies_out_of_surface_file(tmp_path: Path) -> None:
+    """Prova negativa complementar: com a mesma raiz ancorada e o mesmo cwd
+    derivado, um arquivo NÃO declarado em `files[]` continua negado — se a
+    correção tivesse degenerado num allow geral (fail-open disfarçado), este
+    teste pegaria."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+
+    derived_cwd = str(tmp_path / "frontend")
+    absolute_target = str(tmp_path / "unrelated" / "other.py")
+
+    out = _run_hook(script, {
+        "tool_name": "Edit", "cwd": derived_cwd,
+        "tool_input": {"file_path": absolute_target, "old_string": "x", "new_string": "y"},
+    })
+    assert out["permissionDecision"] == "deny", out
+    assert "fora da superficie" in out["permissionDecisionReason"], out
+
+
+def test_derived_cwd_with_repo_root_anchors_bash_verify_cmd(tmp_path: Path) -> None:
+    """A mesma âncora tem que valer pro caminho Bash (`_load_json` também é
+    usado por `_evaluate_bash`) — `verify_cmd` declarado no contrato roda
+    mesmo com `cwd` derivado, em vez de cair no "sem contrato ativo"."""
+    _contract_with_verify(tmp_path, verify_cmd="pytest -q")
+    script = _script(tmp_path)
+
+    derived_cwd = str(tmp_path / "frontend")
+    out = _run_hook(script, {
+        "tool_name": "Bash", "cwd": derived_cwd,
+        "tool_input": {"command": "pytest -q"},
+    })
+    assert out["permissionDecision"] == "allow", out
+    assert "sem contrato ativo" not in out["permissionDecisionReason"], out
+
+
+def test_missing_repo_root_key_falls_back_to_current_cwd_behavior(tmp_path: Path) -> None:
+    """Repo sem `compile-session` recente (ou compilado por uma versão
+    anterior a este item): `compiled-state-session.json` existe (tem
+    `boundary_guard_hook_command`) mas NÃO tem `repo_root`. Fallback
+    obrigatório: comportamento ATUAL (usa o `cwd` do payload) — com `cwd`
+    derivado, isso reproduz o sintoma fail-open PRÉ-existente (não piora,
+    não quebra; só não é corrigido sem a chave), provando que o fallback não
+    regride quem nunca rodou `compile-session` com esta versão."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+
+    state_path = tmp_path / SESSION_STATE_FILE
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert REPO_ROOT_STATE_KEY in state  # sanity: install_boundary_guard grava por padrão
+    del state[REPO_ROOT_STATE_KEY]
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    derived_cwd = str(tmp_path / "frontend")
+    absolute_target = str(tmp_path / "src" / "main.py")
+    out = _run_hook(script, {
+        "tool_name": "Edit", "cwd": derived_cwd,
+        "tool_input": {"file_path": absolute_target, "old_string": "x", "new_string": "y"},
+    })
+    # sem a chave, cai no cwd do payload (derivado) -> _load_json não acha
+    # feature_list.json sob <tmp_path>/frontend -> fail-open PRÉ-existente,
+    # comportamento IDÊNTICO ao pré-correção (não quebra, não regride).
+    assert out["permissionDecision"] == "allow", out
+    assert "sem contrato ativo" in out["permissionDecisionReason"], out
+
+
+def test_missing_session_state_file_falls_back_without_crashing(tmp_path: Path) -> None:
+    """Sem `compiled-state-session.json` nenhum — o hook não pode quebrar;
+    só não há âncora pra aplicar (cai no `cwd` do payload, sem drift neste
+    teste)."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    (tmp_path / SESSION_STATE_FILE).unlink()
+
+    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
+                              "tool_input": {"file_path": "src/main.py"}})
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_invalid_json_session_state_falls_back_without_crashing(tmp_path: Path) -> None:
+    """`compiled-state-session.json` corrompido (JSON inválido) — fallback
+    ao `cwd` do payload, sem lançar exceção/crash no hook (prova de execução
+    via subprocess: `proc.returncode == 0` é verificado dentro de
+    `_run_hook`)."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    (tmp_path / SESSION_STATE_FILE).write_text("{ isto nao e json valido", encoding="utf-8")
+
+    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
+                              "tool_input": {"file_path": "src/main.py"}})
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_install_boundary_guard_writes_repo_root_preserving_other_keys(tmp_path: Path) -> None:
+    """`install_boundary_guard` grava `REPO_ROOT_STATE_KEY` = raiz absoluta,
+    sem apagar chaves já gravadas por outros mecanismos (merge
+    não-destrutivo, mesmo padrão já usado por `BOUNDARY_STATE_KEY`)."""
+    state_path = tmp_path / SESSION_STATE_FILE
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps({"managed_session_permissions": ["Bash(pytest -q)"]}),
+                           encoding="utf-8")
+
+    install_boundary_guard(tmp_path)
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["managed_session_permissions"] == ["Bash(pytest -q)"]
+    assert state[REPO_ROOT_STATE_KEY] == str(tmp_path.resolve())
+    assert BOUNDARY_STATE_KEY in state
+
+
+def test_resolve_repo_root_anchor_importable(tmp_path: Path) -> None:
+    """Testes diretos (sem subprocess) das peças puras: acha o state
+    subindo a partir de um diretório filho, lê `repo_root`, e devolve `None`
+    nos casos de fallback (sem arquivo, sem chave, JSON inválido, diretório
+    inexistente)."""
+    from harness.boundary_guard import (
+        _find_session_state_path,
+        _read_repo_root_from_state,
+        _resolve_repo_root_anchor,
+    )
+
+    state_path = tmp_path / SESSION_STATE_FILE
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps({REPO_ROOT_STATE_KEY: str(tmp_path)}), encoding="utf-8")
+
+    # simula o script instalado em <tmp_path>/.harness/hooks/boundary_guard.py
+    hooks_dir = tmp_path / ".harness" / "hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    fake_script = hooks_dir / "boundary_guard.py"
+    fake_script.write_text("# fake", encoding="utf-8")
+
+    found = _find_session_state_path(hooks_dir)
+    assert found == state_path.resolve()
+    assert _read_repo_root_from_state(found) == str(tmp_path)
+    assert _resolve_repo_root_anchor(str(fake_script)) == str(tmp_path)
+
+    # sem a chave
+    state_path.write_text(json.dumps({"outra_chave": 1}), encoding="utf-8")
+    assert _resolve_repo_root_anchor(str(fake_script)) is None
+
+    # JSON inválido
+    state_path.write_text("{ nao e json", encoding="utf-8")
+    assert _resolve_repo_root_anchor(str(fake_script)) is None
+
+    # diretório gravado não existe mais
+    state_path.write_text(json.dumps({REPO_ROOT_STATE_KEY: str(tmp_path / "nao-existe")}),
+                           encoding="utf-8")
+    assert _resolve_repo_root_anchor(str(fake_script)) is None
+
+    # sem o arquivo de state (deletado)
+    state_path.unlink()
+    assert _resolve_repo_root_anchor(str(fake_script)) is None
+
+
+def test_find_session_state_path_climbs_multiple_levels(tmp_path: Path) -> None:
+    """A busca sobe por VÁRIOS níveis, não só um — simula o script instalado
+    bem mais fundo que `.harness/hooks` (não deveria acontecer na prática,
+    mas prova que o mecanismo não depende de uma profundidade fixa
+    hardcoded)."""
+    from harness.boundary_guard import _find_session_state_path
+
+    state_path = tmp_path / SESSION_STATE_FILE
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps({REPO_ROOT_STATE_KEY: str(tmp_path)}), encoding="utf-8")
+
+    deep_dir = tmp_path / "a" / "b" / "c" / "d"
+    deep_dir.mkdir(parents=True, exist_ok=True)
+
+    assert _find_session_state_path(deep_dir) == state_path.resolve()
+
+
+def test_find_session_state_path_returns_none_when_absent(tmp_path: Path) -> None:
+    from harness.boundary_guard import _find_session_state_path
+
+    assert _find_session_state_path(tmp_path) is None

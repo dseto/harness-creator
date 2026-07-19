@@ -193,6 +193,56 @@ checagem inteira é pulada — comportamento IDÊNTICO à Fase 3. Esta checagem
 (`ReviewError`, `load_review`, `is_test_diff`) e por isso NÃO é gerada via
 `inspect.getsource()` — permanece com implementação própria em cada lado,
 documentada onde está definida mais abaixo.
+
+**Raiz do repo fixada — deriva de `cwd` (Item 6 do backlog de correção do
+issue #1).** Investigação (pré-condição obrigatória do item, ANTES de
+codar): consultada a doc oficial do Claude Code
+(`https://code.claude.com/docs/en/hooks`, seção "Common input fields") — o
+campo `cwd` do payload `PreToolUse` é descrito literalmente como "Current
+working directory when the hook is invoked", ou seja, o cwd CORRENTE do
+shell no momento da tool call, NÃO uma raiz de projeto fixa; a existência de
+um evento dedicado `CwdChanged` ("[w]hen the working directory changes, for
+example when Claude executes a `cd` command") confirma independentemente
+que essa deriva é um fenômeno real e documentado, não uma hipótese. Logo, o
+cenário (b) do backlog se confirma (não o (a)): quando o agente roda `cd
+frontend/` sem voltar, o PRÓPRIO `cwd` do payload passa a reportar
+`<repo>/frontend` em toda tool call subsequente — não é só o `file_path`
+relativo que sofre. Isso é FAIL-OPEN, não apenas falso-deny: em
+`_evaluate_file`/`_evaluate_bash`/`_evaluate_powershell`, `_load_json(cwd,
+FEATURE_LIST_PATH)` (que junta `cwd` derivado + `.harness/feature_list.json`,
+path que só existe sob a raiz real) falha ANTES de qualquer checagem de
+superfície, retorna `None`, e o guard responde `allow` com o motivo "sem
+contrato ativo" — a checagem de superfície (que produziria só um
+falso-deny) nunca chega a rodar, porque o "sem contrato" de curto-circuito
+vem primeiro. Por isso a correção ancora `_resolve_path` **e** `_load_json`
+na mesma âncora, não só um.
+
+Mecanismo: `install_boundary_guard` grava a raiz absoluta do projeto-alvo
+(`target_dir.resolve()`, já calculado ali) sob `REPO_ROOT_STATE_KEY`
+(`"repo_root"`) em `SESSION_STATE_FILE`, UMA vez, no momento da compilação —
+mesmo merge não-destrutivo já usado para `BOUNDARY_STATE_KEY` (preserva
+chaves de `session_permissions.py`/`session_start.py`). Em runtime, o hook
+standalone gerado localiza esse arquivo subindo a partir do diretório do
+PRÓPRIO script instalado (`__file__`, que sempre mora em
+`<repo_root>/.harness/hooks/boundary_guard.py` — não do `cwd` do payload,
+que é exatamente o valor que pode ter derivado) via
+`_find_session_state_path`/`_read_repo_root_from_state`/
+`_resolve_repo_root_anchor` (Python real, IMPORTÁVEL, testável via pytest
+direto; embutidas no script gerado via `inspect.getsource()`, mesmo padrão
+do commit `4d682d7` — não há uma segunda cópia digitada à mão). `main()`
+troca o `cwd` efetivo por essa âncora ANTES de chamar `_resolve_path`/
+`_evaluate_file`/`_evaluate_bash`/`_evaluate_powershell` — como todos esses
+consumidores recebem o mesmo `cwd` de `main()`, uma única substituição
+ancora os dois (e também `_evaluate_feature_list_edit`, que sofre da mesma
+classe de bug). Zero subprocess (ao contrário da proposta original do issue,
+`git rev-parse --show-toplevel` por tool call — reintroduziria exatamente o
+custo que o design deste módulo existe para evitar, docstring linhas 3-8,
+além de footguns de submódulo/worktree/repo-sem-git). Fallback OBRIGATÓRIO e
+testado: `SESSION_STATE_FILE` ausente, sem a chave, com JSON inválido, ou
+com `repo_root` apontando para um diretório que não existe mais em disco →
+`_resolve_repo_root_anchor` devolve `None` e `main()` mantém o `cwd` do
+payload sem alteração (comportamento ATUAL, idêntico ao pré-correção) —
+repos sem `compile-session` recente não quebram.
 """
 
 from __future__ import annotations
@@ -211,6 +261,14 @@ HOOKS_DIR = ".harness/hooks"
 BOUNDARY_HOOK_FILENAME = "boundary_guard.py"
 SESSION_STATE_FILE = ".harness/compiled-state-session.json"
 BOUNDARY_STATE_KEY = "boundary_guard_hook_command"
+# Item 6 do backlog de correção do issue #1 (deriva de cwd): chave gravada em
+# SESSION_STATE_FILE por `install_boundary_guard`, uma vez, no momento da
+# compilação (`compile-session`) — a raiz absoluta do projeto-alvo, lida em
+# runtime pelo hook standalone para ancorar `_resolve_path`/`_load_json` em
+# vez do `cwd` reportado pela tool call (que pode derivar). Ver
+# `_resolve_repo_root_anchor` mais abaixo e a seção correspondente do
+# docstring do módulo.
+REPO_ROOT_STATE_KEY = "repo_root"
 LEGACY_GUARD_TESTS_MARKER = "guard_tests.py"
 
 # Matcher do hook PreToolUse registrado em .claude/settings.json. "*" casa
@@ -393,6 +451,78 @@ def _is_docs_surface_path(path: str) -> bool:
     if basename in DOCS_SURFACE_EXCLUDED_BASENAMES:
         return False
     return normalized.startswith(DOCS_SURFACE_DIR_PREFIX)
+
+
+# ---------------------------------------------------------------------------
+# Âncora de raiz do repo (Python real, IMPORTÁVEL) — Item 6 do backlog de
+# correção do issue #1 (deriva de `cwd`). Ver seção correspondente do
+# docstring do módulo para a investigação (conclusão: cenário (b), FAIL-OPEN)
+# e o mecanismo completo. `_MAX_ROOT_SEARCH_DEPTH` é só um teto de segurança
+# contra loop (nunca deveria ser atingido na prática — a busca sempre para
+# antes, ao alcançar a raiz do filesystem via `parent == current`).
+# ---------------------------------------------------------------------------
+_MAX_ROOT_SEARCH_DEPTH = 40
+
+
+def _find_session_state_path(start_dir: Path | str) -> Path | None:
+    """Sobe de `start_dir` até achar `SESSION_STATE_FILE`
+    (`.harness/compiled-state-session.json`) ou até a raiz do filesystem —
+    o que vier primeiro. Zero subprocess (ao contrário de `git rev-parse
+    --show-toplevel`, a proposta original do issue: sem footgun de
+    submódulo/worktree/repo-sem-git, e sem o custo de subprocess que o
+    design deste módulo existe para evitar — docstring, linhas 3-8). Devolve
+    o `Path` absoluto do arquivo se achar, `None` senão (inclui o caso de
+    não achar dentro do limite de profundidade)."""
+    current = Path(start_dir).resolve()
+    for _ in range(_MAX_ROOT_SEARCH_DEPTH):
+        candidate = current / SESSION_STATE_FILE
+        if candidate.is_file():
+            return candidate
+        parent = current.parent
+        if parent == current:
+            return None
+        current = parent
+    return None
+
+
+def _read_repo_root_from_state(state_path: Path | str) -> str | None:
+    """Lê a chave `REPO_ROOT_STATE_KEY` de `state_path`
+    (`compiled-state-session.json`). Devolve a string gravada se presente,
+    não-vazia e apontando para um diretório que ainda existe em disco;
+    `None` em qualquer outro caso (arquivo ausente, JSON inválido, chave
+    ausente/tipo errado, ou diretório que não existe mais) — fallback
+    seguro, nunca lança: o chamador deve cair no `cwd` do payload sem
+    quebrar (repos sem `compile-session` recente não podem quebrar)."""
+    path = Path(state_path)
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    root = data.get(REPO_ROOT_STATE_KEY)
+    if not isinstance(root, str) or not root:
+        return None
+    if not Path(root).is_dir():
+        return None
+    return root
+
+
+def _resolve_repo_root_anchor(script_file: Path | str) -> str | None:
+    """Orquestrador: acha `SESSION_STATE_FILE` subindo a partir do diretório
+    de `script_file` (o próprio hook instalado, via `__file__` — sempre mora
+    em `<repo_root>/.harness/hooks/boundary_guard.py`, então subir a partir
+    dali sempre alcança a raiz real do repo, mesmo que o `cwd` do payload
+    tenha derivado) e devolve o `repo_root` válido gravado lá, ou `None` se
+    qualquer passo falhar. `main()` usa o retorno para substituir o `cwd`
+    efetivo ANTES de `_resolve_path`/`_load_json` — âncora os dois de uma
+    vez, já que ambos recebem o mesmo `cwd`."""
+    state_path = _find_session_state_path(Path(script_file).resolve().parent)
+    if state_path is None:
+        return None
+    return _read_repo_root_from_state(state_path)
 
 
 # ---------------------------------------------------------------------------
@@ -694,12 +824,13 @@ def render_boundary_guard() -> str:
     `NotebookEdit`/`PowerShell`/`Bash`, na ORDEM descrita no docstring do
     módulo. Não importa nada de `harness.*` — stdlib apenas.
 
-    A faixa "runtime floor" e "frescor de feature-lock" (ver docstring do
-    módulo) é GERADA a partir do código-fonte real das funções/constantes
-    importáveis acima, via `inspect.getsource()` — elimina a segunda cópia
-    digitada à mão para essa fatia da lógica; mudou a fonte importável, o
-    hook gerado muda junto na próxima instalação, sem edição manual dos
-    dois lados. O veto do revisor (`_review_gate_problem`/`_load_review_record`)
+    A faixa "runtime floor", "âncora de raiz do repo" (Item 6 — deriva de
+    `cwd`) e "frescor de feature-lock" (ver docstring do módulo) é GERADA a
+    partir do código-fonte real das funções/constantes importáveis acima,
+    via `inspect.getsource()` — elimina a segunda cópia digitada à mão para
+    essa fatia da lógica; mudou a fonte importável, o hook gerado muda junto
+    na próxima instalação, sem edição manual dos dois lados. O veto do
+    revisor (`_review_gate_problem`/`_load_review_record`)
     permanece com implementação PRÓPRIA no lado standalone: depende de
     `harness.review` (`ReviewError`, `load_review`, `is_test_diff`), que o
     hook não pode importar — ver docstring do módulo, seção "Veto do
@@ -725,6 +856,12 @@ def render_boundary_guard() -> str:
         f"DOCS_SURFACE_EXCLUDED_BASENAMES = {set(DOCS_SURFACE_EXCLUDED_BASENAMES)!r}",
         f"DOCS_SURFACE_EXCLUDED_PATHS = {set(DOCS_SURFACE_EXCLUDED_PATHS)!r}",
         inspect.getsource(_is_docs_surface_path),
+        f"SESSION_STATE_FILE = {SESSION_STATE_FILE!r}",
+        f"REPO_ROOT_STATE_KEY = {REPO_ROOT_STATE_KEY!r}",
+        f"_MAX_ROOT_SEARCH_DEPTH = {_MAX_ROOT_SEARCH_DEPTH!r}",
+        inspect.getsource(_find_session_state_path),
+        inspect.getsource(_read_repo_root_from_state),
+        inspect.getsource(_resolve_repo_root_anchor),
         inspect.getsource(_parse_iso8601),
         inspect.getsource(_feature_passes_map),
         inspect.getsource(_transitions_to_true),
@@ -1368,13 +1505,58 @@ _UNKNOWN_WRITE_NAME_PATTERN = re.compile(r"(?i)(write|create|edit)")
 
 def main() -> None:
     try:
+        import os
+
         data = json.load(sys.stdin)
         tool_name = data.get("tool_name") or ""
         tool_input = data.get("tool_input") or {}
         cwd = data.get("cwd") or ""
+        # cwd ORIGINAL do payload, antes da troca pela ancora abaixo - e ele
+        # que diz onde um file_path RELATIVO esta enraizado (ver
+        # _absolutize_against_payload_cwd mais abaixo, Ressalva 3b).
+        cwd_payload = cwd
+
+        # Item 6 do backlog de correcao do issue #1 (deriva de cwd): se
+        # compile-session gravou repo_root em compiled-state-session.json,
+        # ancora o cwd EFETIVO usado por TODO o resto de main() (_resolve_path,
+        # _load_json via _evaluate_file/_evaluate_bash/_evaluate_powershell, e
+        # _evaluate_feature_list_edit) na raiz real do repo, em vez do cwd do
+        # payload - que pode ter derivado (ex.: agente rodou cd frontend/ sem
+        # voltar). __file__ e o proprio script instalado, que sempre mora em
+        # <repo_root>/.harness/hooks/boundary_guard.py - subir a partir dali
+        # sempre alcanca a raiz real, mesmo com cwd do payload derivado.
+        # Fallback obrigatorio: sem state, sem a chave, JSON invalido, ou
+        # diretorio que nao existe mais -> None, cwd do payload intocado
+        # (comportamento atual, repos sem compile-session recente nao quebram).
+        repo_root_anchor = _resolve_repo_root_anchor(__file__)
+        if repo_root_anchor:
+            cwd = repo_root_anchor
+
+        def _absolutize_against_payload_cwd(raw_path):
+            """Ressalva 3b (validacao Opus pos-implementacao do Item 6): a
+            troca incondicional de cwd pela ancora acima resolve certo pra
+            file_path ABSOLUTO (o caso comum - as tools de escrita do Claude
+            Code mandam path absoluto), mas quebraria um file_path RELATIVO a
+            um cwd derivado (ex.: shell preso em <repo>/frontend, tool manda
+            'x.ts' querendo 'frontend/x.ts'): avaliar 'x.ts' bruto contra a
+            raiz ancorada ('<repo>') daria falso-deny (fail-safe, nunca abre
+            um bypass, mas e exatamente a classe de falso-deny que o Item 6
+            quer eliminar). Fix: se raw_path for relativo, absolutiza-o
+            contra cwd_payload (o cwd ORIGINAL do payload, capturado ANTES da
+            troca pela ancora acima - e ele que diz onde um path relativo
+            esta enraizado) antes de qualquer strip de prefixo pela ancora.
+            Path absoluto passa inalterado. Zero subprocess - so os.path
+            (stdlib), nenhuma logica de parsing nova."""
+            if not raw_path or os.path.isabs(raw_path):
+                return raw_path
+            if not cwd_payload:
+                return raw_path
+            return os.path.normpath(os.path.join(cwd_payload, raw_path))
 
         if tool_name in ("Edit", "Write"):
-            path = _resolve_path(tool_input.get("file_path") or "", cwd)
+            path = _resolve_path(
+                _absolutize_against_payload_cwd(tool_input.get("file_path") or ""), cwd
+            )
             special = None
             if path == FEATURE_LIST_PATH:
                 special = _evaluate_feature_list_edit(tool_name, tool_input, cwd)
@@ -1396,7 +1578,9 @@ def main() -> None:
             # feature_list.json cai na superficie generica (hoje ja resulta
             # em deny, mesmo comportamento seguro-por-padrao documentado
             # para Edit/Write quando nao ha transicao para passes:true).
-            path = _resolve_path(tool_input.get("file_path") or "", cwd)
+            path = _resolve_path(
+                _absolutize_against_payload_cwd(tool_input.get("file_path") or ""), cwd
+            )
             decision, reason = _evaluate_file(path, cwd)
         elif tool_name == "NotebookEdit":
             # tool_input do NotebookEdit documentado (tools-reference do
@@ -1406,7 +1590,7 @@ def main() -> None:
             # qualquer um dos dois ainda passa pela MESMA avaliacao de
             # superficie/floor de _evaluate_file, sem enfraquecer nada.
             raw_path = tool_input.get("notebook_path") or tool_input.get("file_path") or ""
-            path = _resolve_path(raw_path, cwd)
+            path = _resolve_path(_absolutize_against_payload_cwd(raw_path), cwd)
             decision, reason = _evaluate_file(path, cwd)
         elif tool_name == "PowerShell":
             command = tool_input.get("command") or ""
@@ -1484,6 +1668,11 @@ def install_boundary_guard(target_dir: Path) -> Path:
     `target_dir/.harness/compiled-state-session.json`
     (chave própria `boundary_guard_hook_command`, preservando outras chaves
     já presentes — o arquivo é compartilhado com hooks irmãos de sessão).
+    Também grava, sob `REPO_ROOT_STATE_KEY` (`"repo_root"`), a raiz absoluta
+    de `target_dir` — Item 6 do backlog de correção do issue #1 (deriva de
+    `cwd`): o hook standalone lê essa chave em runtime (`_resolve_repo_root_anchor`)
+    para ancorar a resolução de path/contrato na raiz real do repo, em vez do
+    `cwd` reportado pela tool call, que pode ter derivado.
 
     Também remove, de `hooks.PreToolUse`, qualquer entrada legada cujo
     `command` referencie o `guard_tests.py` gerado pelo `compiler.py`
@@ -1538,6 +1727,14 @@ def install_boundary_guard(target_dir: Path) -> Path:
     )
 
     state[BOUNDARY_STATE_KEY] = command
+    # Item 6 do backlog de correção do issue #1 (deriva de cwd): grava a raiz
+    # absoluta do projeto-alvo UMA vez, sob REPO_ROOT_STATE_KEY, preservando
+    # (merge não-destrutivo, igual acima) quaisquer outras chaves já
+    # presentes. O hook standalone gerado lê esta chave em runtime via
+    # `_resolve_repo_root_anchor` para ancorar `_resolve_path`/`_load_json`
+    # em vez do `cwd` reportado pela tool call — ver docstring do módulo,
+    # seção "Raiz do repo fixada".
+    state[REPO_ROOT_STATE_KEY] = str(target_dir)
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(
         json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
