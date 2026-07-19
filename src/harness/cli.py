@@ -20,11 +20,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="harness", description="harness-creator — Agente = Modelo + Harness")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    run = sub.add_parser("run", help="Executa uma tarefa dentro do harness (modo execução, congelado)")
-    run.add_argument("task", help="Descrição da tarefa")
-    run.add_argument("--config", default="config/harness.yaml")
-    run.add_argument("--repo", default=".", help="Raiz do repositório alvo")
-
     comp = sub.add_parser("compile", help="Compila .harness/harness.yaml -> governança nativa do Claude Code")
     comp.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
 
@@ -102,18 +97,6 @@ def main() -> None:
     aud_team.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
 
     args = parser.parse_args()
-
-    if args.command == "run":
-        import asyncio
-
-        from harness.config import HarnessConfig
-        from harness.orchestrator import AgentOrchestrator
-
-        config = HarnessConfig.load(args.config)
-        orchestrator = AgentOrchestrator(config, Path(args.repo))
-        summary = asyncio.run(orchestrator.run_task(args.task))
-        print(json.dumps(summary, indent=2, ensure_ascii=False))
-        sys.exit(0 if summary["status"] == "completed" else 1)
 
     if args.command == "compile":
         from harness.compiler import compile_project

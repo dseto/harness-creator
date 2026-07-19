@@ -1,17 +1,10 @@
-"""Fixtures compartilhadas: config mínima e sandbox falso (sem Docker real)."""
+"""Fixtures compartilhadas."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
-
-from _helpers import FakeSandbox
-
-
-@pytest.fixture()
-def fake_sandbox() -> FakeSandbox:
-    return FakeSandbox()
 
 
 @pytest.fixture()

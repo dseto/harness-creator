@@ -1,7 +1,5 @@
 """Testes de Inc.2 (matriz de aprovação honesta) e Inc.3 (MCP isolado por default)."""
 
-from unittest.mock import AsyncMock
-
 from harness.config import MCPConfig
 from harness.governance.approval import ApprovalPolicy
 
@@ -64,28 +62,3 @@ async def test_gate_auto_approves_read_without_prompting() -> None:
 
 def test_mcp_disabled_by_default() -> None:
     assert MCPConfig().allow_host_execution is False
-
-
-async def test_mcp_tools_are_always_registered_as_network_risk() -> None:
-    from harness.config import MCPServerConfig
-    from harness.tools.mcp_client import MCPClient
-    from harness.tools.registry import ToolRegistry
-
-    fake_tool = type("FakeTool", (), {
-        "name": "read_table", "description": "lê tabela", "inputSchema": None,
-    })()
-    fake_listing = type("FakeListing", (), {"tools": [fake_tool]})()
-    fake_session = AsyncMock()
-    fake_session.list_tools.return_value = fake_listing
-
-    client = MCPClient()
-    client._sessions["postgres"] = fake_session  # evita conectar de verdade
-
-    registry = ToolRegistry()
-    server = MCPServerConfig(name="postgres", command="npx")
-    count = await client.register_tools(server, registry)
-
-    assert count == 1
-    spec = registry.get("mcp__postgres__read_table")
-    assert spec.risk_class == "network"
-    assert ApprovalPolicy("auto").needs_approval(spec.risk_class) is True
