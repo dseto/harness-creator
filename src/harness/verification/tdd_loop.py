@@ -15,25 +15,13 @@ Impede o clássico "fiz o teste passar apagando a asserção".
 from __future__ import annotations
 
 import hashlib
-import re
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
 from harness.governance.sandbox import SandboxEnvironment
+from harness.patterns import _glob_to_regex
 from harness.tools.terminal import CommandResult
-
-
-def _glob_to_regex(glob: str) -> re.Pattern[str]:
-    """Traduz um glob de path (com `**` cross-segmento e `*` intra-segmento)
-    para regex. Independente de versão do Python (não depende de
-    `PurePath.full_match`, que é 3.13+). `**/` casa zero ou mais diretórios."""
-    escaped = re.escape(glob.replace("\\", "/"))
-    escaped = escaped.replace(r"\*\*/", "(?:.*/)?")  # **/ -> diretórios opcionais
-    escaped = escaped.replace(r"\*\*", ".*")          # ** -> qualquer coisa
-    escaped = escaped.replace(r"\*", "[^/]*")         # * -> dentro de um segmento
-    escaped = escaped.replace(r"\?", "[^/]")
-    return re.compile("^" + escaped + "$")
 
 
 class TDDPhase(str, Enum):

@@ -24,7 +24,7 @@ from harness.compiler import (
     HOOKS_DIR,
     render,
 )
-from harness.verification.tdd_loop import _glob_to_regex
+from harness.patterns import _glob_to_regex
 
 
 @dataclass

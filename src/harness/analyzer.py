@@ -30,7 +30,7 @@ from typing import Any
 
 import yaml
 
-from harness.verification.tdd_loop import _glob_to_regex
+from harness.patterns import _glob_to_regex
 
 REPO_PROFILE_PATH = ".harness/repo-profile.json"
 

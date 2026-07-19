@@ -34,7 +34,7 @@ import yaml
 from harness import __version__ as _HARNESS_VERSION
 from harness.config import HarnessConfig
 from harness.governance.approval import _ALWAYS_GATED, _POLICY_MATRIX
-from harness.verification.tdd_loop import _glob_to_regex
+from harness.patterns import _glob_to_regex
 
 HARNESS_YAML = ".harness/harness.yaml"
 STATE_FILE = ".harness/compiled-state.json"

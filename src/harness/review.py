@@ -48,7 +48,7 @@ from pathlib import Path
 from typing import Any
 
 from harness.analyzer import REPO_PROFILE_PATH
-from harness.verification.tdd_loop import _glob_to_regex
+from harness.patterns import _glob_to_regex
 
 REVIEW_DIR = ".harness/review"
 
