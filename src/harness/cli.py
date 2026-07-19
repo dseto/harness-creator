@@ -61,6 +61,12 @@ def main() -> None:
     )
     ver.add_argument("feature_id", help="Id da feature em .harness/feature_list.json")
     ver.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+    ver.add_argument(
+        "--mark-passed", action="store_true",
+        help="Se exit_code==0, grava passes:true na feature em feature_list.json "
+        "(opt-in; sessão orquestradora sequencial únicas — não usar com múltiplos "
+        "agentes em paralelo no mesmo feature_list.json)",
+    )
 
     team = sub.add_parser("team", help="Team-Architecture Factory (Fase 4): design/generate de times de agentes")
     team_sub = team.add_subparsers(dest="team_command", required=True)
@@ -211,7 +217,7 @@ def main() -> None:
         sys.exit(0)
 
     if args.command == "verify":
-        from harness.verify import VerifyError, VerifyFailedError, run_verify
+        from harness.verify import VerifyError, VerifyFailedError, mark_feature_passed, run_verify
 
         try:
             evidence_path = run_verify(Path(args.dir), args.feature_id)
@@ -222,6 +228,9 @@ def main() -> None:
         except VerifyError as exc:
             print(f"erro: {exc}", file=sys.stderr)
             sys.exit(1)
+
+        if args.mark_passed:
+            mark_feature_passed(Path(args.dir), args.feature_id)
 
         from harness.supervisor import on_feature_verified
 

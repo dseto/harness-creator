@@ -262,6 +262,101 @@ def test_verify_subcommand_missing_feature_exits_one(
     assert err.startswith("erro: ")
 
 
+def _write_two_feature_list(tmp_path: Path, verify_cmd: str) -> None:
+    payload = {
+        "contract": "exemplo-feature",
+        "compiled_at": "2026-07-16T12:00:00+00:00",
+        "features": [
+            {
+                "id": "T-01",
+                "desc": "Criar modulo de configuracao",
+                "files": [],
+                "verify_cmd": verify_cmd,
+                "depends": [],
+                "passes": False,
+            },
+            {
+                "id": "T-02",
+                "desc": "Outra feature",
+                "files": [],
+                "verify_cmd": verify_cmd,
+                "depends": ["T-01"],
+                "passes": False,
+            },
+        ],
+    }
+    _write(
+        tmp_path / ".harness" / "feature_list.json",
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+    )
+
+
+def test_verify_subcommand_with_mark_passed_flag_sets_passes_true(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_two_feature_list(tmp_path, _true_cmd())
+
+    monkeypatch.setattr(
+        sys, "argv", ["harness", "verify", "T-01", "--dir", str(tmp_path), "--mark-passed"]
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    capsys.readouterr()
+
+    feature_list_path = tmp_path / ".harness" / "feature_list.json"
+    data = json.loads(feature_list_path.read_text(encoding="utf-8"))
+    features_by_id = {f["id"]: f for f in data["features"]}
+    assert features_by_id["T-01"]["passes"] is True
+    # feature irmã intacta -- --mark-passed não corrompe o resto do arquivo
+    assert features_by_id["T-02"]["passes"] is False
+    assert features_by_id["T-02"]["depends"] == ["T-01"]
+
+
+def test_verify_subcommand_without_mark_passed_flag_leaves_feature_list_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_two_feature_list(tmp_path, _true_cmd())
+
+    monkeypatch.setattr(sys, "argv", ["harness", "verify", "T-01", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    capsys.readouterr()
+
+    feature_list_path = tmp_path / ".harness" / "feature_list.json"
+    data = json.loads(feature_list_path.read_text(encoding="utf-8"))
+    features_by_id = {f["id"]: f for f in data["features"]}
+    # comportamento atual preservado: sem a flag, feature_list.json não muda
+    assert features_by_id["T-01"]["passes"] is False
+    assert features_by_id["T-02"]["passes"] is False
+
+
+def test_verify_subcommand_with_mark_passed_flag_on_failure_does_not_mark(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_two_feature_list(tmp_path, _exit_code_cmd(3))
+
+    monkeypatch.setattr(
+        sys, "argv", ["harness", "verify", "T-01", "--dir", str(tmp_path), "--mark-passed"]
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 3
+    capsys.readouterr()
+
+    feature_list_path = tmp_path / ".harness" / "feature_list.json"
+    data = json.loads(feature_list_path.read_text(encoding="utf-8"))
+    features_by_id = {f["id"]: f for f in data["features"]}
+    # verify_cmd falhou -> run_verify levanta antes de qualquer lógica de
+    # --mark-passed rodar -- feature_list.json inalterado
+    assert features_by_id["T-01"]["passes"] is False
+    assert features_by_id["T-02"]["passes"] is False
+
+
 def test_audit_runtime_subcommand_exits_one_when_score_low(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

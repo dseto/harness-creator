@@ -7,6 +7,11 @@ edição sobre `feature_list.json` (outro escopo) nem ordena por `depends[]`
 (idem) — apenas executa o comando de UMA feature e, em caso de sucesso,
 grava a prova em `.harness/evidence/<feature_id>.json`.
 
+`mark_feature_passed` é a exceção opt-in a essa regra: só roda quando o
+`cli.py` chama com `--mark-passed` (e só depois de `run_verify` já ter tido
+sucesso) — grava `passes: true` na feature em `feature_list.json`. Sem lock
+entre processos; ver docstring da função para a ressalva de concorrência.
+
 Campo opcional `cwd` da feature (ver `contract.py`): diretório relativo a
 `target_dir` onde `verify_cmd` roda via subprocess — existe para monorepo
 (`backend/`+`frontend/`), onde um comando como `ng test` só resolve o
@@ -165,3 +170,43 @@ def run_verify(target_dir: Path, feature_id: str) -> Path:
         json.dumps(evidence, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
     return evidence_path
+
+
+def mark_feature_passed(target_dir: Path, feature_id: str) -> Path:
+    """Grava `passes: true` na feature `feature_id` em `feature_list.json`.
+
+    Opt-in via `harness verify <id> --mark-passed` (chamado pelo `cli.py`
+    SÓ depois de `run_verify` ter sucesso) — poupa a sessão orquestradora
+    sequencial única de editar `feature_list.json` na mão a cada tarefa.
+
+    SEM lock entre processos: não usar com múltiplos agentes escrevendo o
+    mesmo `feature_list.json` em paralelo (mesma ressalva de
+    `contract.compile_contract`, que usa este mesmo padrão de escrita).
+
+    Reescreve o arquivo inteiro (leitura completa -> mutação da feature em
+    memória -> `write_text` do payload inteiro), preservando todos os outros
+    campos de topo e todas as outras features intactas. Levanta
+    `VerifyError` se `feature_list.json` não existir, tiver JSON inválido,
+    ou não tiver a feature `feature_id`.
+    """
+    target_dir = target_dir.resolve()
+    feature_list_path = target_dir / FEATURE_LIST_FILE
+    if not feature_list_path.is_file():
+        raise VerifyError(f"{feature_list_path}: feature_list.json não encontrado")
+
+    try:
+        data = json.loads(feature_list_path.read_text(encoding="utf-8-sig"))
+    except json.JSONDecodeError as exc:
+        raise VerifyError(f"{feature_list_path}: JSON inválido — {exc}") from exc
+
+    for feature in data.get("features", []):
+        if feature.get("id") == feature_id:
+            feature["passes"] = True
+            break
+    else:
+        raise VerifyError(f"feature '{feature_id}' não encontrada em {feature_list_path}")
+
+    feature_list_path.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    return feature_list_path

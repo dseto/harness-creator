@@ -16,6 +16,7 @@ from harness.verify import (
     VerifyError,
     VerifyFailedError,
     compute_files_hash,
+    mark_feature_passed,
     run_verify,
 )
 
@@ -305,3 +306,45 @@ def test_run_verify_non_ascii_utf8_output_does_not_crash_reader_thread(
     assert exc_info.value.exit_code == 1
     # Bytes são UTF-8 válido -> decodificação exata, sem `�` de errors="replace".
     assert exc_info.value.stdout == "Á café ☕"
+
+
+# ---------------- mark_feature_passed (opt-in, chamada só por cli.py --mark-passed) ----------------
+
+
+def test_mark_feature_passed_sets_passes_true_and_preserves_other_features(tmp_path: Path) -> None:
+    _write_feature_list(
+        tmp_path,
+        [
+            {"id": "T-01", "desc": "Alvo", "files": ["a.py"], "verify_cmd": _true_cmd(),
+             "depends": [], "passes": False},
+            {"id": "T-02", "desc": "Outra", "files": ["b.py"], "verify_cmd": _true_cmd(),
+             "depends": ["T-01"], "passes": False},
+        ],
+    )
+
+    result_path = mark_feature_passed(tmp_path, "T-01")
+
+    assert result_path == tmp_path / ".harness" / "feature_list.json"
+    data = json.loads(result_path.read_text(encoding="utf-8"))
+    features_by_id = {f["id"]: f for f in data["features"]}
+    assert features_by_id["T-01"]["passes"] is True
+    # feature irmã intacta -- escrita não corrompe o resto do arquivo
+    assert features_by_id["T-02"]["passes"] is False
+    assert features_by_id["T-02"]["depends"] == ["T-01"]
+    # campos de topo preservados
+    assert data["contract"] == "exemplo-feature"
+
+
+def test_mark_feature_passed_nonexistent_feature_raises_verify_error(tmp_path: Path) -> None:
+    _write_feature_list(
+        tmp_path,
+        [{"id": "T-01", "desc": "x", "files": [], "verify_cmd": _true_cmd(), "depends": [], "passes": False}],
+    )
+
+    with pytest.raises(VerifyError, match="T-99"):
+        mark_feature_passed(tmp_path, "T-99")
+
+
+def test_mark_feature_passed_missing_feature_list_raises_verify_error(tmp_path: Path) -> None:
+    with pytest.raises(VerifyError):
+        mark_feature_passed(tmp_path, "T-01")
