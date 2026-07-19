@@ -1,6 +1,5 @@
-"""Testes de Inc.2 (matriz de aprovação honesta) e Inc.3 (MCP isolado por default)."""
+"""Testes de Inc.2 (matriz de aprovação honesta)."""
 
-from harness.config import MCPConfig
 from harness.governance.approval import ApprovalPolicy
 
 
@@ -58,7 +57,3 @@ async def test_gate_auto_approves_read_without_prompting() -> None:
     decision = await policy.gate("read_file", "read", {"path": "x.py"})
     assert decision.approved is True
     assert called is False
-
-
-def test_mcp_disabled_by_default() -> None:
-    assert MCPConfig().allow_host_execution is False

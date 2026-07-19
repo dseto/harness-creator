@@ -4,9 +4,6 @@ version = "0.15.8"
 description = "Plugin do Claude Code que cria, avalia e compila governança de harness (permissions/hooks/AGENTS.md nativos) — Agente = Modelo + Harness"
 requires-python = ">=3.11"
 dependencies = [
-    "anthropic>=0.40.0",
-    "mcp>=1.2.0",
-    "docker>=7.0.0",
     "pydantic>=2.7",
     "pyyaml>=6.0",
 ]

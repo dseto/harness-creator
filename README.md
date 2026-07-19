@@ -115,19 +115,9 @@ harness-creator/
 │   ├── compiler.py              # harness.yaml -> governança nativa (coração)
 │   ├── audit.py                 # score + findings (dogfooding: compile+diff)
 │   ├── config.py                # HarnessConfig (pydantic) — fonte de verdade
-│   ├── cli.py                   # harness run|compile|audit
-│   └── (orchestrator, sandbox, tools, ...)  # modo execução — CONGELADO
+│   └── cli.py                   # harness compile|audit
 └── tests/                       # 389+ testes (sem Docker/API para compile/audit)
 ```
-
-## Modo execução (congelado)
-
-`src/harness/orchestrator.py` + sandbox Docker + TDD loop são um executor
-agêntico completo (6 camadas, ver [ARCHITECTURE.md](ARCHITECTURE.md)). Ficou
-**congelado como referência**: exigia `ANTHROPIC_API_KEY` e infraestrutura
-própria. O pivot (2026-07) moveu o valor para dentro do Claude Code. A
-biblioteca (config, matriz de aprovação, matching de testes) segue viva —
-é ela que valida e alimenta o compilador.
 
 ## Testes
 

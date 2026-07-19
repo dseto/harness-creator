@@ -1,5 +1,30 @@
 # Changelog
 
+## Não lançado — 2026-07-18
+
+Remoção final da era congelada (3 fases). Fase 0/1 já haviam apagado a
+árvore de código (`orchestrator`, `context/`, `routing/`, `telemetry/`,
+`tools/`, `verification/`, `governance/sandbox`+`budget`) e o subcomando
+`harness run`. Esta fase fecha as pontas soltas de dependências e
+documentação.
+
+### Removido
+- `pyproject.toml`: dependências `anthropic>=0.40.0`, `mcp>=1.2.0`,
+  `docker>=7.0.0` (sem consumidor — a árvore que as usava foi apagada nas
+  fases anteriores). `pydantic`/`pyyaml` mantidos.
+- `src/harness/config.py`: `SandboxConfig`, `RoutingConfig`, `EETConfig`,
+  `ContextConfig`, `GenerationConfig`, `TelemetryConfig`, `MCPConfig`,
+  `MCPServerConfig` — existiam só para o modo execução congelado, sem
+  nenhum consumidor sobrevivente (confirmado por grep). `HarnessConfig`
+  fica só com `governance`/`verification`, os dois campos que o
+  compilador/audit realmente usam.
+- `README.md`: seção "Modo execução (congelado)" e a menção a
+  orchestrator/sandbox na árvore de arquivos.
+- `ARCHITECTURE.md`: seção inteira do modo de execução congelado
+  (6 camadas: tool orchestration, TDD loop, contexto, guardrails/sandbox,
+  telemetria, model routing/EET) — ficou só a descrição do modo
+  compilador ativo.
+
 ## 0.15.8 — 2026-07-18
 
 Sem forma de saber, num repo consumidor (ex.: `elegant-heisenberg`), qual
