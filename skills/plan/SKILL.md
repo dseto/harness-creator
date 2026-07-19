@@ -111,6 +111,12 @@ tarefa TDD recém-planejada (teste ainda não escrito) TAMBÉM falha rápido
 por natureza — um aviso não é necessariamente bug, é sinal pra ler antes
 de aprovar o contrato, não pra assumir erro automaticamente.
 
+Se um `verify_cmd` de build/test de linguagem compilada falhar com erro
+de arquivo em uso/lock (`MSB3027`, `MSB3021`, `EBUSY`, `Text File Busy`),
+é provável que um processo do próprio projeto-alvo esteja rodando em
+paralelo (ex.: `dotnet run`, `npm start`) — pergunte ao usuário antes de
+encerrá-lo, não assuma.
+
 ## Passo 7 — Compilar a sessão autônoma (Fase 2)
 
 Logo depois do `feature_list.json` compilado com sucesso (Passo 6), rode:
