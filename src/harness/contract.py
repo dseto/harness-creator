@@ -318,7 +318,8 @@ def _dry_check_verify_cmd(verify_cmd: str, cwd: Path, timeout: float = 8.0) -> s
             shell=True,
             cwd=cwd,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
         )
     except subprocess.TimeoutExpired:

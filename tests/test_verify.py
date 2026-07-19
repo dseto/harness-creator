@@ -246,3 +246,62 @@ def test_run_verify_floor_git_push_verify_cmd_raises_and_never_spawns_subprocess
         with pytest.raises(VerifyError, match="floor"):
             run_verify(tmp_path, "T-01")
         mock_run.assert_not_called()
+
+
+# ---------------- regressão: UnicodeDecodeError sem `encoding=` explícito ----------------
+
+
+def test_run_verify_non_ascii_utf8_output_does_not_crash_reader_thread(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`subprocess.run(..., text=True)` sem `encoding=` cai no codec do
+    console do SO (cp1252 no Windows) para decodificar stdout/stderr. Bytes
+    UTF-8 fora desse charset (ex.: 0x81, indefinido em cp1252) derrubam a
+    thread leitora com `UnicodeDecodeError` — mesmo sem relação com o exit
+    code do `verify_cmd`. `run_verify` precisa declarar
+    `encoding="utf-8", errors="replace"` explicitamente para não depender
+    do locale do SO nem de `PYTHONUTF8=1` no ambiente do subprocess.
+
+    O `verify_cmd` escreve bytes UTF-8 crus diretamente em `stdout.buffer`
+    (contornando o encoding de escrita do processo filho) para isolar
+    exatamente o lado da DECODIFICAÇÃO no processo pai, que é o que este
+    teste protege. Sai com exit code 1 de propósito para que `run_verify`
+    levante `VerifyFailedError` carregando `stdout` — só assim dá pra
+    inspecionar o texto decodificado (em sucesso, a evidência não guarda
+    stdout)."""
+    monkeypatch.delenv("PYTHONUTF8", raising=False)
+    monkeypatch.delenv("PYTHONIOENCODING", raising=False)
+
+    child_script = tmp_path / "print_utf8.py"
+    _write(
+        child_script,
+        "import sys\n"
+        "sys.stdout.buffer.write("
+        "bytes([0xc3, 0x81]) + ' caf'.encode('utf-8') + bytes([0xc3, 0xa9])"
+        " + ' '.encode('ascii') + bytes([0xe2, 0x98, 0x95])"
+        ")\n"
+        "sys.exit(1)\n",
+    )
+    verify_cmd = f'"{sys.executable}" "{child_script}"'
+    _write_feature_list(
+        tmp_path,
+        [
+            {
+                "id": "T-01",
+                "desc": "saida utf-8 nao-ascii",
+                "files": [],
+                "verify_cmd": verify_cmd,
+                "depends": [],
+                "passes": False,
+            }
+        ],
+    )
+
+    # Não pode levantar UnicodeDecodeError (era o crash original) — só
+    # VerifyFailedError (esperado, exit code 1 de propósito).
+    with pytest.raises(VerifyFailedError) as exc_info:
+        run_verify(tmp_path, "T-01")
+
+    assert exc_info.value.exit_code == 1
+    # Bytes são UTF-8 válido -> decodificação exata, sem `�` de errors="replace".
+    assert exc_info.value.stdout == "Á café ☕"

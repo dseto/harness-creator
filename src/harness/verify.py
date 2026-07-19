@@ -138,7 +138,8 @@ def run_verify(target_dir: Path, feature_id: str) -> Path:
             shell=True,
             cwd=verify_cwd,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=_VERIFY_TIMEOUT_SECONDS,
         )
     except subprocess.TimeoutExpired as exc:
