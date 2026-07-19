@@ -112,9 +112,9 @@ Isso instala a biblioteca e o CLI `harness`. Confira:
 
 ```powershell
 harness --help
-# deve listar: run (modo execução, congelado), preflight, compile, audit,
-#              analyze, compile-contract, compile-session, verify,
-#              audit-runtime, team, review, supervise, audit-team
+# deve listar: preflight, compile, audit, analyze, compile-contract,
+#              compile-session, verify, audit-runtime, team, review,
+#              supervise, audit-team
 ```
 
 ## A.2 Abrir o Claude Code com o plugin, dentro do projeto-alvo
@@ -376,7 +376,7 @@ harness compile-contract --dir . --slug leaderboard-limit
 {
   "contract": "leaderboard-limit",
   "compiled_at": "2026-07-16T18:00:00+00:00",
-  "compiled_with_version": "0.15.8",
+  "compiled_with_version": "0.16.0",
   "features": [
     {
       "id": "T-01",

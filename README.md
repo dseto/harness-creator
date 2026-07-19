@@ -1,6 +1,6 @@
 # harness-creator
 
-**v0.15.6** · [CHANGELOG](CHANGELOG.md)
+**v0.16.0** · [CHANGELOG](CHANGELOG.md)
 
 Plugin do Claude Code que **cria, avalia e compila** estrutura de harness
 (governança de agentes) para projetos.
@@ -116,7 +116,7 @@ harness-creator/
 │   ├── audit.py                 # score + findings (dogfooding: compile+diff)
 │   ├── config.py                # HarnessConfig (pydantic) — fonte de verdade
 │   └── cli.py                   # harness compile|audit
-└── tests/                       # 389+ testes (sem Docker/API para compile/audit)
+└── tests/                       # 414+ testes (sem Docker/API para compile/audit)
 ```
 
 ## Testes
