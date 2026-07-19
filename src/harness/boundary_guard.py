@@ -52,11 +52,19 @@ feature para `passes:true`, delega ao comportamento genérico de superfície
 (hoje resulta em `deny`, já que `feature_list.json` normalmente não é
 declarado em `files[]` de nenhuma tarefa).
 
-Esta lógica existe em DUAS cópias que precisam ficar sincronizadas, pelo
-mesmo motivo do runtime floor acima: uma dentro da string retornada por
-`render_boundary_guard()` (stdlib apenas, sem import de `harness.*`) e uma
-importável neste módulo (`evaluate_feature_list_edit` e afins, mais abaixo)
-para ser testável via pytest direto. Mudou uma, muda a outra.
+As PEÇAS PURAS desta lógica (sem dependência de `harness.review`) —
+`_parse_iso8601`, `_feature_passes_map`, `_transitions_to_true`,
+`_read_last_commit_timestamp`, `_evidence_freshness_problem`,
+`_read_team_manifest`, `_manifest_requires_review`, `_feature_by_id`, mais
+abaixo — têm UMA fonte de verdade: `render_boundary_guard()` extrai o
+código-fonte real destas funções via `inspect.getsource()` e o embute no
+script standalone gerado, em vez de manter uma segunda cópia digitada à
+mão. O ORQUESTRADOR (`evaluate_feature_list_edit` aqui vs.
+`_evaluate_feature_list_edit` na versão standalone) continua com duas
+implementações hand-typed — mas hoje só orquestra chamadas às peças
+importadas acima (na versão real) ou geradas (na versão standalone) mais o
+veto do revisor abaixo; mudou o fluxo de orquestração em si (não as peças
+de frescor), muda dos dois lados.
 
 **Veto do revisor (Fase 4, padrão Produtor-Revisor)** — checagem ADICIONAL
 avaliada depois que a evidência fresca de TODAS as features transicionadas
@@ -77,11 +85,16 @@ de revisão aprovado também precisa ter `justification` não-vazia (defesa em
 profundidade — `review.py` já barra isso na escrita, esta é uma reconfirmação
 de leitura, caso o arquivo tenha sido editado por fora da API). Sem
 `manifest.json` (ausente, JSON inválido, ou sem os dois papéis), esta
-checagem inteira é pulada — comportamento IDÊNTICO à Fase 3.
+checagem inteira é pulada — comportamento IDÊNTICO à Fase 3. Esta checagem
+(`_review_gate_problem`/`_load_review_record`) depende de `harness.review`
+(`ReviewError`, `load_review`, `is_test_diff`) e por isso NÃO é gerada via
+`inspect.getsource()` — permanece com implementação própria em cada lado,
+documentada onde está definida mais abaixo.
 """
 
 from __future__ import annotations
 
+import inspect
 import json
 import re
 import subprocess
@@ -102,11 +115,12 @@ LEGACY_GUARD_TESTS_MARKER = "guard_tests.py"
 # Runtime floor (Python real, IMPORTÁVEL) — mesmos padrões usados dentro do
 # script standalone gerado por `render_boundary_guard()` mais abaixo. O hook
 # standalone não pode importar `harness.*` (roda fora do pacote instalado via
-# subprocess), por isso mantém sua PRÓPRIA cópia inline dos mesmos critérios;
-# esta versão importável existe para que outros módulos do pacote (hoje,
-# `session_permissions.py`) apliquem exatamente o mesmo critério em vez de
-# divergir com uma segunda implementação. Se um dos dois lados mudar, o outro
-# tem que acompanhar.
+# subprocess); em vez de manter uma segunda cópia digitada à mão,
+# `render_boundary_guard()` extrai o código-fonte real destas
+# funções/constantes via `inspect.getsource()` e o embute no script gerado —
+# uma única fonte de verdade. Esta versão importável existe tanto para ser
+# testável via pytest direto quanto para que outros módulos do pacote (hoje,
+# `session_permissions.py`) apliquem exatamente o mesmo critério.
 _SHELL_SPLIT = re.compile(r"[\s;&|()<>`$\"']+")
 
 FLOOR_BASH_SEQUENCES: list[list[str]] = [
@@ -150,10 +164,14 @@ def is_floor_secret_path(path: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Feature-lock em feature_list.json (Python real, IMPORTÁVEL) — mesma lógica
-# duplicada inline dentro do script standalone gerado por
-# `render_boundary_guard()` mais abaixo. Ver nota de sincronização no
-# docstring do módulo.
+# Feature-lock em feature_list.json (Python real, IMPORTÁVEL). As funções de
+# frescor de evidência/manifesto (`_parse_iso8601` até `_feature_by_id`
+# abaixo) são embutidas no script standalone via `inspect.getsource()` — ver
+# nota no docstring do módulo. O orquestrador (`evaluate_feature_list_edit`)
+# e o veto do revisor (`_review_gate_problem`, mais abaixo) continuam com
+# implementação própria em cada lado: dependem de `harness.review`
+# (`ReviewError`, `load_review`, `is_test_diff`), que o hook standalone não
+# pode importar.
 # ---------------------------------------------------------------------------
 FEATURE_LIST_RELATIVE_PATH = ".harness/feature_list.json"
 EVIDENCE_DIR_NAME = ".harness/evidence"
@@ -442,8 +460,45 @@ def render_boundary_guard() -> str:
     O script gerado lê o payload JSON do stdin e decide `allow`/`deny` para
     os matchers `Edit`, `Write` e `Bash`, na ORDEM descrita no docstring do
     módulo. Não importa nada de `harness.*` — stdlib apenas.
+
+    A faixa "runtime floor" e "frescor de feature-lock" (ver docstring do
+    módulo) é GERADA a partir do código-fonte real das funções/constantes
+    importáveis acima, via `inspect.getsource()` — elimina a segunda cópia
+    digitada à mão para essa fatia da lógica; mudou a fonte importável, o
+    hook gerado muda junto na próxima instalação, sem edição manual dos
+    dois lados. O veto do revisor (`_review_gate_problem`/`_load_review_record`)
+    permanece com implementação PRÓPRIA no lado standalone: depende de
+    `harness.review` (`ReviewError`, `load_review`, `is_test_diff`), que o
+    hook não pode importar — ver docstring do módulo, seção "Veto do
+    revisor". Idem para `_glob_to_regex`/`_is_test_diff`/`_evaluate_*`
+    (avaliação de superfície genérica), que não têm contraparte importável.
     """
-    return '''"""Hook PreToolUse gerado pelo harness-creator — NÃO editar à mão.
+    shared_sources = [
+        f"_SHELL_SPLIT = re.compile({_SHELL_SPLIT.pattern!r})",
+        f"FLOOR_BASH_SEQUENCES = {FLOOR_BASH_SEQUENCES!r}",
+        inspect.getsource(_tokenize_command),
+        inspect.getsource(_has_sequence),
+        inspect.getsource(is_floor_bash_command),
+        inspect.getsource(is_floor_secret_path),
+        inspect.getsource(_parse_iso8601),
+        inspect.getsource(_feature_passes_map),
+        inspect.getsource(_transitions_to_true),
+        inspect.getsource(_read_last_commit_timestamp),
+        inspect.getsource(_evidence_freshness_problem),
+        inspect.getsource(_read_team_manifest),
+        inspect.getsource(_manifest_requires_review),
+        inspect.getsource(_feature_by_id),
+    ]
+    shared_block = "\n".join(src.rstrip("\n") for src in shared_sources) + "\n"
+    if "'''" in shared_block:
+        # Defesa: se algum docstring futuro introduzir ''' o delimitador do
+        # template abaixo quebraria silenciosamente — falha alto e cedo.
+        raise RuntimeError(
+            "render_boundary_guard: fonte importável embutida contém ''' — "
+            "incompatível com o delimitador do template standalone"
+        )
+
+    header = '''"""Hook PreToolUse gerado pelo harness-creator — NÃO editar à mão.
 
 Dispatcher único de fronteira (Edit/Write/Bash) para a superfície do
 contrato ativo (.harness/feature_list.json). Gerado por
@@ -454,26 +509,25 @@ não edite este arquivo diretamente.
 ORDEM DE AVALIAÇÃO (não reordenar): o runtime floor roda incondicionalmente
 antes de qualquer checagem de contrato — mesmo sem .harness/feature_list.json
 no repo, git push e escrita em arquivo de segredo continuam DENY.
+
+A faixa abaixo marcada "GERADO" vem de harness.boundary_guard via
+inspect.getsource() (mesma lógica da versão importável, testável via
+pytest direto) — não editada à mão nesta faixa.
 """
-import datetime
+from __future__ import annotations
+
 import json
 import re
 import subprocess
 import sys
+from datetime import datetime
+from pathlib import Path
 
-# Metacaracteres de shell contam como separador — "git push&&true" não escapa.
-SHELL_SPLIT = re.compile(r"[\\s;&|()<>`$\\"']+")
+# --- GERADO a partir de harness.boundary_guard (inspect.getsource) ---
+'''
 
-# --- runtime floor: nunca vira allow, com ou sem contrato ativo ---
-FLOOR_BASH_SEQUENCES = [
-    ["git", "push"],
-    ["curl"],
-    ["wget"],
-    ["npm", "publish"],
-    ["pip", "upload"],
-    ["twine", "upload"],
-    ["gh", "release"],
-]
+    middle = '''
+# --- fim da faixa gerada ---
 
 # --- comandos git locais sempre liberados quando há contrato ativo ---
 FIXED_GIT_SEQUENCES = [
@@ -502,8 +556,8 @@ FIXED_HARNESS_SEQUENCES = (
 
 FEATURE_LIST_PATH = ".harness/feature_list.json"
 PROFILE_PATH = ".harness/repo-profile.json"
-EVIDENCE_DIR = ".harness/evidence"
-TEAM_MANIFEST_PATH = ".harness/team/manifest.json"
+EVIDENCE_DIR_NAME = ".harness/evidence"
+TEAM_MANIFEST_RELATIVE_PATH = ".harness/team/manifest.json"
 REVIEW_DIR = ".harness/review"
 # Área de autoria de contrato: spec.md/Plans.md do PRÓXIMO contrato vivem
 # aqui e nunca estão em files[] do contrato ATIVO. Sem esta exceção, planejar
@@ -540,30 +594,6 @@ def _resolve_path(raw_path, cwd):
     if cwd_norm and path.lower().startswith(cwd_norm.lower() + "/"):
         path = path[len(cwd_norm) + 1:]
     return path
-
-
-def _is_secret_path(path):
-    lower = path.lower()
-    basename = lower.rsplit("/", 1)[-1]
-    return (
-        lower.endswith(".env")
-        or lower.endswith(".pem")
-        or lower.endswith("id_rsa")
-        or "credentials" in basename
-    )
-
-
-def _tokenize(command):
-    return [t for t in SHELL_SPLIT.split(command or "") if t]
-
-
-def _has_sequence(tokens, seq):
-    n = len(seq)
-    return n > 0 and any(tokens[i:i + n] == seq for i in range(len(tokens) - n + 1))
-
-
-def _matches_any_sequence(tokens, sequences):
-    return any(_has_sequence(tokens, seq) for seq in sequences)
 
 
 def _split_shell_segments(command):
@@ -710,90 +740,6 @@ def _collect_allowed_bash_commands(feature_list, profile):
     if install_cmd:
         commands.append(install_cmd)
     return commands
-
-
-def _read_last_commit_timestamp(cwd):
-    try:
-        proc = subprocess.run(
-            ["git", "log", "-1", "--format=%cI"],
-            cwd=cwd or None,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if proc.returncode != 0:
-        return None
-    output = proc.stdout.strip()
-    return output or None
-
-
-def _parse_iso8601(value):
-    if not isinstance(value, str):
-        return None
-    try:
-        return datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except (ValueError, TypeError):
-        return None
-
-
-def _feature_passes_map(data):
-    result = {}
-    if not isinstance(data, dict):
-        return result
-    for feat in data.get("features") or []:
-        if not isinstance(feat, dict):
-            continue
-        fid = feat.get("id")
-        if fid is not None:
-            result[fid] = feat.get("passes") is True
-    return result
-
-
-def _transitions_to_true(old_data, new_data):
-    old_map = _feature_passes_map(old_data)
-    new_map = _feature_passes_map(new_data)
-    return [fid for fid, val in new_map.items() if val and not old_map.get(fid, False)]
-
-
-def _evidence_freshness_problem(cwd, feature_id, commit_ts):
-    evidence = _load_json(cwd, EVIDENCE_DIR + "/" + str(feature_id) + ".json")
-    if evidence is None:
-        return (str(feature_id) + ": sem evidencia (.harness/evidence/" + str(feature_id) + ".json nao existe ou JSON invalido)"), None
-    if not isinstance(evidence, dict) or evidence.get("feature_id") != feature_id:
-        return (str(feature_id) + ": evidencia invalida (feature_id nao corresponde)"), None
-    recorded_dt = _parse_iso8601(evidence.get("recorded_at"))
-    if recorded_dt is None:
-        return (str(feature_id) + ": evidencia invalida (recorded_at ausente ou nao-ISO8601)"), None
-    if commit_ts is not None:
-        commit_dt = _parse_iso8601(commit_ts)
-        if commit_dt is not None and recorded_dt <= commit_dt:
-            return (str(feature_id) + ": evidencia mais antiga que o ultimo commit (recorded_at=" + str(evidence.get("recorded_at")) + ")"), None
-    return None, evidence
-
-
-def _read_team_manifest(cwd):
-    return _load_json(cwd, TEAM_MANIFEST_PATH)
-
-
-def _manifest_requires_review(manifest):
-    if not isinstance(manifest, dict):
-        return False
-    roles = manifest.get("roles")
-    if not isinstance(roles, list):
-        return False
-    role_set = set(r for r in roles if isinstance(r, str))
-    return "producer" in role_set and "reviewer" in role_set
-
-
-def _feature_by_id(data, feature_id):
-    if not isinstance(data, dict):
-        return None
-    for feat in data.get("features") or []:
-        if isinstance(feat, dict) and feat.get("id") == feature_id:
-            return feat
-    return None
 
 
 def _is_test_diff(feature, cwd):
@@ -965,7 +911,7 @@ def _evaluate_feature_list_edit(tool_name, tool_input, cwd):
 
 
 def _evaluate_file(path, cwd):
-    if _is_secret_path(path):
+    if is_floor_secret_path(path):
         return "deny", (
             "runtime floor: escrita em arquivo de segredo (.env/.pem/id_rsa/"
             "credentials) e bloqueio incondicional, independente de contrato ativo"
@@ -1004,9 +950,7 @@ def _evaluate_file(path, cwd):
 
 
 def _evaluate_bash(command, cwd):
-    tokens = _tokenize(command)
-
-    if _matches_any_sequence(tokens, FLOOR_BASH_SEQUENCES):
+    if is_floor_bash_command(command):
         return "deny", (
             "runtime floor: comando de push/publicacao/rede nao planejado - "
             "bloqueio incondicional, independente de contrato ativo"
@@ -1025,7 +969,8 @@ def _evaluate_bash(command, cwd):
     profile = _load_json(cwd, PROFILE_PATH)
     allowed_commands = _collect_allowed_bash_commands(feature_list, profile)
     allowed_sequences = (
-        FIXED_GIT_SEQUENCES + FIXED_HARNESS_SEQUENCES + [_tokenize(c) for c in allowed_commands]
+        FIXED_GIT_SEQUENCES + FIXED_HARNESS_SEQUENCES
+        + [_tokenize_command(c) for c in allowed_commands]
     )
 
     # Allow assimetrico ao floor: o floor casa 'aparece em qualquer janela'
@@ -1034,7 +979,7 @@ def _evaluate_bash(command, cwd):
     # comando arbitrario colado com &&/;/| a um declarado escaparia.
     segments = _split_shell_segments(command)
     if segments and all(
-        _segment_prefixes_any(_tokenize(seg), allowed_sequences) for seg in segments
+        _segment_prefixes_any(_tokenize_command(seg), allowed_sequences) for seg in segments
     ):
         return "allow", (
             "comando declarado na superficie compilada do contrato "
@@ -1086,6 +1031,8 @@ def main() -> None:
 if __name__ == "__main__":
     main()
 '''
+
+    return header + shared_block + middle
 
 
 # ---------------------------------------------------------------------------
