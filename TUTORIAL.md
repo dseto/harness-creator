@@ -113,7 +113,7 @@ Isso instala a biblioteca e o CLI `harness`. Confira:
 ```powershell
 harness --help
 # deve listar: preflight, compile, audit, analyze, compile-contract,
-#              compile-session, verify, audit-runtime, team, review,
+#              compile-session, verify, task, audit-runtime, team, review,
 #              supervise, audit-team
 ```
 
@@ -376,7 +376,7 @@ harness compile-contract --dir . --slug leaderboard-limit
 {
   "contract": "leaderboard-limit",
   "compiled_at": "2026-07-16T18:00:00+00:00",
-  "compiled_with_version": "0.16.1",
+  "compiled_with_version": "0.17.1",
   "features": [
     {
       "id": "T-01",
@@ -481,6 +481,30 @@ Duas saídas possíveis:
   novo — **sem envolver você** — até passar ou bater na stop condition do
   spec (N falhas seguidas), caso em que ele para, registra o estado no
   `claude-progress.md` e devolve com diagnóstico.
+
+`harness verify` **não** marca `passes:true` sozinho por padrão (evita corrida
+se múltiplos agentes escrevem o mesmo `feature_list.json` em paralelo). Numa
+sessão orquestradora sequencial única, `--mark-passed` poupa a edição manual
+do JSON a cada tarefa:
+
+```powershell
+harness verify T-01 --dir . --mark-passed
+```
+
+Opt-in, só grava `passes:true` se o `verify_cmd` saiu com `exit_code==0` —
+não use com múltiplos agentes trabalhando o mesmo `feature_list.json` em
+paralelo (continua sem lock entre processos).
+
+Se, já implementando, uma tarefa precisar tocar um arquivo que não estava no
+`files[]` original (ex.: descobriu que falta o `.scss` de um componente),
+`harness task add-file` evita reabrir o `Plans.md` na mão:
+
+```powershell
+harness task add-file T-07 frontend/src/app/x/x.scss --dir . --slug <slug>
+```
+
+Faz append no `files[]` da tarefa e recompila — não reabre o gate de
+aprovação nem toca em `approved_by`/`approved_at`.
 
 O hook **Stop** reforça o ritual: se ao encerrar houver uma feature com
 `passes:false`, trabalho não commitado tocando os `files[]` dela e evidência

@@ -65,13 +65,19 @@ READY/NOT_READY/erro-de-uso) · `harness compile --dir <alvo>` ·
 `harness compile-session --dir <alvo>` (Fase 2 — compila a superfície de
 permissions do raio de impacto, o `boundary_guard.py`, o lifecycle de 16
 passos, os templates de sessão e o hook SessionStart) · `harness verify
-<feature-id> --dir <alvo>` (Fase 3 — roda o `verify_cmd` real da tarefa e só
-grava evidência com prova executável) · `harness audit-runtime --dir <alvo>`
-(Fase 3 — audita schema/frescor/invariantes dos artefatos runtime-mutáveis,
-distinto do `harness audit`) · `harness team design|generate --dir <alvo>`,
-`harness review <feature-id> submit|approve|reject --dir <alvo>`, `harness
-supervise --dir <alvo>`, `harness audit-team --dir <alvo>` (Fase 4 — time de
-agentes com revisão de qualidade independente embutida; ver seção abaixo).
+<feature-id> --dir <alvo> [--mark-passed]` (Fase 3 — roda o `verify_cmd` real
+da tarefa e só grava evidência com prova executável; `--mark-passed`, opt-in,
+grava `passes:true` no `feature_list.json` quando `exit_code==0` — sessão
+orquestradora sequencial única, não usar com múltiplos agentes em paralelo) ·
+`harness task add-file <task-id> <path> --dir <alvo> --slug <slug>` (append
+no `files[]` de UMA task existente no `Plans.md` + recompila, sem editar o
+markdown à mão nem reabrir o gate de aprovação) · `harness audit-runtime
+--dir <alvo>` (Fase 3 — audita schema/frescor/invariantes dos artefatos
+runtime-mutáveis, distinto do `harness audit`) · `harness team
+design|generate --dir <alvo>`, `harness review <feature-id>
+submit|approve|reject --dir <alvo>`, `harness supervise --dir <alvo>`,
+`harness audit-team --dir <alvo>` (Fase 4 — time de agentes com revisão de
+qualidade independente embutida; ver seção abaixo).
 
 ## Fase 4 — Team-Architecture Factory (Nível L3)
 
@@ -116,7 +122,7 @@ harness-creator/
 │   ├── audit.py                 # score + findings (dogfooding: compile+diff)
 │   ├── config.py                # HarnessConfig (pydantic) — fonte de verdade
 │   └── cli.py                   # harness compile|audit
-└── tests/                       # 414+ testes (sem Docker/API para compile/audit)
+└── tests/                       # 514+ testes (sem Docker/API para compile/audit)
 ```
 
 ## Testes
