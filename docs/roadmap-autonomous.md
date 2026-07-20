@@ -1,6 +1,6 @@
 # Roadmap — Autonomia Total: da delegação por contrato à execução 100% autônoma (Fases 5–7)
 
-> **Backlog futuro.** Este documento continua o [ROADMAP.md](../ROADMAP.md)
+> **Backlog futuro.** Este documento continua o [ROADMAP.md](../project/ROADMAP.md)
 > (Fases 1–4, entregues em v0.11.0→v0.14.1) rumo ao objetivo final: o humano
 > fornece **uma demanda complexa + critérios de qualidade** e o Claude Code,
 > equipado com o harness, executa todo o ciclo — planejar → executar →

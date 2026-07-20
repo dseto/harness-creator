@@ -3,7 +3,7 @@
 Este guia cobre o **dia a dia**: depois do plugin instalado, como você de fato
 usa o harness para fazer uma alteração num projeto.
 
-Para o que o plugin é e como está estruturado, veja o [README](README.md).
+Para o que o plugin é e como está estruturado, veja o [README](../../README.md).
 
 ## 1. Instalar o plugin (uma vez, por máquina)
 

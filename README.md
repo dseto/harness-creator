@@ -1,6 +1,6 @@
 # harness-creator
 
-**v0.17.1** · [CHANGELOG](CHANGELOG.md)
+**v0.17.1** · [CHANGELOG](docs/reference/CHANGELOG.md)
 
 Plugin do Claude Code que **cria, avalia e compila** estrutura de harness
 (governança de agentes) para projetos.
@@ -26,7 +26,7 @@ Plugin do Claude Code que **cria, avalia e compila** estrutura de harness
   hooks — dito explicitamente, sem teatro de enforcement).
 
 Uso no dia a dia (instalar → criar harness → trabalhar com os prompts de
-aprovação aparecendo sozinhos): ver [GUIDE.md](GUIDE.md).
+aprovação aparecendo sozinhos): ver [GUIDE.md](docs/plugin/GUIDE.md).
 
 ## Instalação (plugin local)
 
@@ -41,7 +41,7 @@ claude --plugin-dir C:\Projetos\Harness-creator
 `--plugin-dir` é uma flag de CLI — não existe no app **desktop** (sem
 terminal, sem flag). Para o plugin ficar disponível sem repetir o comando
 (inclusive no desktop), registre-o como marketplace local em
-`~/.claude/settings.json`: ver [GUIDE.md §10](GUIDE.md#10-deixar-o-plugin-sempre-disponível-opcional).
+`~/.claude/settings.json`: ver [GUIDE.md §10](docs/plugin/GUIDE.md#10-deixar-o-plugin-sempre-disponível-opcional).
 
 ## Skills
 
@@ -75,7 +75,7 @@ markdown à mão nem reabrir o gate de aprovação — recompila o contrato mas
 não o `permissions.allow` enumerado de `.claude/settings.json`; sem impacto
 funcional, o `boundary_guard.py` decide `allow`/`deny` lendo o contrato
 em tempo de execução, não a lista enumerada — detalhe em
-[TUTORIAL.md §B.4](TUTORIAL.md)) · `harness audit-runtime
+[TUTORIAL.md §B.4](docs/plugin/TUTORIAL.md)) · `harness audit-runtime
 --dir <alvo>` (Fase 3 — audita schema/frescor/invariantes dos artefatos
 runtime-mutáveis, distinto do `harness audit`) · `harness team
 design|generate --dir <alvo>`, `harness review <feature-id>

@@ -600,8 +600,8 @@ próxima feature pronta respeitando `depends[]`.
 
 ## Referências
 
-- [README.md](README.md) — o que o plugin é e como está estruturado
+- [README.md](../../README.md) — o que o plugin é e como está estruturado
 - [GUIDE.md](GUIDE.md) — referência completa do dia a dia, seção por seção
-- [CHANGELOG.md](CHANGELOG.md) — histórico de versões
+- [CHANGELOG.md](../reference/CHANGELOG.md) — histórico de versões
 - `tests/e2e/evidence/` — evidências dos dogfoods reais que provam cada
   mecanismo descrito aqui em sessão `claude -p` de verdade
