@@ -8,8 +8,8 @@ e (2) design/seleção do padrão. A geração dos artefatos `.claude/agents/`/
 padrão Produtor-Revisor ficam em módulos próprios (`review.py` e uma
 extensão futura deste arquivo) — não são reimplementados aqui.
 
-O catálogo em si vive em `teams/patterns/*.yaml` (raiz do repo do plugin,
-sibling de `skills/` — é conteúdo do PLUGIN, não do projeto-alvo). Os dois
+O catálogo em si vive em `src/harness/teams/patterns/*.yaml` (empacotado no
+wheel do plugin — é conteúdo do PLUGIN, não do projeto-alvo). Os dois
 padrões priorizados pelo roadmap — `producer-reviewer` e `supervisor` — têm
 schema completo, com `tools` mínimas por papel (o invariante que o audit de
 time da Fase 4 vai checar depois: papéis de revisão/orquestração nunca têm
@@ -29,10 +29,8 @@ from typing import Any
 
 import yaml
 
-# `src/harness/teams.py` -> parents[0]=src/harness, parents[1]=src,
-# parents[2]=raiz do repo do plugin (confirmado rodando
-# `python -c "from pathlib import Path; print(Path('src/harness/teams.py').resolve().parents[2])"`).
-DEFAULT_PATTERNS_DIR = Path(__file__).resolve().parents[2] / "teams" / "patterns"
+# Padrões de time empacotados no wheel (src/harness/teams/patterns/)
+DEFAULT_PATTERNS_DIR = Path(__file__).resolve().parent / "teams" / "patterns"
 
 REPO_PROFILE_PATH = ".harness/repo-profile.json"
 
@@ -65,7 +63,7 @@ class TeamRole:
 
 @dataclass
 class TeamPattern:
-    """Um padrão de time do catálogo (`teams/patterns/<name>.yaml`)."""
+    """Um padrão de time do catálogo (`src/harness/teams/patterns/<name>.yaml`)."""
 
     name: str
     description: str
@@ -82,7 +80,7 @@ class TeamPattern:
 
 
 # ---------------------------------------------------------------------------
-# Catálogo (leitura de teams/patterns/*.yaml)
+# Catálogo (leitura de src/harness/teams/patterns/*.yaml)
 # ---------------------------------------------------------------------------
 
 def list_patterns(patterns_dir: Path | None = None) -> list[str]:

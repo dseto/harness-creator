@@ -90,7 +90,7 @@ compilada (Fase 2/3), o `/harness-creator:team` monta um **time de agentes**
 para trabalhar o contrato, com revisão de qualidade independente já embutida
 — o único toque humano é aprovar a arquitetura do time, uma vez por projeto:
 
-- **Catálogo de 6 padrões** (`teams/patterns/*.yaml`, conteúdo do plugin):
+- **Catálogo de 6 padrões** (`src/harness/teams/patterns/*.yaml`, empacotado no plugin):
   `producer-reviewer` e `supervisor` com schema completo (papéis + `tools`
   mínimas — revisor/supervisor nunca têm `Edit`/`Write`); `pipeline`,
   `expert-pool`, `fan-out-fan-in`, `hierarchical-delegation` declarativos.

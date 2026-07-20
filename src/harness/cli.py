@@ -101,7 +101,7 @@ def main() -> None:
         "generate", help="Gera os artefatos do time (.claude/agents, .claude/skills, AGENTS.md, manifesto)"
     )
     team_generate.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
-    team_generate.add_argument("--pattern", required=True, help="Nome do padrão de time (catálogo teams/patterns/)")
+    team_generate.add_argument("--pattern", required=True, help="Nome do padrão de time (catálogo src/harness/teams/patterns/)")
     team_generate.add_argument(
         "--mode", default="subagents", choices=["subagents", "agent-teams"], help="Modo de execução do time"
     )

@@ -128,7 +128,7 @@ sem novo toque humano:
   Passo 3 — nunca por inferência, nunca porque "parece óbvio que vai
   aprovar".
 - Nunca invente um padrão fora do catálogo (`team design` só recomenda os 6
-  padrões já existentes em `teams/patterns/`).
+  padrões já existentes em `src/harness/teams/patterns/`).
 - Esta skill roda **uma vez** por projeto (setup do time) — diferente de
   `/harness-creator:plan`, que roda por demanda a cada nova feature.
 - Se `team generate` sair com erro (`TeamError`), mostre a mensagem ao
