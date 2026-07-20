@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.17.1 — 2026-07-20
+
+Achado do dogfood real da v0.17.0 (Story 3.3 em `elegant-heisenberg`): a
+implementação completou os 9/9 tasks com suíte automatizada 100% verde, mas
+só o teste manual em browser (pedido à parte pelo usuário) revelou 2 defeitos
+reais — migration nunca aplicada no Oracle de dev (design-time factory usa
+credenciais fictícias) e locale `pt-BR` nunca registrado (formatação de
+moeda `R$1,000.00` em vez de `R$ 1.000,00`). Nenhum teste automatizado
+(unit/integration/component) pega esses dois.
+
+### Adicionado
+- `skills/plan/SKILL.md`: **Passo 8 — Teste manual de UI**, regra dura
+  obrigatória sempre que alguma tarefa do contrato tocou frontend. Depois de
+  `harness supervise` devolver `next: null`, exige subir a app real
+  (backend+frontend+banco real, nunca mock), navegar os critérios de
+  aceitação do `spec.md`, capturar evidência real (screenshot/DOM) e corrigir
+  defeitos achados antes de declarar a demanda concluída — suíte
+  automatizada verde deixa de ser suficiente por si só.
+
 ## 0.17.0 — 2026-07-19
 
 7 itens do backlog de fricção do issue #1 (sessão real de 5 contratos

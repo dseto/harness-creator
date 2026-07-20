@@ -146,6 +146,35 @@ Se o comando sair com **exit 1** por `.harness/feature_list.json` ausente,
 volte ao Passo 6 — `compile-session` nunca roda sem um contrato já
 compilado.
 
+## Passo 8 — Teste manual de UI (REGRA DURA — obrigatório se alguma tarefa tocou frontend)
+
+Depois que TODAS as tarefas do contrato passarem (`harness supervise` devolve
+`next: null`), se qualquer `files[]` tocou componente/template de UI
+(Angular/React/Vue/etc. — o `languages`/`extras` do profile do Passo 1 já
+identifica o framework), teste manualmente antes de declarar a demanda
+concluída. Testes automatizados (unit/integration/component) verificam
+código; não confirmam o que o usuário vai efetivamente ver.
+
+1. Suba a aplicação de verdade (backend real + frontend real + banco real de
+   dev, nunca mock) pelo comando documentado no README/AGENTS.md do alvo.
+2. Navegue os fluxos dos critérios de aceitação do `spec.md`: o caminho
+   normal e pelo menos as bordas citadas explicitamente (validação de erro,
+   estado vazio, transição de estado).
+3. Capture evidência real — screenshot ou leitura de DOM/texto da página
+   confirmando o estado esperado. "os testes automatizados passaram" não é
+   evidência de UI.
+4. Se achar um defeito só visível em uso real (ex.: locale/formatação,
+   campo nunca persistido, elemento não renderizado), corrija antes de
+   reportar concluído — use `harness task add-file` (ver
+   `references/contract-templates.md`) se precisar tocar um arquivo fora
+   da superfície já declarada pela tarefa.
+5. Ao reportar ao usuário, diga explicitamente o que foi testado
+   manualmente — nunca afirme "testado" sem ter feito.
+
+Isso é ADICIONAL aos `verify_cmd` automatizados de cada tarefa, não os
+substitui. Sem UI tocada nas tarefas (mudança só de backend/API/CLI), este
+passo não se aplica.
+
 ## Regras
 
 - Nunca auto-aprove o contrato: `approved_by`/`approved_at` só são
@@ -158,3 +187,6 @@ compilado.
   — nunca contorne o gate.
 - Não edite `.harness/feature_list.json` manualmente; ele só nasce de
   `compile-contract`.
+- Nunca declare uma demanda que tocou UI como concluída sem o teste manual
+  do Passo 8 — suíte automatizada verde não é evidência de que a tela
+  funciona (ver Passo 8 para o que conta como evidência real).
