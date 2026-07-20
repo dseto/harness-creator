@@ -1,6 +1,6 @@
 """Sessão de trabalho: contrato compilado -> superfície ENUMERADA de permissions.
 
-Fase 2 do roadmap ("Execução Autônoma no Raio de Impacto" — ver ROADMAP.md):
+Fase 2 do roadmap ("Execução Autônoma no Raio de Impacto" — ver docs/project/ROADMAP.md):
 a aprovação do contrato (`.harness/feature_list.json`, produzido por
 `contract.py`) recompila `.claude/settings.json` com `allow` para a
 **superfície completa que o lifecycle usa — enumerada, nunca genérica**.

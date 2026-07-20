@@ -23,8 +23,8 @@ confirmados, 0 refutados**. Achado de maior prioridade: `pyproject.toml`
 tinha `anthropic`/`mcp`/`docker` como dependências **obrigatórias**, usadas
 só pelo modo de execução autônoma ("era congelada" — `orchestrator.py` +
 sandbox Docker + TDD-loop chamando a API Anthropic diretamente), que o
-projeto já tinha pivotado a abandonar (documentado em `PLAN.md`,
-`ARCHITECTURE.md`, `README.md`, `CHANGELOG.md` como "congelado").
+projeto já tinha pivotado a abandonar (documentado em `docs/project/PLAN.md`,
+`docs/plugin/ARCHITECTURE.md`, `README.md`, `docs/reference/CHANGELOG.md` como "congelado").
 
 ### 1.3 Remoção da era congelada — 3 commits, cada um com gate objetivo
 Gate usado em toda fase: `import harness.compiler` **sem** docker/anthropic/mcp
@@ -81,7 +81,7 @@ Sincronizado nos 4 arquivos que precisam bater (`pyproject.toml`,
 `src/harness/__init__.py`, `.claude-plugin/plugin.json`,
 `.claude-plugin/marketplace.json` — há um comentário no `__init__.py`
 avisando exatamente disso, "já aconteceu uma vez" dessincronizar).
-CHANGELOG.md fechado com a entrada completa (remoção + correções).
+docs/reference/CHANGELOG.md fechado com a entrada completa (remoção + correções).
 
 **Refresh do plugin instalado** (não é passo do repo, é da sessão do Claude
 Code local): `claude plugin marketplace update harness-creator-local` +

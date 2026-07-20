@@ -1,6 +1,6 @@
 """Analyzer: leitura determinística do repo-alvo -> `.harness/repo-profile.json`.
 
-Fase 1 do roadmap (Delegação Baseada em Contratos — ver ROADMAP.md): antes de
+Fase 1 do roadmap (Delegação Baseada em Contratos — ver docs/project/ROADMAP.md): antes de
 qualquer contrato (`spec.md`/`Plans.md`) ser redigido, o harness precisa de
 fatos sobre o projeto-alvo — linguagem, package manager, comando de teste,
 convenção de arquivo de teste — cada um com **evidência** (o arquivo que

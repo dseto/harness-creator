@@ -1,8 +1,8 @@
-"""Agent Session Lifecycle: compila o ciclo de 16 passos (ROADMAP.md, Fase 2)
+"""Agent Session Lifecycle: compila o ciclo de 16 passos (docs/project/ROADMAP.md, Fase 2)
 como bloco gerenciado ADICIONAL no `AGENTS.md`, com progressive disclosure
 (bloco fino aponta para o detalhe em `.harness/LIFECYCLE.md`).
 
-Divergência deliberada do texto do ROADMAP.md: a linha ~198 lista a entrega
+Divergência deliberada do texto do docs/project/ROADMAP.md: a linha ~198 lista a entrega
 como seções `state`/`lifecycle` no `harness.yaml` (i.e., dentro de
 `HarnessConfig`, em `config.py`); este módulo implementa a mesma entrega via
 Python + bloco em `AGENTS.md` + arquivo `.harness/LIFECYCLE.md`, sem estender
@@ -27,10 +27,10 @@ LIFECYCLE_DETAIL_PATH = ".harness/LIFECYCLE.md"
 
 def render_lifecycle_block() -> str:
     """Bloco curto (progressive disclosure) para o AGENTS.md: os 16 passos
-    do Agent Session Lifecycle (ROADMAP.md, Fase 2) como lista numerada
+    do Agent Session Lifecycle (docs/project/ROADMAP.md, Fase 2) como lista numerada
     compacta — uma linha por passo, sem repetir o detalhe completo."""
     return f"""{LIFECYCLE_BEGIN}
-## Agent Session Lifecycle (gerado — 16 passos, ROADMAP.md Fase 2)
+## Agent Session Lifecycle (gerado — 16 passos, docs/project/ROADMAP.md Fase 2)
 
 1. Ler `AGENTS.md`.
 2. Rodar `init.sh`/`init.ps1` (deps + health check do profile).
@@ -55,12 +55,12 @@ Detalhe de cada passo: ver `.harness/LIFECYCLE.md`.
 
 def render_lifecycle_detail() -> str:
     """Conteúdo completo de `.harness/LIFECYCLE.md`: um parágrafo por passo,
-    explicando o objetivo de cada um (prosa baseada no ROADMAP.md Fase 2)."""
+    explicando o objetivo de cada um (prosa baseada no docs/project/ROADMAP.md Fase 2)."""
     return """# Agent Session Lifecycle — Detalhe dos 16 Passos
 
 Este arquivo é o detalhe de progressive disclosure do bloco "Agent Session
 Lifecycle" em `AGENTS.md`. Cada passo abaixo corresponde ao ciclo de 16
-passos descrito no `ROADMAP.md` (Fase 2 — "Execução Autônoma no Raio de
+passos descrito no `docs/project/ROADMAP.md` (Fase 2 — "Execução Autônoma no Raio de
 Impacto"): a sessão nasce sabendo onde parou, trabalha dentro do contrato
 aprovado e só devolve o controle ao humano em estado retomável.
 

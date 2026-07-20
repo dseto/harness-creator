@@ -199,7 +199,7 @@ def record_decision(
 
     Se `decision == 'rejected'`: `status` continua `'rejected'`
     INDEPENDENTE de `escalate` — nunca vira `'approved'` por estourar o
-    limite de iterações (divergência deliberada exigida pelo ROADMAP.md).
+    limite de iterações (divergência deliberada exigida pelo docs/project/ROADMAP.md).
     `escalate = iteration >= max_iterations`.
     """
     target_dir = target_dir.resolve()

@@ -1,6 +1,6 @@
 """Hook SessionStart: injeta estado da sessão anterior no início da sessão.
 
-Fase 2 do roadmap ("Execução Autônoma no Raio de Impacto" — ver ROADMAP.md,
+Fase 2 do roadmap ("Execução Autônoma no Raio de Impacto" — ver docs/project/ROADMAP.md,
 linhas ~193-199, "Hook SessionStart"): a sessão nasce sabendo onde parou —
 resumo do progresso (`claude-progress.md`), a feature ativa/pendente
 (`.harness/feature_list.json`) e o `git log` recente — sem o humano precisar

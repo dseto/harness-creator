@@ -1,7 +1,7 @@
 """Templates: `feature_list.json`/`repo-profile.json` -> `claude-progress.md` + `init.*`.
 
-Fase 2 do ROADMAP ("Delegação Baseada em Contratos"): o lifecycle de 16
-passos (ver ROADMAP.md, Fase 2) manda o agente 1) ler AGENTS.md, 2) rodar
+Fase 2 do docs/project/ROADMAP ("Delegação Baseada em Contratos"): o lifecycle de 16
+passos (ver docs/project/ROADMAP.md, Fase 2) manda o agente 1) ler AGENTS.md, 2) rodar
 `init.sh`/`init.ps1` (deps + health check gerados a partir do
 `repo-profile.json`), 3) ler `claude-progress.md`, 4) ler
 `feature_list.json`. Este módulo gera os artefatos dos passos 2 e 3.

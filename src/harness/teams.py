@@ -1,8 +1,8 @@
-"""Team-Architecture Factory (Fase 4 do ROADMAP): catálogo de padrões de
+"""Team-Architecture Factory (Fase 4 do docs/project/ROADMAP): catálogo de padrões de
 time + motor de análise/seleção.
 
 Este módulo cobre só as duas primeiras fases do workflow de 6 fases descrito
-no ROADMAP.md ("Fase 4 — Team-Architecture Factory"): (1) análise de domínio
+no docs/project/ROADMAP.md ("Fase 4 — Team-Architecture Factory"): (1) análise de domínio
 e (2) design/seleção do padrão. A geração dos artefatos `.claude/agents/`/
 `.claude/skills/` (fase 3-4 do workflow) e o state machine de revisão do
 padrão Produtor-Revisor ficam em módulos próprios (`review.py` e uma
@@ -589,7 +589,7 @@ def generate_team(
     patterns_dir: Path | None = None,
 ) -> TeamGenerationResult:
     """Entrypoint de topo (SUBAGENTE 06) que compõe as fases 2-5 do
-    workflow de 6 fases descrito no ROADMAP.md ("Fase 4 — Team-Architecture
+    workflow de 6 fases descrito no docs/project/ROADMAP.md ("Fase 4 — Team-Architecture
     Factory"): carrega o padrão já escolhido (`pattern_name` — este
     entrypoint NÃO recomenda o padrão; quem chama já decidiu, seja via
     `recommend_pattern` seja por escolha explícita do humano), gera os
