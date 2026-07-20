@@ -506,6 +506,19 @@ harness task add-file T-07 frontend/src/app/x/x.scss --dir . --slug <slug>
 Faz append no `files[]` da tarefa e recompila — não reabre o gate de
 aprovação nem toca em `approved_by`/`approved_at`.
 
+> **Nota:** `task add-file` recompila o contrato (`feature_list.json`), mas
+> não regenera o `permissions.allow` enumerado do `.claude/settings.json`
+> (isso é trabalho do `compile-session`) — a lista enumerada fica
+> desatualizada até a próxima recompilação de sessão. Isso não abre brecha
+> nem bloqueia o path novo: o `boundary_guard.py` (hook `PreToolUse`,
+> matcher `"*"`) sempre decide `allow`/`deny` explicitamente para
+> `Edit`/`Write`/`Bash` a partir do `feature_list.json` **lido em tempo de
+> execução**, a cada tool call — uma decisão explícita de hook sempre
+> tem precedência sobre `permissions.allow` (nunca é só consultado como
+> fallback). Rode `harness compile-session` de novo só se quiser o
+> `settings.json` enumerado espelhando o estado atual do contrato (ex.:
+> para inspeção humana) — não é necessário para o path novo ser editável.
+
 O hook **Stop** reforça o ritual: se ao encerrar houver uma feature com
 `passes:false`, trabalho não commitado tocando os `files[]` dela e evidência
 ausente ou desatualizada, ele **injeta um lembrete** (via `additionalContext`)

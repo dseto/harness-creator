@@ -74,6 +74,17 @@ depois que o conjunto todo landar — não é bug do harness, é como
 compiladores funcionam; planejar sem isso gera uma tarefa que nunca
 verifica isolada.
 
+### Granularidade de tarefas de UI com estado visual condicional
+
+Componente de framework front-end (Angular/React/Vue) com estado visual
+condicional (badge/cor/aviso/indicador) quase sempre precisa do arquivo de
+estilo (`.scss`/`.css`) além de lógica+template+teste — é fácil planejar
+pensando só no comportamento quando o critério de aceitação fala de
+"aparência". Ao declarar `files[]` de uma tarefa assim, liste explicitamente
+o arquivo de estilo do componente junto com `.ts`/`.html`/`.spec.ts` (ou
+equivalentes do framework) — evita descobrir a falta só na implementação e
+precisar de `harness task add-file` para corrigir depois.
+
 ### Concorrência em `feature_list.json` (times paralelos)
 
 `.harness/feature_list.json` não tem trava de escrita — se múltiplos

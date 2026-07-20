@@ -23,7 +23,7 @@ O `--dir` abaixo é um mock efêmero gerado pelo teste (path de `tmp_path`), NÃ
 um caminho fixo do repositório:
 
 ```
-python.exe -m harness.cli preflight --dir C:\Users\danie\AppData\Local\Temp\pytest-of-danie\pytest-330\test_preflight_e2e_dogfood0\mock_a_cru
+python.exe -m harness.cli preflight --dir C:\Users\danie\AppData\Local\Temp\pytest-of-danie\pytest-458\test_preflight_e2e_dogfood0\mock_a_cru
 ```
 
 Exit code: **1** — veredito **NOT_READY**.
@@ -33,7 +33,7 @@ Laudo real (stdout do subprocess):
 ```json
 {
   "verdict": "NOT_READY",
-  "target": "C:\\Users\\danie\\AppData\\Local\\Temp\\pytest-of-danie\\pytest-330\\test_preflight_e2e_dogfood0\\mock_a_cru",
+  "target": "C:\\Users\\danie\\AppData\\Local\\Temp\\pytest-of-danie\\pytest-458\\test_preflight_e2e_dogfood0\\mock_a_cru",
   "categories": [
     {
       "id": "git",
@@ -136,7 +136,7 @@ Laudo real (stdout do subprocess):
 `[project.optional-dependencies]` e `[tool.ruff]`, `tests/test_x.py`.
 
 ```
-python.exe -m harness.cli preflight --dir C:\Users\danie\AppData\Local\Temp\pytest-of-danie\pytest-330\test_preflight_e2e_dogfood0\mock_b_completo
+python.exe -m harness.cli preflight --dir C:\Users\danie\AppData\Local\Temp\pytest-of-danie\pytest-458\test_preflight_e2e_dogfood0\mock_b_completo
 ```
 
 Exit code: **0** — veredito **READY**.
@@ -146,7 +146,7 @@ Laudo real (stdout do subprocess):
 ```json
 {
   "verdict": "READY",
-  "target": "C:\\Users\\danie\\AppData\\Local\\Temp\\pytest-of-danie\\pytest-330\\test_preflight_e2e_dogfood0\\mock_b_completo",
+  "target": "C:\\Users\\danie\\AppData\\Local\\Temp\\pytest-of-danie\\pytest-458\\test_preflight_e2e_dogfood0\\mock_b_completo",
   "categories": [
     {
       "id": "git",

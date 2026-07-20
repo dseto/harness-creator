@@ -251,6 +251,67 @@ def test_task_add_file_subcommand_unapproved_contract_edits_plans_but_blocks_rec
     assert not (tmp_path / ".harness" / "feature_list.json").exists()
 
 
+def test_task_add_file_subcommand_infers_slug_with_single_contract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    contract_dir = tmp_path / ".harness" / "work" / "exemplo-feature"
+    _write(contract_dir / "spec.md", APPROVED_SPEC)
+    _write(contract_dir / "Plans.md", BASIC_PLANS)
+
+    monkeypatch.setattr(
+        sys, "argv",
+        ["harness", "task", "add-file", "T-01", "novo/path.ts", "--dir", str(tmp_path)],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["contract"] == "exemplo-feature"
+
+    feature_list_path = tmp_path / ".harness" / "feature_list.json"
+    feature_data = json.loads(feature_list_path.read_text(encoding="utf-8"))
+    t01 = next(f for f in feature_data["features"] if f["id"] == "T-01")
+    assert "novo/path.ts" in t01["files"]
+
+
+def test_task_add_file_subcommand_without_slug_and_multiple_contracts_exits_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for slug in ("exemplo-feature", "outra-feature"):
+        contract_dir = tmp_path / ".harness" / "work" / slug
+        _write(contract_dir / "spec.md", APPROVED_SPEC.replace("exemplo-feature", slug))
+        _write(contract_dir / "Plans.md", BASIC_PLANS)
+
+    monkeypatch.setattr(
+        sys, "argv",
+        ["harness", "task", "add-file", "T-01", "novo/path.ts", "--dir", str(tmp_path)],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    err = capsys.readouterr().err
+    assert err.startswith("erro: ")
+    assert "exemplo-feature" in err and "outra-feature" in err
+    assert not (tmp_path / ".harness" / "feature_list.json").exists()
+
+
+def test_task_add_file_subcommand_without_slug_and_no_contracts_exits_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        sys, "argv",
+        ["harness", "task", "add-file", "T-01", "novo/path.ts", "--dir", str(tmp_path)],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    err = capsys.readouterr().err
+    assert err.startswith("erro: ")
+
+
 def test_compile_session_subcommand_success(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

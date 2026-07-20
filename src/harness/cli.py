@@ -60,7 +60,11 @@ def main() -> None:
     task_add_file.add_argument("task_id", help="Id da task em Plans.md (ex.: T-01)")
     task_add_file.add_argument("path", help="Path a adicionar ao files[] da task")
     task_add_file.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
-    task_add_file.add_argument("--slug", required=True, help="Identificador do contrato em .harness/work/<slug>")
+    task_add_file.add_argument(
+        "--slug", default=None,
+        help="Identificador do contrato em .harness/work/<slug> — se omitido e "
+        "houver exatamente um contrato em .harness/work/, é inferido",
+    )
     task_add_file.add_argument(
         "--dry-run-verify", action="store_true",
         help="Repassado para a recompilação — ver `compile-contract --dry-run-verify`",
@@ -195,8 +199,33 @@ def main() -> None:
 
         target_dir = Path(args.dir)
 
+        slug = args.slug
+        if slug is None:
+            work_dir = target_dir / ".harness" / "work"
+            candidates = sorted(
+                p.name for p in work_dir.iterdir()
+                if p.is_dir() and (p / "spec.md").is_file()
+            ) if work_dir.is_dir() else []
+            if len(candidates) == 1:
+                slug = candidates[0]
+            elif not candidates:
+                print(
+                    "erro: nenhum contrato encontrado em .harness/work/ — rode "
+                    "harness compile-contract primeiro ou informe --slug",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            else:
+                print(
+                    "erro: múltiplos contratos em .harness/work/ ("
+                    + ", ".join(candidates)
+                    + ") — informe --slug explicitamente",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+
         try:
-            added = add_task_file(target_dir, args.slug, args.task_id, args.path)
+            added = add_task_file(target_dir, slug, args.task_id, args.path)
         except ContractError as exc:
             print(f"erro: {exc}", file=sys.stderr)
             sys.exit(1)
@@ -208,7 +237,7 @@ def main() -> None:
             )
 
         try:
-            result = compile_contract(target_dir, args.slug, dry_run_verify=args.dry_run_verify)
+            result = compile_contract(target_dir, slug, dry_run_verify=args.dry_run_verify)
         except ContractNotApprovedError as exc:
             print(
                 f"erro: Plans.md atualizado ({args.task_id}: +{args.path}), mas a "
@@ -224,7 +253,7 @@ def main() -> None:
         print(json.dumps({
             "feature_list": str(result),
             "features": len(data.get("features", [])),
-            "contract": args.slug,
+            "contract": slug,
             "task_id": args.task_id,
             "path": args.path,
             "added": added,

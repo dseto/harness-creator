@@ -71,7 +71,11 @@ grava `passes:true` no `feature_list.json` quando `exit_code==0` — sessão
 orquestradora sequencial única, não usar com múltiplos agentes em paralelo) ·
 `harness task add-file <task-id> <path> --dir <alvo> --slug <slug>` (append
 no `files[]` de UMA task existente no `Plans.md` + recompila, sem editar o
-markdown à mão nem reabrir o gate de aprovação) · `harness audit-runtime
+markdown à mão nem reabrir o gate de aprovação — recompila o contrato mas
+não o `permissions.allow` enumerado de `.claude/settings.json`; sem impacto
+funcional, o `boundary_guard.py` decide `allow`/`deny` lendo o contrato
+em tempo de execução, não a lista enumerada — detalhe em
+[TUTORIAL.md §B.4](TUTORIAL.md)) · `harness audit-runtime
 --dir <alvo>` (Fase 3 — audita schema/frescor/invariantes dos artefatos
 runtime-mutáveis, distinto do `harness audit`) · `harness team
 design|generate --dir <alvo>`, `harness review <feature-id>

@@ -117,6 +117,14 @@ de arquivo em uso/lock (`MSB3027`, `MSB3021`, `EBUSY`, `Text File Busy`),
 paralelo (ex.: `dotnet run`, `npm start`) — pergunte ao usuário antes de
 encerrá-lo, não assuma.
 
+> **Escopo desta detecção:** a checagem automática de lock/EBUSY só cobre
+> chamadas via `harness verify`/`compile-contract --dry-run-verify` (dentro
+> de `VerifyFailedError`). Um `MSB3027`/`EBUSY` batido rodando um comando
+> ad-hoc durante debug ativo (ex.: `dotnet ef migrations add` manual, fora
+> do `verify_cmd` da tarefa) fica fora do alcance da detecção automática —
+> reconheça o padrão manualmente nesse caso e pergunte ao usuário antes de
+> encerrar qualquer processo.
+
 ## Passo 7 — Compilar a sessão autônoma (Fase 2)
 
 Logo depois do `feature_list.json` compilado com sucesso (Passo 6), rode:

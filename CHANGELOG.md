@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.17.2 — 2026-07-20
+
+4 itens do backlog de fricção dos issues #2-#5 (dogfood real da v0.17.0/
+0.17.1, Story 3.3 em `elegant-heisenberg`). Nenhum é núcleo de segurança —
+ergonomia/doc/design de borda. Item do issue #4 (drift de `permissions.allow`
+após `task add-file`) foi investigado ANTES de codar: confirmado que o
+`boundary_guard.py` (hook `PreToolUse`, matcher `"*"`) sempre decide
+`allow`/`deny` explicitamente a partir do `feature_list.json` lido em tempo
+de execução — uma decisão explícita de hook tem precedência sobre
+`permissions.allow`, então a lista enumerada desatualizada não abre brecha
+nem bloqueia o path novo; fechado doc-only, sem mudança de código.
+
+### Adicionado
+- `harness task add-file`: `--slug` agora é opcional — se omitido e houver
+  exatamente um contrato em `.harness/work/`, é inferido automaticamente;
+  com 0 ou 2+ contratos, erro pedindo `--slug` explícito (comportamento
+  atual preservado nesses dois casos) (issue #5).
+
+### Documentado
+- `TUTORIAL.md`/`README.md`: nota explicando que `task add-file` recompila
+  o contrato mas não o `permissions.allow` enumerado — sem impacto
+  funcional, o `boundary_guard.py` decide a partir do contrato em tempo de
+  execução (issue #4).
+- `skills/plan/references/contract-templates.md`: nota de granularidade
+  para tarefas de UI com estado visual condicional — lembrar o arquivo de
+  estilo (`.scss`/`.css`) em `files[]` (issue #2).
+- `skills/plan/SKILL.md` (Passo 6): nota sobre o escopo da detecção
+  MSB3027/EBUSY — só cobre `harness verify`/`--dry-run-verify`, não comandos
+  ad-hoc rodados durante debug ativo (issue #3).
+
 ## 0.17.1 — 2026-07-20
 
 Achado do dogfood real da v0.17.0 (Story 3.3 em `elegant-heisenberg`): a
