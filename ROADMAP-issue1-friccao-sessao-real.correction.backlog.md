@@ -279,6 +279,20 @@ objetivo do plugin (governança ≠ ergonomia de MSBuild .NET). A metade
 "detectar e sinalizar" é barata e sem risco; a metade "auto-kill" é arriscada
 (matar processo errado) e foi REJEITADA (ver abaixo).
 
+**Nota de escopo (adicionada após validação `/entebate`, 2026-07-20):** o
+issue #1 não pediu auto-kill puro — pediu "oferecer matar o processo
+especifico do projeto-alvo (...) **com confirmacao**". A rejeição abaixo
+argumenta contra matar sem supervisão humana, mas não registrava
+explicitamente por que a variante COM confirmação também ficou de fora desta
+v1. Motivo: confirmação síncrona no meio de um `verify_cmd` exigiria um canal
+de interação que o harness não tem hoje (o `verify_cmd` roda como subprocess
+não-interativo); a alternativa seria um subcomando dedicado
+(`harness verify --kill-lock <pid> --confirm`), custo desproporcional ao
+ganho residual — com a causa provável e o PID já sinalizados por este item, o
+humano mata o processo em 1 comando nativo (`taskkill`/`kill`) sem precisar
+mais caçar o PID manualmente, que era o custo real do sintoma relatado. Corte
+mantido como está; documentação do porquê é o que estava faltando.
+
 **Correção:** quando um `verify_cmd` sai com erro casando o padrão
 `MSB3027`/`MSB3021`/`EBUSY`/`Text File Busy`, emitir mensagem acionável
 apontando a causa provável (processo do próprio projeto-alvo rodando) e o PID
@@ -307,8 +321,13 @@ trivial existe; fazer só se sobrar orçamento).
 - **`git rev-parse --show-toplevel` por chamada do hook** (proposta original
   do item 7) — subprocess no hot path, contra o design de latência do módulo.
   Substituído pelo Item 6 (raiz fixa no state).
-- **Auto-kill de processo travando build** (metade do item 4 do issue) —
-  risco de matar processo errado > benefício; fora do núcleo de governança.
+- **Auto-kill de processo travando build, com ou sem confirmação** (metade
+  do item 4 do issue) — risco de matar processo errado > benefício mesmo com
+  confirmação (fora do núcleo de governança); a variante com confirmação
+  também exigiria canal de interação síncrona que o `verify_cmd` (subprocess
+  não-interativo) não tem, custo desproporcional ao ganho residual já que o
+  Item 7 elimina o custo real (caçar o PID manualmente) sem precisar matar
+  nada pelo harness (nota adicionada após validação `/entebate`, 2026-07-20).
 - **Histórico append-only de `feature_list.json`** (item 2 do issue) — valor
   marginal em uso single-user interno; não corta fricção do fluxo core como o
   Item 5.
@@ -317,3 +336,27 @@ trivial existe; fazer só se sobrar orçamento).
   (`elegant-heisenberg`), não trabalho neste plugin. Documentar na skill que
   qualquer escrita fora do Edit/Write (agora bloqueada pelos Itens 1-2)
   corrompia encoding no Windows.
+
+---
+
+## Validação — comitê MAR (`/entebate`, 2026-07-20)
+
+Este backlog foi submetido a validação adversarial independente (comitê
+Verificador/Cético/Lógico + Juiz, personas Fable, avaliação cega, 2
+tentativas — tentativa 1 nota 3/REESCREVER por contradição de contagem
+interna, tentativa 2 nota 4/APROVADO pós-1 rodada de debate). Trilha
+completa em `C:\Projetos\entebate\mar\etapa_validacao_plano\`. Veredito:
+
+- **Contagem real de resolução dos 7 pontos do issue #1:** 3/7 resolvidos
+  por código (pontos 1, 3, 7), 1/7 parcial (ponto 4 — Item 7 acima), 3/7
+  rejeitados com justificativa registrada (pontos 2, 5, 6). "Endereçado" ≠
+  "resolvido" — os 7 foram todos endereçados, mas resolvidos por código são
+  minoria estrita.
+- **Cirúrgico?** Sim. O matcher `"*"` (Item 1) foi confirmado como o corte
+  certo, não overengineering — um matcher enumerado reabriria fail-open para
+  qualquer tool de escrita futura/desconhecida, a mesma classe do bypass
+  original; `"*"` fecha a classe, o enumerado só fecharia instâncias
+  conhecidas. Única lacuna real era de documentação (Item 7, já corrigida
+  acima), não de escopo.
+- **Issues #2-#5:** fora de escopo deste backlog por desenho — posteriores à
+  implementação, backlog próprio separado.
