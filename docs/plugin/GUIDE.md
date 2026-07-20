@@ -7,13 +7,23 @@ Para o que o plugin é e como está estruturado, veja o [README](../../README.md
 
 ## 1. Instalar o plugin (uma vez, por máquina)
 
+### Opção A: Local (desenvolvimento)
+
 ```powershell
 cd C:\Projetos\Harness-creator
 pip install -e .
 claude --plugin-dir C:\Projetos\Harness-creator
 ```
 
-Isso abre uma sessão do Claude Code com as 5 skills disponíveis:
+### Opção B: GitHub (remoto)
+
+```bash
+pip install git+https://github.com/dseto/harness-creator
+python -c "from pathlib import Path; import harness; print(Path(harness.__file__).parent)"
+claude --plugin-dir <path-acima>
+```
+
+Ambas abrem uma sessão do Claude Code com as 5 skills disponíveis:
 `/harness-creator:init`, `/harness-creator:audit`, `/harness-creator:compile`,
 `/harness-creator:plan`, `/harness-creator:team`.
 

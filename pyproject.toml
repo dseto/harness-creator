@@ -8,6 +8,11 @@ dependencies = [
     "pyyaml>=6.0",
 ]
 
+[project.urls]
+repository = "https://github.com/dseto/harness-creator"
+documentation = "https://github.com/dseto/harness-creator/blob/main/README.md"
+issues = "https://github.com/dseto/harness-creator/issues"
+
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.4"]
 

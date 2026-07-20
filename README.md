@@ -43,6 +43,21 @@ terminal, sem flag). Para o plugin ficar disponível sem repetir o comando
 (inclusive no desktop), registre-o como marketplace local em
 `~/.claude/settings.json`: ver [GUIDE.md §10](docs/plugin/GUIDE.md#10-deixar-o-plugin-sempre-disponível-opcional).
 
+## Instalação (GitHub)
+
+```bash
+# Instalar do repositório
+pip install git+https://github.com/dseto/harness-creator
+
+# Localizar o path da instalação
+python -c "from pathlib import Path; import harness; print(Path(harness.__file__).parent)"
+
+# Abrir Claude Code com o plugin
+claude --plugin-dir <path-acima>
+```
+
+Ou registre em `~/.claude/settings.json` como marketplace local (path do `pip show harness-creator | grep Location`).
+
 ## Skills
 
 | Skill | Faz |
