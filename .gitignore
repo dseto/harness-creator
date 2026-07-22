@@ -1,7 +1,8 @@
 __pycache__/
 *.pyc
 .venv/
-.harness/
+.harness/*
+!.harness/harness.yaml
 *.egg-info/
 dist/
 .pytest_cache/

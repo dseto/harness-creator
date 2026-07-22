@@ -9,7 +9,7 @@
 - Linguagem: Python 3.11+, tipagem estrita.
 - Estrutura: `src/harness/` com uma camada operacional por pacote
   (`tools/`, `verification/`, `context/`, `governance/`, `telemetry/`, `routing/`).
-- Configuração vive em `config/harness.yaml` — nunca hard-code política em código.
+- Configuração vive em `.harness/harness.yaml` — nunca hard-code política em código.
 
 ## Regras Inegociáveis
 
@@ -38,3 +38,25 @@
 - Lint: `ruff check .` deve passar antes de concluir qualquer tarefa.
 - Erros de ferramenta são estruturados: leia `stderr` e `recovery_hints`
   antes de repetir um comando que falhou.
+
+<!-- harness:begin -->
+## Governança do Harness (gerado — edite .harness/harness.yaml e rode `harness compile`)
+
+Política de aprovação: **balanced**. Rede (WebFetch/WebSearch/curl)
+sempre exige aprovação humana.
+
+1. **TDD obrigatório**: escreva o teste falho antes da implementação. Suíte: `pytest -x --tb=short`. Arquivos de teste (`tests/**/*.py`) são protegidos — editá-los dispara aprovação humana (hook do harness).
+2. **Escopo mínimo**: modifique apenas arquivos diretamente ligados à
+   tarefa; refactors oportunistas exigem tarefa própria.
+3. **Sem segredos** em código, logs ou commits.
+4. **Orçamento (orientação)**: alvo de ~500,000 tokens
+   por tarefa e 120 tool calls. O Claude Code não
+   expõe contagem de tokens a hooks — este teto é disciplina, não enforcement;
+   se a tarefa estourar muito, pare e replaneje com o humano.
+5. **Artefatos temporários de verificação** (screenshots, dumps de rede,
+   HTML de debug, JSON de resposta de API): salve SEMPRE em
+   `.harness/scratch/` — única área liberada para arquivos que não pertencem
+   a nenhuma tarefa do contrato. A pasta é auto-ignorada pelo git e apagável
+   a qualquer momento; nunca referencie nada dela em código e nunca salve
+   esses artefatos na raiz do repositório.
+<!-- harness:end -->
