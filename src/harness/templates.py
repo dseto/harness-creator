@@ -173,3 +173,55 @@ def install_templates(
     written.append(init_ps1_path)
 
     return written
+
+
+# ---------------------------------------------------------------------------
+# update_progress_status (US-2 — sincronização automática)
+# ---------------------------------------------------------------------------
+
+def update_progress_status(target_dir: Path, feature_id: str, status: str) -> bool:
+    """Reescreve a coluna de status da linha de `feature_id` na tabela do
+    `claude-progress.md` de `target_dir` para `status`.
+
+    Elimina o passo manual 12 do lifecycle: em vez de o agente lembrar de
+    editar o markdown, o `run_verify` chama esta função ao provar a feature
+    (ver `harness.verify.run_verify`). Casa a fonte de verdade real
+    (`feature_list.json`/`passes`) com o rastro legível.
+
+    Só toca a linha de tabela cujo 1º campo (entre os pipes) é exatamente
+    `feature_id` — reescreve o 3º campo (status) preservando id e desc. Todo
+    o resto do arquivo (cabeçalho, seção "Última atualização", texto livre do
+    agente) fica intacto. Idempotente: reaplicar com o mesmo `status` não
+    muda nada.
+
+    NO-OP silencioso (retorna `False`, nunca levanta) quando o arquivo não
+    existe OU nenhuma linha casa `feature_id` — nunca cria o arquivo nem o
+    esqueleto (isso é responsabilidade de `install_templates`). Retorna
+    `True` se uma linha foi reescrita.
+    """
+    progress_path = target_dir / CLAUDE_PROGRESS_FILE
+    if not progress_path.is_file():
+        return False
+
+    lines = progress_path.read_text(encoding="utf-8").splitlines(keepends=True)
+    changed = False
+    for i, line in enumerate(lines):
+        # Linha de tabela: "| id | desc | status |" — split por "|" gera
+        # ['', ' id ', ' desc ', ' status ', ''] (5 campos). Só reescreve se
+        # o campo de id casar exatamente e houver a coluna de status.
+        parts = line.split("|")
+        if len(parts) != 5:
+            continue
+        if parts[1].strip() != feature_id:
+            continue
+        newline = f"| {parts[1].strip()} | {parts[2].strip()} | {status} |"
+        if line.endswith("\n"):
+            newline += "\n"
+        if newline != line:
+            lines[i] = newline
+            changed = True
+        break
+
+    if changed:
+        progress_path.write_text("".join(lines), encoding="utf-8")
+    return changed

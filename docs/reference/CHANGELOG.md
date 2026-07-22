@@ -1,5 +1,28 @@
 # Changelog
 
+## Não lançado
+
+Duas correções achadas durante o dogfood do próprio harness-creator
+(contrato `hook-reasons-progress-sync`).
+
+### Corrigido
+- **Razão concreta nos hooks TDD gerados.** `guard_test_runner.py` e
+  `guard_tests.py` (gerados por `compiler._render_guard_test_runner`/
+  `_render_guard_tests`) emitiam `permissionDecisionReason` com texto fixo,
+  igual em toda aprovação. Agora a razão do `guard_test_runner.py` cita o
+  comando Bash executado e a do `guard_tests.py` cita o path do arquivo de
+  teste — o humano aprova sabendo o que está em jogo.
+
+### Adicionado
+- **Sincronização automática do `claude-progress.md`.** Nova função
+  `templates.update_progress_status(target_dir, feature_id, status)`
+  (idempotente; no-op silencioso se o arquivo ou a linha não existirem),
+  chamada por `verify.run_verify` ao gravar evidência com sucesso: a linha
+  da feature na tabela do `claude-progress.md` passa a `done` sem o passo
+  manual 12 do lifecycle. A fonte de verdade (`feature_list.json`/`passes`)
+  e o rastro legível deixam de divergir. Só a coluna de status muda; a
+  seção "Última atualização" e o texto livre do agente ficam intactos.
+
 ## 0.17.6 — 2026-07-22
 
 Dogfood real nos repos `entebate`/`elegant-heisenberg`: o `boundary_guard`

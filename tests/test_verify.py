@@ -81,6 +81,45 @@ def test_run_verify_success_writes_evidence_with_correct_schema(tmp_path: Path) 
     assert set(data.keys()) == {"feature_id", "verify_cmd", "recorded_at", "exit_code", "files_hash"}
 
 
+def test_run_verify_success_syncs_claude_progress_row_to_done(tmp_path: Path) -> None:
+    """US-2: run_verify verde reescreve a linha da feature no claude-progress.md
+    para 'done' — sem passo manual."""
+    _write(tmp_path / "src" / "x.py", "print('hi')\n")
+    _write_feature_list(
+        tmp_path,
+        [{"id": "T-01", "desc": "Criar x", "files": ["src/x.py"],
+          "verify_cmd": _true_cmd(), "depends": [], "passes": False}],
+    )
+    _write(
+        tmp_path / "claude-progress.md",
+        "# Claude Progress\n\n## Features\n\n"
+        "| id | desc | status |\n| --- | --- | --- |\n"
+        "| T-01 | Criar x | pending |\n\n## Última atualização\n\n_(vazio)_\n",
+    )
+
+    run_verify(tmp_path, "T-01")
+
+    progress = (tmp_path / "claude-progress.md").read_text(encoding="utf-8")
+    row = next(ln for ln in progress.splitlines() if ln.startswith("| T-01 "))
+    assert row.split("|")[3].strip() == "done", progress
+
+
+def test_run_verify_success_without_progress_file_does_not_raise(tmp_path: Path) -> None:
+    """US-2: ausência do claude-progress.md nunca faz run_verify falhar —
+    evidência continua gravada."""
+    _write(tmp_path / "src" / "x.py", "print('hi')\n")
+    _write_feature_list(
+        tmp_path,
+        [{"id": "T-01", "desc": "Criar x", "files": ["src/x.py"],
+          "verify_cmd": _true_cmd(), "depends": [], "passes": False}],
+    )
+
+    evidence_path = run_verify(tmp_path, "T-01")
+
+    assert evidence_path.is_file()
+    assert not (tmp_path / "claude-progress.md").exists()
+
+
 def test_run_verify_failure_does_not_write_evidence_and_propagates_exit_code(tmp_path: Path) -> None:
     _write_feature_list(
         tmp_path,

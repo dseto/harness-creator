@@ -161,8 +161,8 @@ def main() -> None:
 
     if TEST_PATTERN.match(path):
         decision, reason = "ask", (
-            "Arquivo de teste protegido pelo harness (edit_test): "
-            "edição exige aprovação humana explícita."
+            "Arquivo de teste protegido pelo harness (edit_test): `" + path
+            + "` casa test_glob — edição exige aprovação humana explícita."
         )
     else:
         decision, reason = "allow", "não é arquivo de teste"
@@ -216,8 +216,9 @@ def main() -> None:
     hit = _has_runner_sequence(tokens)
     if hit:
         decision, reason = "ask", (
-            "Comando roda a suíte de teste — disciplina TDD do harness pede "
-            "confirmação humana (escreva o teste falho antes da implementação)."
+            "Comando roda a suíte de teste (`" + command + "`) — disciplina "
+            "TDD do harness pede confirmação humana (escreva o teste falho "
+            "antes da implementação)."
         )
     else:
         decision, reason = "allow", "comando não colide com o test runner"

@@ -53,6 +53,7 @@ from typing import Any, TextIO
 
 from harness.boundary_guard import is_floor_bash_command
 from harness.contract import FEATURE_LIST_FILE
+from harness.templates import update_progress_status
 
 EVIDENCE_DIR = ".harness/evidence"
 _VERIFY_TIMEOUT_SECONDS = 600
@@ -337,6 +338,11 @@ def run_verify(
     `verify_cmd` sair com código != 0 — NADA é gravado em disco nesse caso.
     Retorna o Path do arquivo de evidência gravado em caso de sucesso.
 
+    Efeito aditivo (US-2): em caso de sucesso, além de gravar a evidência,
+    sincroniza a linha da feature no `claude-progress.md` para `done` via
+    `templates.update_progress_status` — no-op silencioso se o arquivo não
+    existir, então nunca faz a verificação falhar por causa disso.
+
     `timeout_seconds` (CLI `--timeout`): o default de 600s matava
     verify_cmds legítimos encadeados (~1100s no dogfood do issue 4) — agora
     configurável por chamada, sem mudar o default. `stream` (CLI
@@ -392,6 +398,12 @@ def run_verify(
     evidence_path.write_text(
         json.dumps(evidence, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
+
+    # US-2: sincroniza o rastro legível com a prova recém-gravada — elimina o
+    # passo manual 12 do lifecycle. No-op silencioso se claude-progress.md não
+    # existir (nunca faz run_verify falhar por causa disso).
+    update_progress_status(target_dir, feature_id, "done")
+
     return evidence_path
 
 

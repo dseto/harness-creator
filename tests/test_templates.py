@@ -12,6 +12,7 @@ from harness.templates import (
     install_templates,
     render_init_scripts,
     render_progress_template,
+    update_progress_status,
 )
 
 
@@ -59,6 +60,66 @@ def test_render_progress_template_empty_features() -> None:
     content = render_progress_template({"contract": "vazio", "features": []})
 
     assert "Nenhuma feature" in content
+
+
+# ---------------------------------------------------------------------------
+# update_progress_status (US-2)
+# ---------------------------------------------------------------------------
+
+def test_update_progress_status_flips_matching_row_to_done(tmp_path: Path) -> None:
+    (tmp_path / CLAUDE_PROGRESS_FILE).write_text(
+        render_progress_template(_FEATURE_LIST), encoding="utf-8"
+    )
+
+    update_progress_status(tmp_path, "T-02", "done")
+
+    content = (tmp_path / CLAUDE_PROGRESS_FILE).read_text(encoding="utf-8")
+    lines = [ln for ln in content.splitlines() if ln.startswith("| T-")]
+    row_by_id = {ln.split("|")[1].strip(): ln for ln in lines}
+    assert row_by_id["T-02"].split("|")[3].strip() == "done"
+    # a outra feature permanece intacta
+    assert row_by_id["T-01"].split("|")[3].strip() == "pending"
+
+
+def test_update_progress_status_is_idempotent(tmp_path: Path) -> None:
+    (tmp_path / CLAUDE_PROGRESS_FILE).write_text(
+        render_progress_template(_FEATURE_LIST), encoding="utf-8"
+    )
+
+    update_progress_status(tmp_path, "T-01", "done")
+    once = (tmp_path / CLAUDE_PROGRESS_FILE).read_text(encoding="utf-8")
+    update_progress_status(tmp_path, "T-01", "done")
+    twice = (tmp_path / CLAUDE_PROGRESS_FILE).read_text(encoding="utf-8")
+
+    assert once == twice
+    assert once.count("done") == 1
+
+
+def test_update_progress_status_noop_when_file_absent(tmp_path: Path) -> None:
+    # não levanta e não cria o arquivo
+    update_progress_status(tmp_path, "T-01", "done")
+    assert not (tmp_path / CLAUDE_PROGRESS_FILE).exists()
+
+
+def test_update_progress_status_noop_when_id_absent(tmp_path: Path) -> None:
+    original = render_progress_template(_FEATURE_LIST)
+    (tmp_path / CLAUDE_PROGRESS_FILE).write_text(original, encoding="utf-8")
+
+    update_progress_status(tmp_path, "T-99", "done")
+
+    assert (tmp_path / CLAUDE_PROGRESS_FILE).read_text(encoding="utf-8") == original
+
+
+def test_update_progress_status_preserves_ultima_atualizacao_section(tmp_path: Path) -> None:
+    content = render_progress_template(_FEATURE_LIST)
+    content += "\nNota livre do agente: quebrou X, ver Y.\n"
+    (tmp_path / CLAUDE_PROGRESS_FILE).write_text(content, encoding="utf-8")
+
+    update_progress_status(tmp_path, "T-01", "done")
+
+    after = (tmp_path / CLAUDE_PROGRESS_FILE).read_text(encoding="utf-8")
+    assert "## Última atualização" in after
+    assert "Nota livre do agente: quebrou X, ver Y." in after
 
 
 # ---------------------------------------------------------------------------

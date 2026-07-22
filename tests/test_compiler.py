@@ -237,3 +237,30 @@ def test_guard_test_runner_strips_flags_from_test_command(tmp_path: Path) -> Non
 
     out = _run_hook(script, {"tool_name": "Bash", "tool_input": {"command": "pytest"}})
     assert out["permissionDecision"] == "ask"
+
+
+def test_guard_test_runner_reason_names_the_command(tmp_path: Path) -> None:
+    """US-1: a razão do prompt cita o comando real, não texto genérico fixo —
+    humano aprova sabendo o que roda."""
+    _write_yaml(tmp_path, BASIC_YAML)
+    compile_project(tmp_path)
+    script = tmp_path / ".harness" / "hooks" / "guard_test_runner.py"
+
+    cmd = "pytest tests/test_verify.py -q"
+    out = _run_hook(script, {"tool_name": "Bash", "tool_input": {"command": cmd}})
+    assert out["permissionDecision"] == "ask"
+    assert cmd in out["permissionDecisionReason"], out["permissionDecisionReason"]
+
+
+def test_guard_tests_reason_names_the_file_path(tmp_path: Path) -> None:
+    """US-1: a razão do prompt cita o path do arquivo de teste editado."""
+    _write_yaml(tmp_path, BASIC_YAML)
+    compile_project(tmp_path)
+    script = tmp_path / ".harness" / "hooks" / "guard_tests.py"
+
+    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
+                             "tool_input": {"file_path": "tests/test_widget.py"}})
+    assert out["permissionDecision"] == "ask"
+    assert "tests/test_widget.py" in out["permissionDecisionReason"], (
+        out["permissionDecisionReason"]
+    )

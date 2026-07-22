@@ -1,19 +1,19 @@
 # Claude Progress
 
-Contrato: `extra-allowed-commands`
+Contrato: `hook-reasons-progress-sync`
 
 ## Features
 
 | id | desc | status |
 | --- | --- | --- |
-| T-01 | Schema: `GovernanceConfig.extra_allowed_commands` | done |
-| T-02 | `boundary_guard.py`: loader + parametrização do hook gerado + wiring em `_evaluate_bash`/`_evaluate_powershell` | done |
-| T-03 | `session_permissions.py`: wiring de `extra_allowed_commands` na enumeração de `.claude/settings.json` | done |
-| T-04 | Docs e versão 0.17.6 — gate de regressão total | done |
-| T-05 | E2E real (gate final da demanda): dogfood do cenário `entebate`, evidência commitada | done |
+| T-01 | US-1 — razão concreta nos hooks TDD gerados (guard_test_runner + guard_tests) | done |
+| T-02 | US-2 — templates.update_progress_status: reescreve a coluna de status de uma linha | done |
+| T-03 | US-2 — wiring: run_verify sincroniza o claude-progress.md ao provar a feature | done |
+| T-04 | Regressão total + nota no CHANGELOG | done |
 
 ## Última atualização
 
-Contrato `extra-allowed-commands` concluído — T-01..T-05 verificados (evidência em
-`.harness/evidence/T-0{1..5}.json`, `exit_code: 0` cada) e integrado em
-`ddc37f6` (feat: governance.extra_allowed_commands no harness.yaml, v0.17.6).
+Contrato `hook-reasons-progress-sync` concluído — T-01..T-04 verificados
+(evidência em `.harness/evidence/`, `exit_code: 0` cada), regressão total
+verde (`pytest tests -q`) e `ruff check .` limpo. US-2 se auto-provou: o
+`harness verify T-03` sincronizou a própria linha para `done`.
