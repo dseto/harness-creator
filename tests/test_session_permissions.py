@@ -321,3 +321,58 @@ def test_compile_creates_claude_dir_if_missing(tmp_path: Path) -> None:
     assert settings_path.is_file()
     settings = json.loads(settings_path.read_text(encoding="utf-8"))
     assert "Bash(ruff check .)" in settings["permissions"]["allow"]
+
+
+# ---------------- governance.extra_allowed_commands (harness.yaml) ----------------
+
+def _write_harness_yaml(target: Path, extra_allowed_commands: list[str]) -> None:
+    path = target / ".harness" / "harness.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["governance:", "  extra_allowed_commands:"]
+    lines.extend(f'    - "{cmd}"' for cmd in extra_allowed_commands)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_render_session_permissions_adds_extra_allowed_command() -> None:
+    rules = render_session_permissions(
+        FEATURE_LIST, None, extra_allowed_commands=["python -m mar_committee"]
+    )
+    assert "Bash(python -m mar_committee*)" in rules["allow"]
+
+
+def test_render_session_permissions_extra_allowed_commands_none_does_not_break() -> None:
+    rules = render_session_permissions(FEATURE_LIST, None, extra_allowed_commands=None)
+    assert isinstance(rules["allow"], list)
+
+
+def test_render_session_permissions_filters_floor_from_extra_allowed_commands() -> None:
+    """`extra_allowed_commands` declarando uma sequência do runtime floor
+    (`git push`) não pode vazar no `allow` — mesmo filtro que já protege
+    verify_cmd/files[]."""
+    rules = render_session_permissions(
+        FEATURE_LIST, None, extra_allowed_commands=["git push", "curl"]
+    )
+    allow_text = json.dumps(rules["allow"])
+    assert "git push" not in allow_text
+    assert "curl" not in allow_text
+
+
+def test_compile_session_permissions_reads_extra_allowed_commands_from_harness_yaml(
+    tmp_path: Path,
+) -> None:
+    _write_feature_list(tmp_path, FEATURE_LIST)
+    _write_harness_yaml(tmp_path, ["python -m mar_committee"])
+
+    settings_path = compile_session_permissions(tmp_path)
+
+    settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    assert "Bash(python -m mar_committee*)" in settings["permissions"]["allow"]
+
+
+def test_compile_session_permissions_without_harness_yaml_is_not_an_error(
+    tmp_path: Path,
+) -> None:
+    _write_feature_list(tmp_path, FEATURE_LIST)
+    settings_path = compile_session_permissions(tmp_path)
+    settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    assert "Bash(git status)" in settings["permissions"]["allow"]

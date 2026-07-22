@@ -400,8 +400,11 @@ Isso pega o contrato aprovado e compila a **sessão autônoma**:
 
 - **Permissions enumeradas** — `allow` para exatamente: `Edit`/`Write` nos
   `files[]` das tarefas (`backend/main.py`, `tests/test_leaderboard.py`),
-  os `verify_cmd`, lint/build do profile, e git local do ritual
-  (`status/log/diff/add/commit`). Nada genérico, nada de wildcard.
+  os `verify_cmd`, lint/build do profile, git local do ritual
+  (`status/log/diff/add/commit`), e qualquer comando declarado à mão em
+  `governance.extra_allowed_commands` do `.harness/harness.yaml` — opcional,
+  para comandos permanentes fora do ciclo de teste (ex.: o CLI do próprio
+  produto do repo). Nada genérico, nada de wildcard.
 - **`boundary_guard.py`** — um único hook PreToolUse que cobre Edit/Write/
   Bash. Decide `allow`/`deny` a partir da superfície do contrato ativo:
   - arquivo fora dos `files[]` da tarefa ativa → `deny` com a razão;

@@ -2192,3 +2192,95 @@ def test_find_session_state_path_returns_none_when_absent(tmp_path: Path) -> Non
     from harness.boundary_guard import _find_session_state_path
 
     assert _find_session_state_path(tmp_path) is None
+
+
+# ---------------- governance.extra_allowed_commands (harness.yaml) ----------------
+
+def _write_harness_yaml(target: Path, extra_allowed_commands: list[str]) -> None:
+    path = target / ".harness" / "harness.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["governance:", "  extra_allowed_commands:"]
+    lines.extend(f'    - "{cmd}"' for cmd in extra_allowed_commands)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_load_extra_allowed_commands_reads_harness_yaml(tmp_path: Path) -> None:
+    from harness.boundary_guard import load_extra_allowed_commands
+
+    _write_harness_yaml(tmp_path, ["python -m mar_committee"])
+    assert load_extra_allowed_commands(tmp_path) == ["python -m mar_committee"]
+
+
+def test_load_extra_allowed_commands_missing_yaml_returns_empty(tmp_path: Path) -> None:
+    from harness.boundary_guard import load_extra_allowed_commands
+
+    assert load_extra_allowed_commands(tmp_path) == []
+
+
+def test_load_extra_allowed_commands_invalid_yaml_returns_empty(tmp_path: Path) -> None:
+    from harness.boundary_guard import load_extra_allowed_commands
+
+    path = tmp_path / ".harness" / "harness.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("governance: [isto nao fecha", encoding="utf-8")
+    assert load_extra_allowed_commands(tmp_path) == []
+
+
+def test_extra_allowed_command_allows_bash_declared_prefix(tmp_path: Path) -> None:
+    """CLI do produto declarado em `extra_allowed_commands` fica liberado
+    mesmo sem `verify_cmd` cobrindo — cenário real do dogfood entebate."""
+    _contract_with_verify(tmp_path)
+    _write_harness_yaml(tmp_path, ["python -m mar_committee"])
+    script = _script(tmp_path)
+
+    for cmd in ("python -m mar_committee --help", "python -m mar_committee config-show"):
+        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                  "tool_input": {"command": cmd}})
+        assert out["permissionDecision"] == "allow", (cmd, out)
+
+
+def test_extra_allowed_command_requires_exact_token_prefix(tmp_path: Path) -> None:
+    """`mar_committee` sozinho (sem `python -m` na frente) não casa o
+    prefixo declarado — match é de tokens, não substring solta."""
+    _contract_with_verify(tmp_path)
+    _write_harness_yaml(tmp_path, ["python -m mar_committee"])
+    script = _script(tmp_path)
+
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "mar_committee --help"}})
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_extra_allowed_command_never_overrides_runtime_floor(tmp_path: Path) -> None:
+    """Declarar uma sequência do runtime floor em `extra_allowed_commands`
+    não a libera — o floor roda incondicionalmente antes de qualquer
+    checagem de superfície."""
+    _contract_with_verify(tmp_path)
+    _write_harness_yaml(tmp_path, ["git push"])
+    script = _script(tmp_path)
+
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "git push origin main"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "runtime floor" in out["permissionDecisionReason"], out
+
+
+def test_extra_allowed_command_applies_to_powershell_too(tmp_path: Path) -> None:
+    _contract_with_verify(tmp_path)
+    _write_harness_yaml(tmp_path, ["python -m mar_committee"])
+    script = _script(tmp_path)
+
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": "python -m mar_committee config-show"}})
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_no_harness_yaml_keeps_current_behavior(tmp_path: Path) -> None:
+    """Sem `.harness/harness.yaml` no alvo, o hook gerado se comporta
+    exatamente como antes desta feature — sem crash, sem allow extra."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "python -m mar_committee --help"}})
+    assert out["permissionDecision"] == "deny", out

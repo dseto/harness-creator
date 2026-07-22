@@ -69,7 +69,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-from harness.boundary_guard import is_floor_bash_command, is_floor_secret_path
+from harness.boundary_guard import (
+    is_floor_bash_command,
+    is_floor_secret_path,
+    load_extra_allowed_commands,
+)
 
 FEATURE_LIST_FILE = ".harness/feature_list.json"
 REPO_PROFILE_FILE = ".harness/repo-profile.json"
@@ -127,6 +131,11 @@ def _passes_runtime_floor_filter(entry: str) -> bool:
     """
     if entry.startswith("Bash(") and entry.endswith(")"):
         command = entry[len("Bash("):-1]
+        # Regras prefixadas (git local, harness CLI, extra_allowed_commands)
+        # terminam em "*" — strip antes de checar o floor, senão a tokenização
+        # de is_floor_bash_command vê "push*" != "push" e o floor não casa.
+        if command.endswith("*"):
+            command = command[:-1]
         return not is_floor_bash_command(command)
     if (entry.startswith("Edit(") or entry.startswith("Write(")) and entry.endswith(")"):
         path = entry[entry.index("(") + 1:-1]
@@ -139,7 +148,9 @@ def _passes_runtime_floor_filter(entry: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def render_session_permissions(
-    feature_list: dict[str, Any], profile: dict[str, Any] | None
+    feature_list: dict[str, Any],
+    profile: dict[str, Any] | None,
+    extra_allowed_commands: list[str] | None = None,
 ) -> dict[str, list[str]]:
     """Deriva `{"allow": [...]}` do contrato compilado e do repo-profile.
 
@@ -147,6 +158,12 @@ def render_session_permissions(
     (formato de `contract.py`: `{"features": [{"files", "verify_cmd", ...}]}`).
     `profile` é o dict de `.harness/repo-profile.json` (formato de
     `analyzer.py`) ou `None` quando o profile ainda não foi gerado.
+    `extra_allowed_commands` é `governance.extra_allowed_commands` de
+    `.harness/harness.yaml` (via `load_extra_allowed_commands`) — cada
+    entrada vira `Bash(<comando>*)`, mesmo estilo prefixado de
+    `_HARNESS_CLI_ALLOW`/`_GIT_LOCAL_ALLOW`, sujeito ao MESMO
+    `_passes_runtime_floor_filter` abaixo (uma entrada de floor declarada
+    aqui nunca aparece no `allow` compilado).
     """
     files: list[str] = []
     seen_files: set[str] = set()
@@ -193,6 +210,9 @@ def render_session_permissions(
         if install_cmd:
             allow.append(f"Bash({install_cmd})")
 
+    for cmd in extra_allowed_commands or []:
+        allow.append(f"Bash({cmd}*)")
+
     allow.extend(_GIT_LOCAL_ALLOW)
     allow.extend(_HARNESS_CLI_ALLOW)
 
@@ -233,7 +253,8 @@ def compile_session_permissions(target_dir: Path) -> Path:
     profile_path = target_dir / REPO_PROFILE_FILE
     profile = _load_json(profile_path) if profile_path.is_file() else None
 
-    rules = render_session_permissions(feature_list, profile)
+    extra_allowed_commands = load_extra_allowed_commands(target_dir)
+    rules = render_session_permissions(feature_list, profile, extra_allowed_commands)
     new_allow = rules.get("allow", [])
 
     state_path = target_dir / SESSION_STATE_FILE

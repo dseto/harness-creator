@@ -159,7 +159,10 @@ Isso compila a **Fase 2** do roadmap (Execução Autônoma no Raio de Impacto):
   (nunca genérico) para exatamente a superfície que o contrato aprovado usa:
   `Edit`/`Write` nos `files[]` das tarefas, os `verify_cmd` e comandos de
   lint/build do profile, instalação de dependência do `package_manager`
-  detectado, e git local do ritual (`status/log/diff/add/commit`).
+  detectado, git local do ritual (`status/log/diff/add/commit`), e qualquer
+  comando declarado em `governance.extra_allowed_commands` do
+  `.harness/harness.yaml` (opcional — comandos permanentes que o dono do
+  repo libera, ex.: o CLI do próprio produto).
 - **`boundary_guard.py`** — hook `PreToolUse` único que substitui (e remove,
   quando presente) o hook antigo `guard_tests.py`: cobre Edit/Write/Bash numa
   só passada em vez de N guards por ação, decidindo `allow`/`deny` a partir

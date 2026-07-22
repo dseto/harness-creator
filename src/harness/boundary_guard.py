@@ -292,6 +292,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import yaml
+from pydantic import ValidationError
+
+from harness.config import HarnessConfig
 from harness.review import ReviewError, is_test_diff, load_review
 
 HOOKS_DIR = ".harness/hooks"
@@ -1055,10 +1059,50 @@ def evaluate_feature_list_edit(
 
 
 # ---------------------------------------------------------------------------
+# governance.extra_allowed_commands (Python real, IMPORTÁVEL) — comandos
+# permanentes que o dono do repo declara em `.harness/harness.yaml` além do
+# que já deriva de verify_cmd/lint/build/install/git local. Diferente das
+# peças acima, este bloco PRECISA importar `yaml`/`harness.config` — só é
+# seguro porque roda em código REAL do pacote (aqui e em
+# `install_boundary_guard`), nunca embutido no script standalone gerado
+# (que continua stdlib-only). O valor lido vira uma constante Python
+# literal (`EXTRA_ALLOWED_COMMANDS`) baked no script por `render_boundary_guard`
+# — mesmo padrão de `FIXED_GIT_SEQUENCES`/`FIXED_HARNESS_SEQUENCES` — em vez
+# de o hook reler o YAML em runtime.
+# ---------------------------------------------------------------------------
+HARNESS_YAML_RELATIVE_PATH = ".harness/harness.yaml"
+
+
+def load_extra_allowed_commands(target_dir: Path) -> list[str]:
+    """Lê `governance.extra_allowed_commands` de `target_dir/.harness/harness.yaml`.
+
+    Non-fatal por design (mesma postura de degradação graciosa de
+    `.harness/repo-profile.json` ausente): arquivo ausente, YAML inválido,
+    raiz do YAML não sendo um mapeamento, ou schema divergente
+    (`ValidationError`) devolvem `[]` — nunca lança, nunca quebra
+    `install_boundary_guard`/`compile_session_permissions` em repos sem o
+    arquivo ou com um `harness.yaml` malformado."""
+    yaml_path = Path(target_dir) / HARNESS_YAML_RELATIVE_PATH
+    if not yaml_path.is_file():
+        return []
+    try:
+        raw = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+    except yaml.YAMLError:
+        return []
+    if not isinstance(raw, dict):
+        return []
+    try:
+        config = HarnessConfig.model_validate(raw)
+    except ValidationError:
+        return []
+    return list(config.governance.extra_allowed_commands)
+
+
+# ---------------------------------------------------------------------------
 # Render (puro) — devolve o CÓDIGO-FONTE do hook standalone
 # ---------------------------------------------------------------------------
 
-def render_boundary_guard() -> str:
+def render_boundary_guard(extra_allowed_commands: list[str] | None = None) -> str:
     """Devolve o código-fonte (string) do hook `PreToolUse` standalone.
 
     O script gerado lê o payload JSON do stdin e decide `allow`/`deny` para
@@ -1170,7 +1214,7 @@ from pathlib import Path
 # --- GERADO a partir de harness.boundary_guard (inspect.getsource) ---
 '''
 
-    middle = '''
+    middle = ('''
 # --- fim da faixa gerada ---
 
 # --- comandos git locais sempre liberados quando há contrato ativo ---
@@ -1202,7 +1246,12 @@ FIXED_HARNESS_SEQUENCES = (
     [["harness", sub] for sub in _HARNESS_SUBCOMMANDS]
     + [["python", "-m", "harness.cli", sub] for sub in _HARNESS_SUBCOMMANDS]
 )
-
+''' + f"""
+# --- comandos extras declarados em governance.extra_allowed_commands
+# (.harness/harness.yaml) — bakeado no momento da instalacao, mesmo padrao
+# de FIXED_GIT_SEQUENCES/FIXED_HARNESS_SEQUENCES acima ---
+EXTRA_ALLOWED_COMMANDS = {list(extra_allowed_commands or [])!r}
+""" + '''
 FEATURE_LIST_PATH = ".harness/feature_list.json"
 PROFILE_PATH = ".harness/repo-profile.json"
 EVIDENCE_DIR_NAME = ".harness/evidence"
@@ -1658,6 +1707,7 @@ def _evaluate_bash(command, cwd):
     allowed_sequences = (
         FIXED_GIT_SEQUENCES + FIXED_HARNESS_SEQUENCES
         + [_tokenize_command(c) for c in allowed_commands]
+        + [_tokenize_command(c) for c in EXTRA_ALLOWED_COMMANDS]
     )
 
     # Allow assimetrico ao floor: o floor casa 'aparece em qualquer janela'
@@ -1778,6 +1828,7 @@ def _evaluate_powershell(command, cwd):
     allowed_sequences = (
         FIXED_GIT_SEQUENCES + FIXED_HARNESS_SEQUENCES
         + [_tokenize_command(c) for c in allowed_commands]
+        + [_tokenize_command(c) for c in EXTRA_ALLOWED_COMMANDS]
     )
 
     segments = _split_shell_segments(command)
@@ -1936,7 +1987,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-'''
+''')
 
     return header + shared_block + middle
 
@@ -1990,7 +2041,8 @@ def install_boundary_guard(target_dir: Path) -> Path:
     hooks_dir = target_dir / HOOKS_DIR
     hooks_dir.mkdir(parents=True, exist_ok=True)
     script_path = hooks_dir / BOUNDARY_HOOK_FILENAME
-    script_path.write_text(render_boundary_guard(), encoding="utf-8")
+    extra_allowed_commands = load_extra_allowed_commands(target_dir)
+    script_path.write_text(render_boundary_guard(extra_allowed_commands), encoding="utf-8")
 
     # Garantia 4 (superfície de scratch): cria .harness/scratch/ com
     # .gitignore auto-contido (`*` + `!.gitignore`) — a pasta se ignora

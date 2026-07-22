@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.17.6 — 2026-07-22
+
+Dogfood real nos repos `entebate`/`elegant-heisenberg`: o `boundary_guard`
+bloqueava permanentemente o CLI do próprio produto do repo (ex.:
+`python -m mar_committee`), mesmo com contrato `passes:true` — nenhum
+`verify_cmd` cobre um comando fora do ciclo de teste, e o único workaround
+(compilar um contrato ad-hoc cujos `verify_cmd` SÃO os subcomandos do CLI)
+morre a cada recompile e exige plan+aprovação toda vez.
+
+### Adicionado
+- **`governance.extra_allowed_commands`** em `.harness/harness.yaml`: lista
+  de comandos permanentes que o dono do repo declara, além do que já deriva
+  de `verify_cmd`/lint/build/install/git local. Mesma semântica de PREFIXO
+  de tokens que `verify_cmd` já tem hoje — sem DSL nova. Vale nas DUAS
+  superfícies que já derivam de `verify_cmd`: o `boundary_guard.py`
+  (runtime, `_evaluate_bash`/`_evaluate_powershell`) e a enumeração de
+  `.claude/settings.json` (`session_permissions.py`, `Bash(<comando>*)`).
+  O runtime floor (`git push`, rede não planejada, escrita em segredo)
+  continua veto incondicional — uma entrada de floor declarada aqui nunca
+  vira `allow`, em nenhuma das duas camadas. Requer `harness compile-session`
+  para o hook instalado refletir uma mudança em `harness.yaml` (mesmo baked
+  em código gerado que `FIXED_GIT_SEQUENCES`/`FIXED_HARNESS_SEQUENCES` já
+  usavam).
+
 ## 0.17.5 — 2026-07-22
 
 Itens 3 e 4 da análise dos issues do dogfood aegis_rpa_suite, nas versões

@@ -23,6 +23,10 @@ class BudgetConfig(BaseModel):
 class GovernanceConfig(BaseModel):
     approval_policy: ApprovalMode = "balanced"
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
+    # Comandos permanentes que o dono do repo libera no boundary_guard além
+    # do que já deriva de verify_cmd/lint/build/install/git local — mesma
+    # semântica de PREFIXO de tokens que verify_cmd já tem.
+    extra_allowed_commands: list[str] = Field(default_factory=list)
 
 
 class VerificationConfig(BaseModel):
