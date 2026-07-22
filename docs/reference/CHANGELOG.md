@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.17.3 — 2026-07-22
+
+Superfície de scratch (`.harness/scratch/**`) — achado de sessão real de
+dogfood em `elegant-heisenberg`: durante a verificação manual de UI (Passo 8
+do plan SKILL.md), artefatos temporários (screenshots PNG, HTML de debug,
+dumps de rede) não pertencem a `files[]` de nenhuma tarefa e não tinham
+superfície gravável — o agente salvava na raiz do repo-alvo, poluindo
+`git status` (6 PNGs ficaram untracked até remoção manual).
+
+### Adicionado
+- Garantia 4 do `boundary_guard`: `.harness/scratch/**` sempre gravável
+  (mesmo padrão de `.harness/work/**`/`docs/**`; floor de segredo continua
+  precedendo — `.harness/scratch/credentials.json` segue deny). Vale para
+  Edit/Write/MultiEdit/NotebookEdit e para alvo de escrita PowerShell
+  (roteado por `_evaluate_file`).
+- `install_boundary_guard` cria `.harness/scratch/.gitignore` auto-contido
+  (`*` + `!.gitignore`) — git status limpo sem tocar no `.gitignore` da
+  raiz do usuário; não sobrescreve `.gitignore` customizado.
+- Deny message genérica de superfície agora ensina o destino correto:
+  "artefato temporário de verificação? salve em `.harness/scratch/`".
+
+### Corrigido
+- **Traversal na superfície de work** (furo pré-existente): o check de
+  `.harness/work/**` usava `startswith` sobre o path bruto —
+  `.harness/work/../../AGENTS.md` virava allow. Agora
+  `_is_work_surface_path`/`_is_scratch_surface_path` normalizam com
+  `posixpath.normpath` antes do prefixo (mesmo padrão de
+  `_is_docs_surface_path`), importáveis e embutidas no script gerado via
+  `inspect.getsource`.
+
+### Documentado
+- Bullet 5 no bloco gerenciado do AGENTS.md gerado
+  (`compiler._render_agents_block`) e Passo 8 item 3 do
+  `skills/plan/SKILL.md`: artefatos temporários vão SEMPRE para
+  `.harness/scratch/`, nunca para a raiz — necessário porque tools MCP de
+  screenshot caem no branch de tool desconhecida (allow-logado) e o
+  enforcement sozinho não as redireciona.
+
 ## 0.17.2 — 2026-07-20
 
 4 itens do backlog de fricção dos issues #2-#5 (dogfood real da v0.17.0/

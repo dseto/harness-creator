@@ -1556,6 +1556,120 @@ def test_is_docs_surface_path_importable() -> None:
     assert _is_docs_surface_path("docs/../CLAUDE.md") is False
 
 
+# ---------------- superfície de scratch (.harness/scratch/**) ----------------
+
+
+def test_write_scratch_allows_with_active_contract(tmp_path: Path) -> None:
+    """Artefato temporário de verificação (screenshot, dump) nunca está em
+    files[] de nenhuma tarefa — .harness/scratch/** deve ser sempre gravável,
+    senão o agente acaba salvando na raiz do repo-alvo."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    for rel in (".harness/scratch/login-page.png",
+                ".harness/scratch/ui-check/dump-rede.json"):
+        out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                                  "tool_input": {"file_path": rel, "content": "x"}})
+        assert out["permissionDecision"] == "allow", (rel, out)
+
+
+def test_write_scratch_allows_even_without_contract(tmp_path: Path) -> None:
+    """Análoga a WORK_DIR_PREFIX/docs/**: scratch é incondicional, com ou sem
+    contrato ativo."""
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                              "tool_input": {"file_path": ".harness/scratch/debug.html",
+                                             "content": "x"}})
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_secret_inside_scratch_still_denies(tmp_path: Path) -> None:
+    """Floor de segredo precede a exceção de scratch — mesmo padrão de
+    test_secret_inside_work_dir_still_denies."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    for rel in (".harness/scratch/.env", ".harness/scratch/credentials.json"):
+        out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                                  "tool_input": {"file_path": rel, "content": "k=v"}})
+        assert out["permissionDecision"] == "deny", (rel, out)
+        assert "runtime floor" in out["permissionDecisionReason"]
+
+
+def test_powershell_write_to_scratch_allows(tmp_path: Path) -> None:
+    """PowerShell roteia alvo de escrita por _evaluate_file — scratch vale
+    também para Set-Content/Out-File, não só Edit/Write."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command":
+                                             "Set-Content -Path .harness/scratch/api-dump.json -Value x"}})
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_deny_outside_surface_mentions_scratch(tmp_path: Path) -> None:
+    """A deny message genérica de superfície deve ENSINAR o destino correto de
+    artefato temporário — é o que corrige o comportamento do agente em sessão,
+    sem depender de ele ter lido AGENTS.md."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                              "tool_input": {"file_path": "screenshot-login.png",
+                                             "content": "x"}})
+    assert out["permissionDecision"] == "deny", out
+    assert ".harness/scratch/" in out["permissionDecisionReason"]
+
+
+def test_install_creates_self_ignoring_scratch_gitignore(tmp_path: Path) -> None:
+    """install_boundary_guard cria .harness/scratch/.gitignore auto-contido
+    (`*` + `!.gitignore`) — git status limpo sem tocar no .gitignore da raiz
+    do usuário. Não sobrescreve um .gitignore customizado já existente."""
+    install_boundary_guard(tmp_path)
+    gitignore = tmp_path / ".harness" / "scratch" / ".gitignore"
+    assert gitignore.is_file()
+    content = gitignore.read_text(encoding="utf-8")
+    assert "*" in content and "!.gitignore" in content
+
+    gitignore.write_text("# customizado\n*.png\n", encoding="utf-8")
+    install_boundary_guard(tmp_path)
+    assert gitignore.read_text(encoding="utf-8") == "# customizado\n*.png\n"
+
+
+def test_is_scratch_surface_path_importable() -> None:
+    from harness.boundary_guard import _is_scratch_surface_path
+
+    assert _is_scratch_surface_path(".harness/scratch/shot.png") is True
+    assert _is_scratch_surface_path(".harness/scratch/sub/dump.html") is True
+    assert _is_scratch_surface_path(".harness/scratch") is False
+    assert _is_scratch_surface_path(".harness/scratch/../../src/main.py") is False
+    assert _is_scratch_surface_path(".harness/work/x.md") is False
+    assert _is_scratch_surface_path("src/main.py") is False
+
+
+def test_is_work_surface_path_importable() -> None:
+    """Regressão do fix de traversal: o check antigo era startswith sobre o
+    path bruto — .harness/work/../../qualquer.py escapava."""
+    from harness.boundary_guard import _is_work_surface_path
+
+    assert _is_work_surface_path(".harness/work/nova-feature/spec.md") is True
+    assert _is_work_surface_path(".harness/work/../../AGENTS.md") is False
+    assert _is_work_surface_path(".harness/work/../../src/evil.py") is False
+    assert _is_work_surface_path("docs/x.md") is False
+
+
+def test_write_work_dir_traversal_denies(tmp_path: Path) -> None:
+    """Regressão end-to-end do furo de traversal: um Write com segmentos ..
+    escapando de .harness/work/ não pode virar allow pela exceção de work.
+    Payload sem cwd (a âncora de repo_root gravada pelo install resolve a
+    raiz) — evita que _absolutize_against_payload_cwd normalize o path antes
+    de o check de superfície rodar."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    for rel in (".harness/work/../../AGENTS.md",
+                ".harness/scratch/../../AGENTS.md"):
+        out = _run_hook(script, {"tool_name": "Write", "cwd": "",
+                                  "tool_input": {"file_path": rel, "content": "x"}})
+        assert out["permissionDecision"] == "deny", (rel, out)
+
+
 # ---------------- Item 6: raiz do repo fixada (deriva de cwd) ----------------
 
 

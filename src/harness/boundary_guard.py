@@ -59,7 +59,7 @@ ferramentas de terceiros não confiáveis, esta política mínima deve ser
 revisada (idealmente allowlist explícita por nome, não por padrão de
 substring).
 
-Três garantias, nesta ordem, sempre:
+Quatro garantias, nesta ordem, sempre:
 
 1. **Runtime floor** — roda incondicionalmente ANTES de qualquer outra
    verificação, inclusive antes de checar se existe contrato ativo:
@@ -108,6 +108,31 @@ Três garantias, nesta ordem, sempre:
    REJEITADA porque abriria `AGENTS.md` (documento de governança lido no
    início de toda sessão, `lifecycle.py:35,67`) a reescrita livre pelo
    próprio agente que ele governa.
+4. **Superfície de scratch (`.harness/scratch/**`, correção do backlog de
+   fricção do dogfood elegant-heisenberg)** — artefatos temporários de
+   verificação manual de UI (screenshots, dumps de rede, HTML de debug),
+   exigidos pelo Passo 8 do plan SKILL.md, não pertencem a `files[]` de
+   nenhuma tarefa e não devem poluir a raiz do repo-alvo (na sessão real,
+   6 PNGs de verificação ficaram untracked na raiz até remoção manual).
+   `.harness/scratch/**` é sempre gravável (mesmo padrão de
+   `.harness/work/**`/`docs/**`), com `.gitignore` auto-contido
+   (`*` + `!.gitignore`) criado por `install_boundary_guard` — git status
+   fica limpo mesmo que o agente esqueça artefatos lá, sem tocar no
+   `.gitignore` da raiz do usuário. A checagem
+   (`_is_scratch_surface_path`) normaliza com `posixpath.normpath` antes
+   do prefixo, e a MESMA normalização foi retrofitada ao check de
+   `.harness/work/**` (`_is_work_surface_path`): o check anterior usava
+   `startswith` sobre o path bruto e deixava
+   `.harness/work/../../qualquer.py` escapar por traversal — furo
+   pré-existente, corrigido junto. O floor de segredo continua
+   precedendo: `.harness/scratch/credentials.json` permanece deny.
+   Enforcement é só metade da correção: tools MCP de screenshot
+   (`browser_take_screenshot` etc.) caem no branch de tool desconhecida
+   (allow-logado, nome sem write/create/edit) e nunca foram bloqueadas na
+   raiz — quem redireciona o agente é a orientação (bullet no bloco de
+   AGENTS.md gerado por `compiler._render_agents_block`, Passo 8 do plan
+   SKILL.md, e a deny message de superfície de `_evaluate_file`, que
+   agora aponta `.harness/scratch/` como destino de artefato temporário).
 
 O script gerado por `render_boundary_guard()` é standalone (stdlib apenas:
 `json`, `re`, `sys` — nada de `import harness`), porque hooks do Claude
@@ -451,6 +476,44 @@ def _is_docs_surface_path(path: str) -> bool:
     if basename in DOCS_SURFACE_EXCLUDED_BASENAMES:
         return False
     return normalized.startswith(DOCS_SURFACE_DIR_PREFIX)
+
+
+# ---------------------------------------------------------------------------
+# Superfícies de work e scratch (Python real, IMPORTÁVEL) — garantia 4 do
+# docstring do módulo. `.harness/work/**` (área de autoria do próximo
+# contrato) já era sempre gravável, mas o check morava só no script standalone
+# como `startswith` sobre o path bruto — sem normalização, um path com
+# segmentos `..` (`.harness/work/../../qualquer.py`) escapava por traversal.
+# `.harness/scratch/**` é a superfície nova para artefatos temporários de
+# verificação (screenshots, dumps de rede, HTML de debug) que não pertencem a
+# `files[]` de nenhuma tarefa. Ambos os checks normalizam com
+# `posixpath.normpath` antes do prefixo, mesmo padrão de
+# `_is_docs_surface_path` acima.
+# ---------------------------------------------------------------------------
+WORK_DIR_PREFIX = ".harness/work/"
+SCRATCH_DIR_PREFIX = ".harness/scratch/"
+
+
+def _is_work_surface_path(path: str) -> bool:
+    """True se `path` (já `/`-separado) cai na área de autoria de contrato
+    `.harness/work/**`. Normaliza com `posixpath.normpath` ANTES do prefixo —
+    `.harness/work/../../x.py` normaliza para `x.py`, que não começa com o
+    prefixo (correção do furo de traversal do check anterior)."""
+    import posixpath
+
+    normalized = posixpath.normpath(path or "")
+    return normalized.startswith(WORK_DIR_PREFIX)
+
+
+def _is_scratch_surface_path(path: str) -> bool:
+    """True se `path` (já `/`-separado) cai na área de scratch
+    `.harness/scratch/**` — artefatos temporários de verificação, sempre
+    graváveis, auto-ignorados pelo git. Mesma normalização anti-traversal de
+    `_is_work_surface_path`."""
+    import posixpath
+
+    normalized = posixpath.normpath(path or "")
+    return normalized.startswith(SCRATCH_DIR_PREFIX)
 
 
 # ---------------------------------------------------------------------------
@@ -856,6 +919,10 @@ def render_boundary_guard() -> str:
         f"DOCS_SURFACE_EXCLUDED_BASENAMES = {set(DOCS_SURFACE_EXCLUDED_BASENAMES)!r}",
         f"DOCS_SURFACE_EXCLUDED_PATHS = {set(DOCS_SURFACE_EXCLUDED_PATHS)!r}",
         inspect.getsource(_is_docs_surface_path),
+        f"WORK_DIR_PREFIX = {WORK_DIR_PREFIX!r}",
+        f"SCRATCH_DIR_PREFIX = {SCRATCH_DIR_PREFIX!r}",
+        inspect.getsource(_is_work_surface_path),
+        inspect.getsource(_is_scratch_surface_path),
         f"SESSION_STATE_FILE = {SESSION_STATE_FILE!r}",
         f"REPO_ROOT_STATE_KEY = {REPO_ROOT_STATE_KEY!r}",
         f"_MAX_ROOT_SEARCH_DEPTH = {_MAX_ROOT_SEARCH_DEPTH!r}",
@@ -948,10 +1015,10 @@ PROFILE_PATH = ".harness/repo-profile.json"
 EVIDENCE_DIR_NAME = ".harness/evidence"
 TEAM_MANIFEST_RELATIVE_PATH = ".harness/team/manifest.json"
 REVIEW_DIR = ".harness/review"
-# Área de autoria de contrato: spec.md/Plans.md do PRÓXIMO contrato vivem
-# aqui e nunca estão em files[] do contrato ATIVO. Sem esta exceção, planejar
-# a próxima feature ficaria bloqueado pela superfície do contrato corrente.
-WORK_DIR_PREFIX = ".harness/work/"
+# WORK_DIR_PREFIX (area de autoria de contrato) e SCRATCH_DIR_PREFIX (area de
+# scratch para artefato temporario de verificacao) vem da faixa GERADA acima,
+# junto com _is_work_surface_path/_is_scratch_surface_path (normalizacao
+# anti-traversal) - fonte unica em harness.boundary_guard.
 
 # package_manager.value (analyzer.py) -> comando de instalação EXATO. Mesmo
 # mapeamento de harness.session_permissions/harness.templates: o valor bruto
@@ -1306,10 +1373,18 @@ def _evaluate_file(path, cwd):
             "credentials) e bloqueio incondicional, independente de contrato ativo"
         )
 
-    if path.startswith(WORK_DIR_PREFIX):
+    if _is_work_surface_path(path):
         return "allow", (
             "area de autoria de contrato (.harness/work/**) sempre gravavel - "
             "permite planejar o proximo contrato sem replanejar o atual"
+        )
+
+    if _is_scratch_surface_path(path):
+        return "allow", (
+            "area de scratch (.harness/scratch/**) sempre gravavel - destino "
+            "correto de artefato temporario de verificacao (screenshot, dump "
+            "de rede, HTML de debug); auto-ignorada pelo git, apagavel a "
+            "qualquer momento, nunca referencie de codigo"
         )
 
     if _is_docs_surface_path(path):
@@ -1341,7 +1416,9 @@ def _evaluate_file(path, cwd):
         return "allow", "arquivo declarado em files[] de uma tarefa do contrato ativo"
     return "deny", (
         "arquivo fora da superficie do contrato ativo (nenhuma tarefa declara este "
-        "path em files[]); replaneje via /harness-creator:plan se o escopo mudou"
+        "path em files[]); artefato temporario de verificacao (screenshot, dump, "
+        "HTML de debug)? salve em .harness/scratch/ ; se o escopo mudou, replaneje "
+        "via /harness-creator:plan"
     )
 
 
@@ -1688,6 +1765,17 @@ def install_boundary_guard(target_dir: Path) -> Path:
     hooks_dir.mkdir(parents=True, exist_ok=True)
     script_path = hooks_dir / BOUNDARY_HOOK_FILENAME
     script_path.write_text(render_boundary_guard(), encoding="utf-8")
+
+    # Garantia 4 (superfície de scratch): cria .harness/scratch/ com
+    # .gitignore auto-contido (`*` + `!.gitignore`) — a pasta se ignora
+    # sozinha, sem tocar no .gitignore da raiz do usuário; git status fica
+    # limpo mesmo que o agente esqueça screenshots/dumps lá. Não sobrescreve
+    # um .gitignore já existente (o usuário pode ter customizado).
+    scratch_dir = target_dir / SCRATCH_DIR_PREFIX.rstrip("/")
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    scratch_gitignore = scratch_dir / ".gitignore"
+    if not scratch_gitignore.is_file():
+        scratch_gitignore.write_text("*\n!.gitignore\n", encoding="utf-8")
 
     command = f'python "{script_path}"'
 

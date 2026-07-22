@@ -170,7 +170,10 @@ código; não confirmam o que o usuário vai efetivamente ver.
    estado vazio, transição de estado).
 3. Capture evidência real — screenshot ou leitura de DOM/texto da página
    confirmando o estado esperado. "os testes automatizados passaram" não é
-   evidência de UI.
+   evidência de UI. Salve todo arquivo de evidência (PNG, HTML de debug,
+   JSON de resposta) em `.harness/scratch/` — o boundary_guard libera
+   escrita incondicional lá e a pasta é auto-ignorada pelo git; NUNCA salve
+   na raiz do repo-alvo (polui `git status` com artefatos esquecidos).
 4. Se achar um defeito só visível em uso real (ex.: locale/formatação,
    campo nunca persistido, elemento não renderizado), corrija antes de
    reportar concluído — use `harness task add-file` (ver

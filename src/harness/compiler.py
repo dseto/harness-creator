@@ -259,6 +259,12 @@ sempre exige aprovação humana.
    por tarefa e {g.budget.max_tool_calls_per_task} tool calls. O Claude Code não
    expõe contagem de tokens a hooks — este teto é disciplina, não enforcement;
    se a tarefa estourar muito, pare e replaneje com o humano.
+5. **Artefatos temporários de verificação** (screenshots, dumps de rede,
+   HTML de debug, JSON de resposta de API): salve SEMPRE em
+   `.harness/scratch/` — única área liberada para arquivos que não pertencem
+   a nenhuma tarefa do contrato. A pasta é auto-ignorada pelo git e apagável
+   a qualquer momento; nunca referencie nada dela em código e nunca salve
+   esses artefatos na raiz do repositório.
 {AGENTS_END}"""
 
 
