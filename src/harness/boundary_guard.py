@@ -548,6 +548,154 @@ def _is_progress_file_path(path: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Utilitários shell read-only + `cd` intra-repo (Python real, IMPORTÁVEL) —
+# itens 3 do parecer cético sobre os issues 1-2 do dogfood aegis_rpa_suite.
+# Um segmento que NÃO prefixa nenhuma sequência permitida ainda pode passar
+# se for (a) uso read-only aceito de um utilitário da allowlist fixa, ou
+# (b) `cd` cujo alvo resolve para DENTRO da raiz do repo.
+#
+# "Read-only" aqui NÃO é prova universal — é allowlist de utilitários +
+# denylist das flags de escrita/exec CONHECIDAS, com três guardas
+# inegociáveis apontadas pelo parecer cético:
+#   1. `find` tem flags que escrevem em arquivo SEM `>` (`-fprint`,
+#      `-fprintf`, `-fprint0`, `-fls`) além das de exec
+#      (`-delete`/`-exec`/`-execdir`/`-ok`/`-okdir`) — todas negadas;
+#      `find . -fprint .env` furaria o floor de segredo.
+#   2. `rg`/`grep` com `--pre`/`--pre-glob`/`--hostname-bin` executam
+#      comando arbitrário por arquivo — negados (match exato ou `=`,
+#      então `--pretty` continua liberado).
+#   3. Redirecionamento de escrita nega o segmento, mas SÓ `>` fora de
+#      aspas (`grep "->" src/` é rotina de busca de código e não pode
+#      virar falso-deny) e ignorando duplicação de fd (`2>&1`, `1>&2`),
+#      que não escreve arquivo. `>&arquivo` (redirect csh-style) nega.
+#      Process substitution `<(`/`>(` também nega (executa comando).
+#
+# `cd` restrito ao repo não é paranoia: `FIXED_GIT_SEQUENCES` libera
+# `git add`/`git commit` incondicionalmente — `cd <outro-repo> && git add .`
+# operaria em OUTRO repositório. Alvo irresolvível estaticamente (`$VAR`,
+# `~`, crase, vazio, `cd -`) ou âncora de repo_root ausente → não aceito
+# (o deny genérico de superfície segue).
+#
+# Limite conhecido e ACEITO (documentado, não corrigido): o floor
+# window-match roda antes e nega qualquer comando cujos tokens contenham
+# palavra do floor — `grep -r "curl" src/` continua deny. Mexer no floor
+# está fora de escopo por design.
+# ---------------------------------------------------------------------------
+READONLY_SHELL_UTILITIES = frozenset({
+    "cat", "head", "tail", "wc", "grep", "rg", "ls", "echo", "find",
+})
+FIND_WRITE_FLAGS = frozenset({
+    "-delete", "-exec", "-execdir", "-ok", "-okdir",
+    "-fprint", "-fprintf", "-fprint0", "-fls",
+})
+GREP_RG_EXEC_FLAGS = ("--pre", "--pre-glob", "--hostname-bin")
+
+
+def _is_grep_exec_flag(token: str) -> bool:
+    """True se `token` é flag de exec do grep/rg (`--pre`, `--pre-glob`,
+    `--hostname-bin`), em forma exata ou `--flag=valor`. `--pretty`/`-p`
+    NÃO casam (match por igualdade/`=`, não por prefixo)."""
+    for flag in GREP_RG_EXEC_FLAGS:
+        if token == flag or token.startswith(flag + "="):
+            return True
+    return False
+
+
+def _segment_has_file_redirect(segment: str) -> bool:
+    """True se o segmento contém `>` de escrita em ARQUIVO fora de aspas.
+
+    Duplicação de fd (`>` seguido de `&` + dígito: `2>&1`, `1>&2`) não
+    conta — redireciona stream para stream, nenhum arquivo é escrito.
+    `>> arquivo`, `> arquivo` e `>&arquivo` (csh-style, `&` sem dígito)
+    contam. `>` DENTRO de aspas (`grep ">" f`, `grep "->" src/`) não conta
+    — é padrão de busca, negá-lo seria fricção recorrente no caso de uso
+    central da allowlist."""
+    in_single = False
+    in_double = False
+    escape_next = False
+    i = 0
+    n = len(segment or "")
+    while i < n:
+        ch = segment[i]
+        if escape_next:
+            escape_next = False
+        elif ch == "\\" and not in_single:
+            escape_next = True
+        elif ch == "'" and not in_double:
+            in_single = not in_single
+        elif ch == '"' and not in_single:
+            in_double = not in_double
+        elif ch == ">" and not in_single and not in_double:
+            if i + 2 < n and segment[i + 1] == "&" and segment[i + 2].isdigit():
+                i += 2  # `>&N` = duplicação de fd, segue
+            else:
+                return True
+        i += 1
+    return False
+
+
+def _is_readonly_shell_segment(segment: str) -> bool:
+    """True se o segmento é uso read-only ACEITO de um utilitário da
+    allowlist (`READONLY_SHELL_UTILITIES`): primeiro token (basename, sem
+    `.exe`) na allowlist, sem redirecionamento de escrita fora de aspas,
+    sem process substitution, e sem as flags de escrita/exec conhecidas de
+    `find`/`grep`/`rg`. Ver comentário do bloco acima para o racional e os
+    limites."""
+    seg = segment or ""
+    if "<(" in seg or ">(" in seg:
+        return False
+    tokens = _tokenize_command(seg)
+    if not tokens:
+        return False
+    head = tokens[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
+    if head.endswith(".exe"):
+        head = head[:-4]
+    if head not in READONLY_SHELL_UTILITIES:
+        return False
+    if _segment_has_file_redirect(seg):
+        return False
+    rest = [t.lower() for t in tokens[1:]]
+    if head == "find" and any(t in FIND_WRITE_FLAGS for t in rest):
+        return False
+    if head in ("grep", "rg") and any(_is_grep_exec_flag(t) for t in rest):
+        return False
+    return True
+
+
+def _is_safe_cd_segment(segment: str, repo_root: str) -> bool:
+    """True se o segmento é `cd <alvo>` com alvo que resolve para DENTRO de
+    `repo_root`. Conservador: sem âncora de raiz, alvo vazio, `cd -`, ou
+    alvo com `$`/`~`/crase (irresolvível estaticamente) → False. O alvo é o
+    TEXTO após `cd` (aspas externas removidas), não a tokenização — path
+    com espaço em Windows resolve certo. Comparação case-insensitive na
+    plataforma que o exigir (`os.path.normcase`)."""
+    import os
+
+    if not repo_root:
+        return False
+    stripped = (segment or "").strip()
+    if not (stripped == "cd" or stripped.startswith("cd ") or stripped.startswith("cd\t")):
+        return False
+    target = stripped[2:].strip()
+    if not target or target == "-":
+        return False
+    if "$" in target or "`" in target or "~" in target:
+        return False
+    if len(target) >= 2 and target[0] == target[-1] and target[0] in ("'", '"'):
+        target = target[1:-1].strip()
+    if not target:
+        return False
+    target = target.replace("\\", "/")
+    root = os.path.normcase(os.path.normpath(os.path.abspath(repo_root)))
+    if os.path.isabs(target) or ":" in target.split("/", 1)[0]:
+        candidate = target
+    else:
+        candidate = os.path.join(repo_root, target)
+    candidate = os.path.normcase(os.path.normpath(os.path.abspath(candidate)))
+    return candidate == root or candidate.startswith(root + os.sep)
+
+
+# ---------------------------------------------------------------------------
 # Âncora de raiz do repo (Python real, IMPORTÁVEL) — Item 6 do backlog de
 # correção do issue #1 (deriva de `cwd`). Ver seção correspondente do
 # docstring do módulo para a investigação (conclusão: cenário (b), FAIL-OPEN)
@@ -956,6 +1104,13 @@ def render_boundary_guard() -> str:
         inspect.getsource(_is_scratch_surface_path),
         f"PROGRESS_FILE_NAME = {PROGRESS_FILE_NAME!r}",
         inspect.getsource(_is_progress_file_path),
+        f"READONLY_SHELL_UTILITIES = {set(READONLY_SHELL_UTILITIES)!r}",
+        f"FIND_WRITE_FLAGS = {set(FIND_WRITE_FLAGS)!r}",
+        f"GREP_RG_EXEC_FLAGS = {GREP_RG_EXEC_FLAGS!r}",
+        inspect.getsource(_is_grep_exec_flag),
+        inspect.getsource(_segment_has_file_redirect),
+        inspect.getsource(_is_readonly_shell_segment),
+        inspect.getsource(_is_safe_cd_segment),
         f"SESSION_STATE_FILE = {SESSION_STATE_FILE!r}",
         f"REPO_ROOT_STATE_KEY = {REPO_ROOT_STATE_KEY!r}",
         f"_MAX_ROOT_SEARCH_DEPTH = {_MAX_ROOT_SEARCH_DEPTH!r}",
@@ -1096,7 +1251,10 @@ def _split_shell_segments(command):
     `\\r`), devolvendo a lista de sub-comandos nao-vazios. Respeita aspas e
     double-quotes de shell (operadores dentro de strings nao causam
     segmentacao). `&&`/`||` sao casados ANTES de `&`/`|` isolados para nao
-    quebrar um `&&` em dois `&`."""
+    quebrar um `&&` em dois `&`. `&` precedido de `>` NAO segmenta: `>&` e
+    operador de REDIRECIONAMENTO (`2>&1`, `>&2`), nao de controle - antes
+    desta regra, `pytest -q 2>&1` virava os segmentos ['pytest -q 2>', '1']
+    e o '1' orfao derrubava o comando inteiro em falso-deny."""
     if not command:
         return []
     result = []
@@ -1118,7 +1276,10 @@ def _split_shell_segments(command):
         elif ch == '"' and not in_single:
             in_double = not in_double
             current.append(ch)
-        elif ch in ("&", "|", ";", "\\n", "\\r") and not in_single and not in_double:
+        elif (
+            ch in ("&", "|", ";", "\\n", "\\r") and not in_single and not in_double
+            and not (ch == "&" and current and current[-1] == ">")
+        ):
             seg = "".join(current).strip()
             if seg:
                 result.append(seg)
@@ -1501,15 +1662,35 @@ def _evaluate_bash(command, cwd):
 
     # Allow assimetrico ao floor: o floor casa 'aparece em qualquer janela'
     # (intocado, acima); o allow segmenta o comando nos operadores de controle
-    # e exige que CADA segmento prefixe alguma allowed_sequence - senao um
-    # comando arbitrario colado com &&/;/| a um declarado escaparia.
+    # e exige que CADA segmento (1) prefixe alguma allowed_sequence, OU
+    # (2) seja uso read-only aceito de utilitario da allowlist fixa
+    # (cat/head/tail/wc/grep/rg/ls/echo/find, sem redirect de escrita nem
+    # flags de escrita/exec), OU (3) seja `cd` com alvo dentro do repo.
+    # Senao um comando arbitrario colado com &&/;/| a um declarado escaparia.
     segments = _split_shell_segments(command)
-    if segments and all(
-        _segment_prefixes_any(_tokenize_command(seg), allowed_sequences) for seg in segments
-    ):
+    failing = None
+    for seg in segments:
+        if _segment_prefixes_any(_tokenize_command(seg), allowed_sequences):
+            continue
+        if _is_readonly_shell_segment(seg):
+            continue
+        if _is_safe_cd_segment(seg, cwd):
+            continue
+        failing = seg
+        break
+    if segments and failing is None:
         return "allow", (
-            "comando declarado na superficie compilada do contrato "
-            "(verify_cmd/lint/typecheck/build/install/git local)"
+            "comando na superficie compilada do contrato "
+            "(verify_cmd/lint/typecheck/build/install/git local), "
+            "utilitario read-only ou cd intra-repo"
+        )
+    if failing is not None:
+        return "deny", (
+            "segmento '" + failing[:80] + "' fora da superficie compilada do "
+            "contrato (verify_cmd/lint/typecheck/build/install/git local) e "
+            "nao aceito como utilitario read-only (cat/head/tail/wc/grep/rg/"
+            "ls/echo/find sem redirecionamento de escrita) nem cd intra-repo; "
+            "replaneje via /harness-creator:plan se precisar de outro comando"
         )
     return "deny", (
         "comando fora da superficie compilada do contrato "

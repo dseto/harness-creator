@@ -87,6 +87,19 @@ def main() -> None:
         "(opt-in; sessão orquestradora sequencial únicas — não usar com múltiplos "
         "agentes em paralelo no mesmo feature_list.json)",
     )
+    ver.add_argument(
+        "--timeout", type=int, default=None, metavar="SEGUNDOS",
+        help="Timeout do verify_cmd em segundos (default 600). Suítes "
+        "legítimas mais lentas que o default eram mortas — use isto em vez "
+        "de dividir o verify_cmd",
+    )
+    ver.add_argument(
+        "--stream", action="store_true",
+        help="Espelha stdout/stderr do verify_cmd no console em tempo real "
+        "(tee) — para humano distinguir suíte lenta de travada. Opt-in: com "
+        "streaming sempre ligado, toda a saída da suíte entraria no contexto "
+        "do agente a cada verify",
+    )
 
     team = sub.add_parser("team", help="Team-Architecture Factory (Fase 4): design/generate de times de agentes")
     team_sub = team.add_subparsers(dest="team_command", required=True)
@@ -303,10 +316,21 @@ def main() -> None:
         sys.exit(0)
 
     if args.command == "verify":
-        from harness.verify import VerifyError, VerifyFailedError, mark_feature_passed, run_verify
+        from harness.verify import (
+            _VERIFY_TIMEOUT_SECONDS,
+            VerifyError,
+            VerifyFailedError,
+            mark_feature_passed,
+            run_verify,
+        )
 
         try:
-            evidence_path = run_verify(Path(args.dir), args.feature_id)
+            evidence_path = run_verify(
+                Path(args.dir), args.feature_id,
+                timeout_seconds=args.timeout if args.timeout is not None
+                else _VERIFY_TIMEOUT_SECONDS,
+                stream=args.stream,
+            )
         except VerifyFailedError as exc:
             print(exc.stdout, file=sys.stderr)
             print(exc.stderr, file=sys.stderr)

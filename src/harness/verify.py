@@ -41,11 +41,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import signal
 import subprocess
+import sys
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 from harness.boundary_guard import is_floor_bash_command
 from harness.contract import FEATURE_LIST_FILE
@@ -154,6 +158,133 @@ class VerifyFailedError(Exception):
         self.file_lock_hint = detect_file_lock_hint(stdout, stderr)
 
 
+def _kill_process_tree(proc: subprocess.Popen) -> None:
+    """Mata a árvore de processos de `proc` — BEST-EFFORT, não garantia.
+
+    Windows: `taskkill /T /F /PID` caminha a árvore por parent-PID; se um
+    intermediário (ex.: o `cmd.exe` do `shell=True`) já morreu, netos
+    reparentados NÃO são encontrados — eliminar isso de verdade exigiria
+    Job Object (ctypes/pywin32), custo descartado por ora. POSIX:
+    `os.killpg` sobre o grupo criado por `start_new_session=True` (esse é
+    airtight para o grupo). Em ambos, cai para `proc.kill()` como última
+    linha. Nunca levanta — usada em caminhos de erro/interrupção."""
+    try:
+        if sys.platform == "win32":
+            subprocess.run(
+                ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                capture_output=True,
+            )
+        else:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        proc.kill()
+    except OSError:
+        pass
+
+
+def _pump_pipe(pipe: TextIO, parts: list[str], mirror: TextIO | None) -> None:
+    """Thread leitora: drena `pipe` linha a linha para `parts` (buffer) e,
+    se `mirror` não for None, espelha em tempo real (tee). O buffer é
+    OBRIGATÓRIO mesmo com mirror: `VerifyFailedError` carrega stdout/stderr
+    e alimenta `detect_file_lock_hint`. Engole erros de I/O — se o pipe
+    morrer junto com o processo, a thread só termina."""
+    try:
+        for line in iter(pipe.readline, ""):
+            parts.append(line)
+            if mirror is not None:
+                mirror.write(line)
+                mirror.flush()
+    except (OSError, ValueError):
+        pass
+    finally:
+        try:
+            pipe.close()
+        except OSError:
+            pass
+
+
+def _run_verify_cmd(
+    verify_cmd: str, cwd: Path, timeout_seconds: int, stream: bool
+) -> tuple[int, str, str]:
+    """Executa `verify_cmd` via Popen com gestão de árvore de processos —
+    correção do issue 4 do dogfood aegis (no Windows, o kill do
+    `subprocess.run(timeout=...)` atingia só o `cmd.exe` filho direto;
+    `pytest.exe`→`python.exe` ficavam órfãos e o `communicate()` bloqueava
+    até eles morrerem, fazendo run lento parecer travado).
+
+    - Filho em grupo/sessão própria: `CREATE_NEW_PROCESS_GROUP` no Windows
+      (também isola do Ctrl+C do console — quem mata a árvore de forma
+      ordenada é o handler daqui, não o sinal do terminal),
+      `start_new_session=True` no POSIX.
+    - Timeout E interrupção (KeyboardInterrupt etc.) matam a ÁRVORE via
+      `_kill_process_tree` — nunca só o filho direto. Best-effort no
+      Windows (ver docstring de `_kill_process_tree`).
+    - `stream=True` faz tee do stdout/stderr para o console em tempo real
+      (humano distingue lento de travado). Default False: com streaming
+      incondicional, toda a saída da suíte entraria no contexto do agente
+      a cada verify verde — anti-objetivo (economia de contexto).
+    - Threads leitoras são daemon com `join` COM timeout: se o taskkill
+      perder um neto que segura o handle do pipe, o join não trava o
+      verify de novo (seria reintroduzir o sintoma original).
+
+    Devolve `(returncode, stdout, stderr)`; propaga `TimeoutExpired` após
+    matar a árvore.
+    """
+    popen_kwargs: dict[str, Any] = {}
+    if sys.platform == "win32":
+        popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        popen_kwargs["start_new_session"] = True
+
+    proc = subprocess.Popen(
+        verify_cmd,
+        shell=True,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        encoding="utf-8",
+        errors="replace",
+        **popen_kwargs,
+    )
+    out_parts: list[str] = []
+    err_parts: list[str] = []
+    threads = (
+        threading.Thread(
+            target=_pump_pipe,
+            args=(proc.stdout, out_parts, sys.stdout if stream else None),
+            daemon=True,
+        ),
+        threading.Thread(
+            target=_pump_pipe,
+            args=(proc.stderr, err_parts, sys.stderr if stream else None),
+            daemon=True,
+        ),
+    )
+    for t in threads:
+        t.start()
+    try:
+        returncode = proc.wait(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        _kill_process_tree(proc)
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+        raise
+    except BaseException:
+        # KeyboardInterrupt/SystemExit: com CREATE_NEW_PROCESS_GROUP o filho
+        # não recebe o Ctrl+C do console — sem este handler, interromper o
+        # verify manualmente criaria exatamente o órfão que o issue relata.
+        _kill_process_tree(proc)
+        raise
+    finally:
+        for t in threads:
+            t.join(timeout=5)
+    return returncode, "".join(out_parts), "".join(err_parts)
+
+
 def compute_files_hash(files: list[str], target_dir: Path) -> str:
     """SHA-256 determinístico do conteúdo atual de `files` (relativos a `target_dir`).
 
@@ -192,13 +323,25 @@ def _load_feature(target_dir: Path, feature_id: str) -> dict[str, Any]:
     raise VerifyError(f"feature '{feature_id}' não encontrada em {feature_list_path}")
 
 
-def run_verify(target_dir: Path, feature_id: str) -> Path:
+def run_verify(
+    target_dir: Path,
+    feature_id: str,
+    *,
+    timeout_seconds: int = _VERIFY_TIMEOUT_SECONDS,
+    stream: bool = False,
+) -> Path:
     """Roda o `verify_cmd` da feature `feature_id` e, se exit code == 0, grava evidência.
 
     Levanta `VerifyError` se a feature ou o `feature_list.json` não existirem.
     Levanta `VerifyFailedError` (carregando stdout/stderr/exit_code) se o
     `verify_cmd` sair com código != 0 — NADA é gravado em disco nesse caso.
     Retorna o Path do arquivo de evidência gravado em caso de sucesso.
+
+    `timeout_seconds` (CLI `--timeout`): o default de 600s matava
+    verify_cmds legítimos encadeados (~1100s no dogfood do issue 4) — agora
+    configurável por chamada, sem mudar o default. `stream` (CLI
+    `--stream`): tee do stdout/stderr em tempo real, opt-in — ver
+    `_run_verify_cmd` para o porquê de NÃO ser default.
     """
     target_dir = target_dir.resolve()
     feature = _load_feature(target_dir, feature_id)
@@ -222,29 +365,25 @@ def run_verify(target_dir: Path, feature_id: str) -> Path:
             )
 
     try:
-        result = subprocess.run(
-            verify_cmd,
-            shell=True,
-            cwd=verify_cwd,
-            capture_output=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=_VERIFY_TIMEOUT_SECONDS,
+        returncode, stdout, stderr = _run_verify_cmd(
+            verify_cmd, verify_cwd, timeout_seconds, stream
         )
     except subprocess.TimeoutExpired as exc:
         raise VerifyError(
             f"feature '{feature_id}': verify_cmd '{verify_cmd}' excedeu o "
-            f"timeout de {_VERIFY_TIMEOUT_SECONDS}s"
+            f"timeout de {timeout_seconds}s — árvore de processos encerrada "
+            "(taskkill /T no Windows, killpg no POSIX; best-effort). Suíte "
+            "legitimamente mais lenta que isso? use --timeout <segundos>"
         ) from exc
 
-    if result.returncode != 0:
-        raise VerifyFailedError(feature_id, result.returncode, result.stdout, result.stderr)
+    if returncode != 0:
+        raise VerifyFailedError(feature_id, returncode, stdout, stderr)
 
     evidence = {
         "feature_id": feature_id,
         "verify_cmd": verify_cmd,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
-        "exit_code": result.returncode,
+        "exit_code": returncode,
         "files_hash": compute_files_hash(files, target_dir),
     }
 

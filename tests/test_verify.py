@@ -224,10 +224,10 @@ def test_run_verify_floor_verify_cmd_raises_verify_error_and_never_spawns_subpro
         ],
     )
 
-    with patch("harness.verify.subprocess.run") as mock_run:
+    with patch("harness.verify.subprocess.Popen") as mock_popen:
         with pytest.raises(VerifyError, match="floor"):
             run_verify(tmp_path, "T-01")
-        mock_run.assert_not_called()
+        mock_popen.assert_not_called()
 
     evidence_path = tmp_path / ".harness" / "evidence" / "T-01.json"
     assert not evidence_path.is_file()
@@ -244,10 +244,10 @@ def test_run_verify_floor_git_push_verify_cmd_raises_and_never_spawns_subprocess
         ],
     )
 
-    with patch("harness.verify.subprocess.run") as mock_run:
+    with patch("harness.verify.subprocess.Popen") as mock_popen:
         with pytest.raises(VerifyError, match="floor"):
             run_verify(tmp_path, "T-01")
-        mock_run.assert_not_called()
+        mock_popen.assert_not_called()
 
 
 # ---------------- regressão: UnicodeDecodeError sem `encoding=` explícito ----------------
@@ -504,3 +504,153 @@ def test_run_verify_normal_failure_leaves_file_lock_hint_none(tmp_path: Path) ->
         run_verify(tmp_path, "T-01")
 
     assert exc_info.value.file_lock_hint is None
+
+
+# ---------------- Item 4 do dogfood aegis: gestao de arvore de processos + streaming ----------------
+
+
+def test_run_verify_custom_timeout_kills_and_mentions_tree(tmp_path: Path) -> None:
+    """Timeout configuravel por chamada (era fixo em 600s — matava suites
+    legitimas do dogfood) e mensagem explicita de arvore encerrada, com o
+    caminho de escape (--timeout) ensinado."""
+    sleep_cmd = f'"{sys.executable}" -c "import time; time.sleep(60)"'
+    _write_feature_list(
+        tmp_path,
+        [
+            {"id": "T-01", "desc": "x", "files": [], "verify_cmd": sleep_cmd,
+             "depends": [], "passes": False}
+        ],
+    )
+
+    with pytest.raises(VerifyError, match="timeout de 2s") as exc_info:
+        run_verify(tmp_path, "T-01", timeout_seconds=2)
+    assert "árvore de processos encerrada" in str(exc_info.value)
+    assert "--timeout" in str(exc_info.value)
+    assert not (tmp_path / ".harness" / "evidence" / "T-01.json").is_file()
+
+
+def test_run_verify_timeout_kills_grandchild_process(tmp_path: Path) -> None:
+    """Regressao do issue 4: o kill do subprocess.run(timeout=...) atingia
+    so o filho direto (cmd.exe/sh) e deixava os NETOS orfaos vivos. Agora o
+    timeout mata a arvore (taskkill /T no Windows, killpg no POSIX). O
+    verify_cmd spawna um neto que grava o proprio PID e dorme; apos o
+    timeout, o PID nao pode mais existir. Scripts em arquivo .py (nao -c
+    aninhado) para nao depender de quoting de shell."""
+    import os
+    import subprocess as sp
+    import time
+
+    pid_file = tmp_path / "grandchild.pid"
+    grandchild_py = tmp_path / "grandchild.py"
+    _write(
+        grandchild_py,
+        "import os, pathlib, time\n"
+        f"pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid()))\n"
+        "time.sleep(120)\n",
+    )
+    parent_py = tmp_path / "parent.py"
+    _write(
+        parent_py,
+        "import subprocess, sys\n"
+        f"p = subprocess.Popen([sys.executable, {str(grandchild_py)!r}])\n"
+        "p.wait()\n",
+    )
+    verify_cmd = f'"{sys.executable}" "{parent_py}"'
+    _write_feature_list(
+        tmp_path,
+        [
+            {"id": "T-01", "desc": "x", "files": [], "verify_cmd": verify_cmd,
+             "depends": [], "passes": False}
+        ],
+    )
+
+    with pytest.raises(VerifyError, match="timeout"):
+        run_verify(tmp_path, "T-01", timeout_seconds=5)
+
+    assert pid_file.is_file(), "neto nunca chegou a rodar — teste invalido"
+    grandchild_pid = int(pid_file.read_text().strip())
+
+    def _alive(pid: int) -> bool:
+        if _is_windows():
+            out = sp.run(
+                ["tasklist", "/FI", f"PID eq {pid}"], capture_output=True, text=True
+            )
+            return str(pid) in out.stdout
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
+    # taskkill /T e assincrono na pratica — polling curto antes de afirmar
+    for _ in range(20):
+        if not _alive(grandchild_pid):
+            break
+        time.sleep(0.5)
+    assert not _alive(grandchild_pid), (
+        f"neto (PID {grandchild_pid}) sobreviveu ao kill de arvore"
+    )
+
+
+def test_run_verify_stream_false_is_silent_on_console(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    """Default stream=False: comportamento atual preservado — saida do
+    verify_cmd NAO vaza para o console (economia de contexto do agente)."""
+    echo_cmd = f'"{sys.executable}" -c "print(\'saida-da-suite\')"'
+    _write_feature_list(
+        tmp_path,
+        [
+            {"id": "T-01", "desc": "x", "files": [], "verify_cmd": echo_cmd,
+             "depends": [], "passes": False}
+        ],
+    )
+
+    run_verify(tmp_path, "T-01")
+    captured = capsys.readouterr()
+    assert "saida-da-suite" not in captured.out
+    assert "saida-da-suite" not in captured.err
+
+
+def test_run_verify_stream_true_mirrors_stdout(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    """stream=True (CLI --stream): tee em tempo real para o console E
+    buffer preservado (a evidencia continua sendo gravada normalmente)."""
+    echo_cmd = f'"{sys.executable}" -c "print(\'saida-da-suite\')"'
+    _write_feature_list(
+        tmp_path,
+        [
+            {"id": "T-01", "desc": "x", "files": [], "verify_cmd": echo_cmd,
+             "depends": [], "passes": False}
+        ],
+    )
+
+    evidence_path = run_verify(tmp_path, "T-01", stream=True)
+    captured = capsys.readouterr()
+    assert "saida-da-suite" in captured.out
+    assert evidence_path.is_file()
+
+
+def test_run_verify_failure_still_carries_buffered_output_with_stream(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    """Buffer obrigatorio mesmo com tee: VerifyFailedError.stdout alimenta
+    detect_file_lock_hint — streaming nao pode drenar o buffer."""
+    fail_cmd = (
+        f'"{sys.executable}" -c "print(\'error MSB3027: locked\'); '
+        'import sys; sys.exit(1)"'
+    )
+    _write_feature_list(
+        tmp_path,
+        [
+            {"id": "T-01", "desc": "x", "files": [], "verify_cmd": fail_cmd,
+             "depends": [], "passes": False}
+        ],
+    )
+
+    with pytest.raises(VerifyFailedError) as exc_info:
+        run_verify(tmp_path, "T-01", stream=True)
+
+    assert "MSB3027" in exc_info.value.stdout
+    assert exc_info.value.file_lock_hint is not None

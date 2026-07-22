@@ -1,5 +1,71 @@
 # Changelog
 
+## 0.17.5 — 2026-07-22
+
+Itens 3 e 4 da análise dos issues do dogfood aegis_rpa_suite, nas versões
+ADAPTADAS pelo parecer cético (agente Fable, avaliação adversarial contra o
+código real — pacote original tinha nota 2.5/5; as adaptações abaixo fecham
+os furos apontados). Item 5 (`extra_write_globs`) ADIADO por decisão: valor
+marginal caiu pós-v0.17.4 (`task add-file` cobre o caso) e a versão proposta
+tinha furo de feature-lock.
+
+### Adicionado
+- **Utilitários shell read-only sempre permitidos no Bash** (issues 1-2):
+  `cat`/`head`/`tail`/`wc`/`grep`/`rg`/`ls`/`echo`/`find` passam como
+  segmento avulso ou filtro pós-pipe (`pytest -q | head -40`), com três
+  guardas do parecer cético: (1) denylist COMPLETA do `find`
+  (`-delete`/`-exec`/`-execdir`/`-ok`/`-okdir` E as flags de escrita sem
+  `>`: `-fprint`/`-fprintf`/`-fprint0`/`-fls` — `find . -fprint .env`
+  furaria o floor de segredo); (2) `rg`/`grep` com
+  `--pre`/`--pre-glob`/`--hostname-bin` negados (exec arbitrário por
+  arquivo; match exato/`=`, `--pretty` continua ok); (3) redirecionamento
+  de escrita nega o segmento, mas SÓ `>` fora de aspas (`grep "->" src/`
+  passa) e ignorando duplicação de fd (`2>&1`); process substitution
+  `<(`/`>(` nega.
+- **`cd <alvo>` aceito quando o alvo resolve para dentro do repo** (issue
+  2): necessário restringir — `git add`/`commit` são liberados
+  incondicionalmente e `cd <outro-repo> && git add .` operaria em outro
+  repositório. Alvo irresolvível (`$VAR`, `~`, crase, `cd -`, vazio) ou
+  âncora de raiz ausente → segue deny. Alvo extraído do texto (não da
+  tokenização) — path com espaço funciona.
+- `harness verify --timeout <segundos>` (issue 4): o teto fixo de 600s
+  matava verify_cmds legítimos (~1100s no dogfood); agora configurável por
+  chamada, default preservado. Mensagem de timeout ensina o flag.
+- `harness verify --stream` (issue 4): tee de stdout/stderr em tempo real
+  para distinguir suíte lenta de travada. OPT-IN por decisão do parecer
+  cético: streaming default jogaria toda a saída da suíte no contexto do
+  agente a cada verify verde (anti-objetivo de economia de contexto).
+
+### Corrigido
+- **`2>&1` não derruba mais o comando** (ponto cego apontado pelo cético):
+  o splitter de segmentos cortava no `&` de `2>&1` e o segmento `1` órfão
+  causava falso-deny em `pytest -q 2>&1`. `&` precedido de `>` agora é
+  tratado como operador de redirecionamento, não de controle.
+- **Deny de Bash cita o segmento que falhou** (issue 2): mensagem passa de
+  genérica para `segmento '<trecho>' fora da superficie...` — diagnóstico
+  imediato de qual parte do pipeline derrubou o comando.
+- **`harness verify` não órfã mais netos no timeout** (issue 4): troca de
+  `subprocess.run(capture_output=True)` por `Popen` + threads leitoras
+  (daemon, join com timeout) + kill de ÁRVORE no timeout E em interrupção
+  (`KeyboardInterrupt`) — `taskkill /T /F` no Windows (documentado como
+  best-effort: netos reparentados escapam; Job Object descartado por
+  custo), `os.killpg` no POSIX. `CREATE_NEW_PROCESS_GROUP` isola o filho
+  do Ctrl+C do console para o handler fazer o kill ordenado. Buffer de
+  stdout/stderr preservado (alimenta `detect_file_lock_hint` no
+  `VerifyFailedError`), exit-code intacto.
+
+### Mudança de comportamento observável
+- `echo oi` (e qualquer utilitário da allowlist sem redirect) deixa de ser
+  deny sob contrato ativo — era o exemplo canônico de "comando fora da
+  superfície" em testes/docs antigos.
+
+### Limites documentados (aceitos, não corrigidos)
+- Floor window-match continua negando comando com token do floor no texto
+  (`grep -r "curl" src/`) — floor intocável por design.
+- PowerShell (`_evaluate_powershell`) segue SEM allowlist read-only —
+  débito registrado; a fricção reportada era toda no Bash.
+- `taskkill /T` é best-effort (ver acima); airtight exigiria Job Object.
+
 ## 0.17.4 — 2026-07-22
 
 Itens 1 e 2 (os cirúrgicos) da análise dos 4 issues reportados pelo dogfood

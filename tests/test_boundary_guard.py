@@ -255,8 +255,11 @@ def test_bash_unrelated_command_denies(tmp_path: Path) -> None:
          "depends": [], "passes": False}
     ])
     script = _script(tmp_path)
+    # `echo oi` deixou de ser o exemplo canônico de deny — desde a correção
+    # dos issues 1-2 do dogfood aegis, utilitários read-only (echo incluso,
+    # sem redirect) são sempre permitidos. `rm` segue fora da superfície.
     out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "echo oi"}})
+                              "tool_input": {"command": "rm -rf build"}})
     assert out["permissionDecision"] == "deny"
 
 
@@ -385,8 +388,9 @@ def test_package_manager_none_does_not_break_allowed_bash(tmp_path: Path) -> Non
     out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
                               "tool_input": {"command": "pytest -q"}})
     assert out["permissionDecision"] == "allow"
+    # `echo oi` virou allow (read-only) — `rm` segue como o deny de controle.
     out2 = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                               "tool_input": {"command": "echo oi"}})
+                               "tool_input": {"command": "rm -rf build"}})
     assert out2["permissionDecision"] == "deny"
 
 
@@ -1741,6 +1745,191 @@ def test_bash_harness_task_smuggle_still_denies(tmp_path: Path) -> None:
                               "tool_input": {"command":
                                   "harness task add-file T-01 x.py --slug s && rm -rf src"}})
     assert out["permissionDecision"] == "deny", out
+
+
+# -------- issues 1-2 do dogfood aegis: shell read-only + cd intra-repo + 2>&1 --------
+
+
+def test_bash_readonly_filter_after_pipe_allows(tmp_path: Path) -> None:
+    """`<allowed> | head -N` era o papercut nº1 do issue 1 — filtro
+    read-only pós-pipe agora passa."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    for cmd in ("pytest -q | head -40",
+                "pytest -q | tail -20",
+                "pytest -q | grep FAILED | wc -l"):
+        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                  "tool_input": {"command": cmd}})
+        assert out["permissionDecision"] == "allow", (cmd, out)
+
+
+def test_bash_standalone_readonly_utility_allows(tmp_path: Path) -> None:
+    """`wc -l log`, `tail arquivo`, `ls` etc. sozinhos — leitura pura,
+    zero ganho de segurança em negar (issue 1)."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    for cmd in ("wc -l .harness/scratch/build.log",
+                "tail -50 .harness/scratch/task.output",
+                "ls -la src",
+                "cat README.md",
+                'grep -rn "TODO" src'):
+        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                  "tool_input": {"command": cmd}})
+        assert out["permissionDecision"] == "allow", (cmd, out)
+
+
+def test_bash_readonly_with_quoted_gt_pattern_allows(tmp_path: Path) -> None:
+    """Adaptação do parecer cético: `>` DENTRO de aspas é padrão de busca
+    (`->`, `<div>`), não redirect — negar seria fricção recorrente no caso
+    de uso central."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    for cmd in ('grep "->" -r src',
+                'grep "=>" src/app.ts',
+                "grep '>' arquivo.xml"):
+        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                  "tool_input": {"command": cmd}})
+        assert out["permissionDecision"] == "allow", (cmd, out)
+
+
+def test_bash_readonly_with_file_redirect_denies(tmp_path: Path) -> None:
+    """Guarda inegociável: utilitário da allowlist + redirect de escrita
+    fora de aspas = escrita fora da superfície de arquivos — deny."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    for cmd in ("echo x > src/app.py",
+                "cat a.txt > b.txt",
+                "grep -r TODO src >> dump.txt",
+                "head -1 f >&saida.txt"):
+        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                  "tool_input": {"command": cmd}})
+        assert out["permissionDecision"] == "deny", (cmd, out)
+
+
+def test_bash_find_write_flags_deny(tmp_path: Path) -> None:
+    """Achado do cético: find escreve SEM `>` via -fprint/-fprintf/-fls
+    (furaria até o floor de segredo: `find . -fprint .env`) e executa via
+    -delete/-exec/-ok — todas negadas; find de busca pura passa."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    for cmd in ("find . -name '*.py' -delete",
+                "find . -name '*.py' -exec rm {} ;",
+                "find . -fprint .env",
+                "find . -fprintf saida.txt %p",
+                "find . -fls listagem.txt",
+                "find . -okdir rm {} ;"):
+        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                  "tool_input": {"command": cmd}})
+        assert out["permissionDecision"] == "deny", (cmd, out)
+    ok = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                             "tool_input": {"command": "find src -name '*.py' -type f"}})
+    assert ok["permissionDecision"] == "allow", ok
+
+
+def test_bash_rg_grep_exec_flags_deny_but_pretty_allows(tmp_path: Path) -> None:
+    """Achado do cético: `rg --pre <cmd>` executa comando arbitrário por
+    arquivo. Match exato/`=` — `--pretty` continua liberado."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    for cmd in ("rg --pre malicioso padrao .",
+                "rg --pre=malicioso padrao",
+                "rg --hostname-bin=evil padrao",
+                "grep --pre x padrao f"):
+        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                  "tool_input": {"command": cmd}})
+        assert out["permissionDecision"] == "deny", (cmd, out)
+    ok = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                             "tool_input": {"command": "rg --pretty padrao src"}})
+    assert ok["permissionDecision"] == "allow", ok
+
+
+def test_bash_process_substitution_in_readonly_denies(tmp_path: Path) -> None:
+    """`<(cmd)` executa o cmd — o check de `$(`/crase não o cobre, o check
+    read-only precisa negar por conta própria."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "cat <(comando-malicioso)"}})
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_bash_stderr_redirect_2gt1_allows(tmp_path: Path) -> None:
+    """Ponto cego apontado pelo cético: `2>&1` é duplicação de fd (nenhum
+    arquivo escrito), mas o splitter cortava no `&` e o segmento `1` órfão
+    derrubava tudo. `>&` agora não segmenta."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    for cmd in ("pytest -q 2>&1",
+                "pytest -q 2>&1 | tail -30"):
+        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                  "tool_input": {"command": cmd}})
+        assert out["permissionDecision"] == "allow", (cmd, out)
+
+
+def test_bash_cd_inside_repo_allows_outside_denies(tmp_path: Path) -> None:
+    """`cd <subdir> && <allowed>` é muscle-memory universal (issue 2); mas
+    `cd` para FORA do repo continua deny — git add/commit são liberados
+    incondicionalmente e operariam em outro repositório."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    # path absoluto em forma POSIX: em bash, backslash É escape — o
+    # splitter os consome, como um shell real faria.
+    for cmd in ("cd frontend && pytest -q",
+                f'cd "{tmp_path.as_posix()}" && pytest -q',
+                "cd . && git status"):
+        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                  "tool_input": {"command": cmd}})
+        assert out["permissionDecision"] == "allow", (cmd, out)
+    for cmd in ("cd C:/outro-repo && pytest -q",
+                "cd .. && git add .",
+                "cd $HOME && pytest -q",
+                "cd ~ && pytest -q",
+                "cd - && pytest -q"):
+        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                  "tool_input": {"command": cmd}})
+        assert out["permissionDecision"] == "deny", (cmd, out)
+
+
+def test_bash_deny_message_names_failing_segment(tmp_path: Path) -> None:
+    """Issue 2: a mensagem genérica atrasava o diagnóstico — o deny agora
+    cita QUAL segmento derrubou o comando."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "pytest -q && rm -rf src"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "segmento 'rm -rf src'" in out["permissionDecisionReason"], out
+
+
+def test_readonly_helpers_importable() -> None:
+    from harness.boundary_guard import (
+        _is_readonly_shell_segment,
+        _is_safe_cd_segment,
+        _segment_has_file_redirect,
+    )
+
+    assert _segment_has_file_redirect("echo x > f.txt") is True
+    assert _segment_has_file_redirect("cmd >> f.txt") is True
+    assert _segment_has_file_redirect("cmd >&arquivo") is True
+    assert _segment_has_file_redirect("pytest -q 2>&1") is False
+    assert _segment_has_file_redirect('grep ">" f') is False
+    assert _segment_has_file_redirect("grep '->' src") is False
+
+    assert _is_readonly_shell_segment("head -40") is True
+    assert _is_readonly_shell_segment("/usr/bin/grep -r x src") is True
+    assert _is_readonly_shell_segment("grep.exe -r x src") is True
+    assert _is_readonly_shell_segment("tee saida.txt") is False
+    assert _is_readonly_shell_segment("find . -fprint0 f") is False
+    assert _is_readonly_shell_segment("rg --pre-glob=*.py --pre=x padrao") is False
+
+    root = "C:/Projetos/demo" if sys.platform.startswith("win") else "/home/u/demo"
+    assert _is_safe_cd_segment("cd sub/dir", root) is True
+    assert _is_safe_cd_segment('cd "pasta com espaco"', root) is True
+    assert _is_safe_cd_segment("cd ..", root) is False
+    assert _is_safe_cd_segment("cd sub/../..", root) is False
+    assert _is_safe_cd_segment("cd $VAR", root) is False
+    assert _is_safe_cd_segment("cd sub", "") is False  # sem âncora -> não aceita
+    assert _is_safe_cd_segment("cdx algo", root) is False
 
 
 # ---------------- Item 6: raiz do repo fixada (deriva de cwd) ----------------
