@@ -6,7 +6,7 @@ governance:
   # balanced  -> aprova tudo que muda estado: edit/execute/network (protótipos)
   # auto      -> auto-aprova edit/execute (NÃO é read-only); só network e
   #              edit_test seguem gateados. Use só com autonomia total confiada.
-  approval_policy: balanced
+  approval_policy: auto
 
   budget:
     max_tokens_per_task: 500_000      # teto rígido — estourou, aborta
