@@ -1,11 +1,13 @@
-"""Carregamento e validação da configuração do harness (config/harness.yaml)."""
+"""Schema de validação da configuração do harness (`.harness/harness.yaml`).
+
+O YAML é lido e validado pelos consumidores (`compiler.py`, `audit.py`) via
+`HarnessConfig.model_validate(raw)` — este módulo só define o schema.
+"""
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
-import yaml
 from pydantic import BaseModel, Field
 
 ApprovalMode = Literal["paranoid", "balanced", "auto"]
@@ -32,8 +34,3 @@ class VerificationConfig(BaseModel):
 class HarnessConfig(BaseModel):
     governance: GovernanceConfig = Field(default_factory=GovernanceConfig)
     verification: VerificationConfig = Field(default_factory=VerificationConfig)
-
-    @classmethod
-    def load(cls, path: str | Path = "config/harness.yaml") -> "HarnessConfig":
-        raw: dict[str, Any] = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
-        return cls.model_validate(raw)
