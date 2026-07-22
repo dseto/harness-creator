@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.17.4 — 2026-07-22
+
+Itens 1 e 2 (os cirúrgicos) da análise dos 4 issues reportados pelo dogfood
+em `aegis_rpa_suite` (`.harness/work/backlog-agentico-design-time/issues/`).
+Ambos são correções de coerência interna: o harness negava operações que o
+próprio harness manda executar.
+
+### Corrigido
+- **`harness task` liberado pelo guard** (issue 3, ponto 3): `task` entrou
+  em `_HARNESS_SUBCOMMANDS` — o escape oficial documentado na skill plan
+  (`harness task add-file`, melhorado na v0.17.2 pelo issue #5 do GitHub)
+  era negado pelo próprio guard dentro da sessão onde ele é necessário
+  ("fecha a porta e esconde a chave"). Cobre `harness task ...` e
+  `python -m harness.cli task ...`; smuggle via `&&` continua deny
+  (regra de todo-segmento-prefixa intacta).
+- **`claude-progress.md` sempre gravável** (issue 3, ponto 1): o lifecycle
+  (passo 12) manda o agente atualizá-lo a cada sessão e o `runtime_audit`
+  dá warning se ausente — mas a superfície negava a escrita
+  (auto-derrotante). Nova `_is_progress_file_path` (match exato
+  pós-`posixpath.normpath`, case-insensitive, só o canônico da raiz —
+  homônimo em subdiretório continua fora da superfície), importável e
+  embutida no script gerado via `inspect.getsource`. Tensão documentada no
+  docstring: o arquivo também é lido no início de toda sessão (mesma classe
+  de canal de injection persistida do `AGENTS.md`), mas ser escrito pelo
+  agente é a função dele — risco residual aceito, distinção deliberada.
+
+### Pendente (mesma análise, aguardando decisão/implementação)
+- Filtros read-only pós-pipe + `cd` intra-repo + deny message por segmento
+  (issues 1-2); process-group kill + streaming no `harness verify` no
+  Windows (issue 4); superfície configurável para output de skill de gate e
+  política para path fora do repo_root (issue 3, pontos 2 e 4).
+
 ## 0.17.3 — 2026-07-22
 
 Superfície de scratch (`.harness/scratch/**`) — achado de sessão real de

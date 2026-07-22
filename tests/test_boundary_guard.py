@@ -1670,6 +1670,79 @@ def test_write_work_dir_traversal_denies(tmp_path: Path) -> None:
         assert out["permissionDecision"] == "deny", (rel, out)
 
 
+# -------- issue 3 do dogfood aegis: bookkeeping do harness + escape task --------
+
+
+def test_write_claude_progress_allows_with_active_contract(tmp_path: Path) -> None:
+    """claude-progress.md é gerado/mantido pelo próprio harness (lifecycle
+    passo 12 manda atualizá-lo) — negar a escrita era auto-derrotante."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    for rel in ("claude-progress.md", "CLAUDE-PROGRESS.md"):
+        out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                                  "tool_input": {"file_path": rel, "content": "x"}})
+        assert out["permissionDecision"] == "allow", (rel, out)
+
+
+def test_edit_claude_progress_allows_absolute_path(tmp_path: Path) -> None:
+    """Mesma superfície via Edit com path absoluto (forma que a tool manda
+    na prática)."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {
+        "tool_name": "Edit", "cwd": str(tmp_path),
+        "tool_input": {"file_path": str(tmp_path / "claude-progress.md"),
+                       "old_string": "a", "new_string": "b"},
+    })
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_write_claude_progress_in_subdir_still_denies(tmp_path: Path) -> None:
+    """Só o canônico da RAIZ é superfície — homônimo em subdiretório não
+    ganha carona (fora de files[] continua deny)."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                              "tool_input": {"file_path": "src/claude-progress.md",
+                                             "content": "x"}})
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_is_progress_file_path_importable() -> None:
+    from harness.boundary_guard import _is_progress_file_path
+
+    assert _is_progress_file_path("claude-progress.md") is True
+    assert _is_progress_file_path("CLAUDE-PROGRESS.md") is True
+    assert _is_progress_file_path("docs/../claude-progress.md") is True
+    assert _is_progress_file_path("src/claude-progress.md") is False
+    assert _is_progress_file_path("claude-progress.md.bak") is False
+    assert _is_progress_file_path("") is False
+
+
+def test_bash_harness_task_subcommand_allows(tmp_path: Path) -> None:
+    """harness task add-file é o escape oficial documentado na skill plan —
+    tinha que ser alcançável de dentro da sessão (guard fechava a porta e
+    escondia a chave)."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    for cmd in ("harness task add-file T-01 src/app.scss --slug demo --dir .",
+                "python -m harness.cli task add-file T-01 src/app.scss --dir ."):
+        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                  "tool_input": {"command": cmd}})
+        assert out["permissionDecision"] == "allow", (cmd, out)
+
+
+def test_bash_harness_task_smuggle_still_denies(tmp_path: Path) -> None:
+    """Prefixo `harness task` não vira túnel: comando arbitrário colado com
+    && continua negado pela regra de todo-segmento-prefixa."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command":
+                                  "harness task add-file T-01 x.py --slug s && rm -rf src"}})
+    assert out["permissionDecision"] == "deny", out
+
+
 # ---------------- Item 6: raiz do repo fixada (deriva de cwd) ----------------
 
 

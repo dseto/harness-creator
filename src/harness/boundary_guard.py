@@ -133,6 +133,18 @@ Quatro garantias, nesta ordem, sempre:
    AGENTS.md gerado por `compiler._render_agents_block`, Passo 8 do plan
    SKILL.md, e a deny message de superfície de `_evaluate_file`, que
    agora aponta `.harness/scratch/` como destino de artefato temporário).
+   `claude-progress.md` (raiz do repo) é igualmente sempre gravável
+   (`_is_progress_file_path`, match EXATO pós-normalização,
+   case-insensitive — um `claude-progress.md` em subdiretório NÃO casa):
+   é bookkeeping do PRÓPRIO harness — o lifecycle (passo 12) manda o
+   agente atualizá-lo a cada sessão e o `runtime_audit` dá warning se
+   ausente, mas a superfície negava a escrita (contradição interna,
+   issue 3 do dogfood aegis_rpa_suite). Tensão aceita e documentada: o
+   arquivo também é LIDO no início de toda sessão (lifecycle passo 3),
+   mesma classe de canal de injection persistida que motivou excluir
+   `AGENTS.md` de `docs/**` — mas ser escrito pelo agente É a função
+   deste arquivo (notas de estado, não regras de governança); risco
+   residual aceito, distinção deliberada em relação a `AGENTS.md`.
 
 O script gerado por `render_boundary_guard()` é standalone (stdlib apenas:
 `json`, `re`, `sys` — nada de `import harness`), porque hooks do Claude
@@ -514,6 +526,25 @@ def _is_scratch_surface_path(path: str) -> bool:
 
     normalized = posixpath.normpath(path or "")
     return normalized.startswith(SCRATCH_DIR_PREFIX)
+
+
+PROGRESS_FILE_NAME = "claude-progress.md"
+
+
+def _is_progress_file_path(path: str) -> bool:
+    """True se `path` (já `/`-separado) é o `claude-progress.md` da RAIZ do
+    repo — bookkeeping do próprio harness (o lifecycle, passo 12, manda o
+    agente atualizá-lo a cada sessão; `runtime_audit` dá warning se ausente),
+    sempre gravável. Match EXATO pós-`posixpath.normpath`, case-insensitive
+    (filesystem Windows): um `claude-progress.md` dentro de subdiretório NÃO
+    casa — só o canônico da raiz; a normalização cobre variantes como
+    `docs/../claude-progress.md`. Correção do issue 3 do dogfood
+    aegis_rpa_suite (guard negava escrita no arquivo que o próprio harness
+    manda manter)."""
+    import posixpath
+
+    normalized = posixpath.normpath(path or "")
+    return normalized.lower() == PROGRESS_FILE_NAME
 
 
 # ---------------------------------------------------------------------------
@@ -923,6 +954,8 @@ def render_boundary_guard() -> str:
         f"SCRATCH_DIR_PREFIX = {SCRATCH_DIR_PREFIX!r}",
         inspect.getsource(_is_work_surface_path),
         inspect.getsource(_is_scratch_surface_path),
+        f"PROGRESS_FILE_NAME = {PROGRESS_FILE_NAME!r}",
+        inspect.getsource(_is_progress_file_path),
         f"SESSION_STATE_FILE = {SESSION_STATE_FILE!r}",
         f"REPO_ROOT_STATE_KEY = {REPO_ROOT_STATE_KEY!r}",
         f"_MAX_ROOT_SEARCH_DEPTH = {_MAX_ROOT_SEARCH_DEPTH!r}",
@@ -1000,10 +1033,15 @@ FIXED_GIT_SEQUENCES = [
 # documentadas nas skills (python -m harness.cli) e o console-script real
 # (harness). NAO inclui 'run' (orquestrador da era congelada, chama a
 # API Anthropic — rede fora do floor — e nao estava na fricao relatada).
+# 'task' entrou na correcao do issue 3 do dogfood aegis_rpa_suite: e o
+# escape oficial documentado na skill plan (harness task add-file) para
+# ampliar a superficie de uma tarefa — sem ele aqui, o guard fechava a
+# porta E escondia a chave (o proprio deny message apontava um comando
+# que o guard negava).
 _HARNESS_SUBCOMMANDS = [
     "compile", "audit", "audit-runtime", "analyze", "preflight",
     "compile-contract", "compile-session", "verify", "team", "review",
-    "supervise", "audit-team",
+    "supervise", "audit-team", "task",
 ]
 FIXED_HARNESS_SEQUENCES = (
     [["harness", sub] for sub in _HARNESS_SUBCOMMANDS]
@@ -1385,6 +1423,13 @@ def _evaluate_file(path, cwd):
             "correto de artefato temporario de verificacao (screenshot, dump "
             "de rede, HTML de debug); auto-ignorada pelo git, apagavel a "
             "qualquer momento, nunca referencie de codigo"
+        )
+
+    if _is_progress_file_path(path):
+        return "allow", (
+            "claude-progress.md e bookkeeping do proprio harness (o lifecycle "
+            "manda atualiza-lo a cada sessao) - sempre gravavel, mesmo padrao "
+            "de .harness/work/** e docs/**"
         )
 
     if _is_docs_surface_path(path):
