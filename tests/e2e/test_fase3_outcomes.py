@@ -162,7 +162,10 @@ def _evidence_writer():
     yield
     if not _SECTIONS:
         return  # nenhum teste executou — não clobbar evidência real
-    now = datetime.now(timezone.utc).isoformat()
+    # Sem timestamp no conteúdo gravado (de propósito, mesmo motivo de
+    # test_fase2_outcomes.py): veredito determinístico rodada a rodada —
+    # `datetime.now()` sujava o arquivo versionado a cada execução da
+    # suíte, mesmo sem nenhuma mudança real de comportamento.
     existing_sections: dict[int, str] = {}
     if EVIDENCE_PATH.is_file():
         existing_sections = _parse_existing_sections(
@@ -171,7 +174,7 @@ def _evidence_writer():
     body = [
         "# Evidência — Fase 3: verificação dos 6 outcomes",
         "",
-        f"Gerado em {now} por `tests/e2e/test_fase3_outcomes.py` "
+        "Gerado por `tests/e2e/test_fase3_outcomes.py` "
         "(repos sintéticos em tmp_path via subprocess da CLI real + hooks "
         "standalone gerados + funções públicas de módulo).",
         "",
@@ -185,8 +188,6 @@ def _evidence_writer():
             body.append(f"Veredito: **{'ATINGIDO' if achieved else 'NÃO ATINGIDO'}**")
             body.append("")
             body.append(proof)
-            body.append("")
-            body.append(f"_Atualizado em {now} por esta rodada._")
         else:
             old_body = existing_sections.get(num, "")
             if old_body and not old_body.lstrip().startswith(_NOT_EXECUTED_PREFIX):
@@ -336,6 +337,10 @@ def test_outcome1_verify_records_evidence_only_on_success(tmp_path: Path) -> Non
         )
         # stdout da CLI ecoa a evidência gravada (mesmo JSON)
         assert json.loads(proc.stdout) == evidence
+        # `recorded_at` real é ISO8601 do momento da rodada — redigido na
+        # evidência VERSIONADA (placeholder abaixo) pra não sujar o arquivo
+        # a cada execução da suíte; já foi validado como parseável acima.
+        redacted_evidence = {**evidence, "recorded_at": "<ISO8601 real, redigido>"}
         proof.append(
             "`harness verify T-OK`: exit 0, o verify_cmd REAL rodou (efeito "
             "observável `verify_ran.txt` criado em disco), evidência gravada em "
@@ -343,7 +348,7 @@ def test_outcome1_verify_records_evidence_only_on_success(tmp_path: Path) -> Non
             "(feature_id/verify_cmd/recorded_at/exit_code/files_hash), "
             "`exit_code: 0`, `recorded_at` ISO8601 e `files_hash` idêntico ao "
             "recomputado de fora via `compute_files_hash`.\n\n"
-            f"```json\n{json.dumps(evidence, indent=2)}\n```"
+            f"```json\n{json.dumps(redacted_evidence, indent=2)}\n```"
         )
 
         # (b) falha: exit code REAL (7) propaga, NADA gravado

@@ -125,8 +125,11 @@ def _write_evidence(cmd_a: str, out_a: str, cmd_b: str, out_b: str) -> None:
 Prova REAL exigida pelo ROADMAP: dois repositórios git de verdade criados em
 disco (num `tmp_path` efêmero gerado pelo próprio teste) e avaliados pelo
 COMANDO REAL do CLI via `subprocess.run` — o mesmo caminho que a skill
-`/harness-creator:preflight` percorre. Os blocos JSON abaixo são o **stdout
-literal** capturado de cada subprocess (não reescrito à mão).
+`/harness-creator:preflight` percorre. Os blocos JSON abaixo são o laudo real
+de cada subprocess, com o único campo variável por rodada (o path absoluto
+efêmero do `tmp_path`) redigido para um placeholder estável — sem isso, o
+arquivo versionado sujaria a cada execução da suíte só pelo path, mesmo sem
+nenhuma mudança real de comportamento.
 
 Ambiente do subprocess: `PYTHONPATH={SRC_DIR.as_posix()}`,
 interpretador `{sys.executable}`.
@@ -138,8 +141,8 @@ interpretador `{sys.executable}`.
 `git init` + 1 commit, `pyproject.toml` mínimo (projeto Python válido, mas SEM
 declarar `pytest` e SEM `[tool.ruff]`), SEM diretório `tests/`.
 
-O `--dir` abaixo é um mock efêmero gerado pelo teste (path de `tmp_path`), NÃO
-um caminho fixo do repositório:
+O `--dir` abaixo é um mock efêmero gerado pelo teste (path de `tmp_path`,
+redigido para `<mock_a_cru>`), NÃO um caminho fixo do repositório:
 
 ```
 {cmd_a}
@@ -209,10 +212,16 @@ def test_preflight_e2e_dogfood(tmp_path: Path) -> None:
     report_b = json.loads(proc_b.stdout)
     assert report_b["verdict"] == "READY"
 
-    # --- Evidência legível commitada (stdout real dos subprocess) ---
-    cmd_a = f"{Path(sys.executable).name} -m harness.cli preflight --dir {mock_a}"
-    cmd_b = f"{Path(sys.executable).name} -m harness.cli preflight --dir {mock_b}"
-    _write_evidence(cmd_a, proc_a.stdout.strip(), cmd_b, proc_b.stdout.strip())
+    # --- Evidência legível commitada (laudo real, path de tmp_path redigido
+    # pra um placeholder estável — ver docstring de _write_evidence) ---
+    cmd_a = f"{Path(sys.executable).name} -m harness.cli preflight --dir <mock_a_cru>"
+    cmd_b = f"{Path(sys.executable).name} -m harness.cli preflight --dir <mock_b_completo>"
+    redacted_a = {**report_a, "target": "<mock_a_cru>"}
+    redacted_b = {**report_b, "target": "<mock_b_completo>"}
+    _write_evidence(
+        cmd_a, json.dumps(redacted_a, indent=2, ensure_ascii=False),
+        cmd_b, json.dumps(redacted_b, indent=2, ensure_ascii=False),
+    )
 
     assert EVIDENCE_PATH.is_file()
     written = EVIDENCE_PATH.read_text(encoding="utf-8")

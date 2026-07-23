@@ -67,7 +67,6 @@ import os
 import re
 import subprocess
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -244,7 +243,10 @@ def _evidence_writer():
     yield
     if not _SECTIONS:
         return  # nenhum teste executou — não clobbar evidência real
-    now = datetime.now(timezone.utc).isoformat()
+    # Sem timestamp no conteúdo gravado (de propósito): o veredito de cada
+    # outcome já é determinístico rodada a rodada (mesmo código -> mesma
+    # prova) — embutir `datetime.now()` sujava o arquivo versionado a CADA
+    # execução da suíte, mesmo sem nenhuma mudança real de comportamento.
     existing_sections: dict[int, str] = {}
     if EVIDENCE_PATH.is_file():
         existing_sections = _parse_existing_sections(
@@ -253,7 +255,7 @@ def _evidence_writer():
     body = [
         "# Evidência — Fase 2: verificação dos 9 outcomes",
         "",
-        f"Gerado em {now} por `tests/e2e/test_fase2_outcomes.py` "
+        "Gerado por `tests/e2e/test_fase2_outcomes.py` "
         "(repos sintéticos em tmp_path via subprocess da CLI real).",
         "",
     ]
@@ -266,8 +268,6 @@ def _evidence_writer():
             body.append(f"Veredito: **{'ATINGIDO' if achieved else 'NÃO ATINGIDO'}**")
             body.append("")
             body.append(proof)
-            body.append("")
-            body.append(f"_Atualizado em {now} por esta rodada._")
         else:
             old_body = existing_sections.get(num, "")
             if old_body and not old_body.lstrip().startswith(_NOT_EXECUTED_PREFIX):

@@ -26,7 +26,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-from harness.boundary_guard import install_boundary_guard
+from harness.boundary_guard import (
+    BOUNDARY_HOOK_FILENAME,
+    HOOKS_DIR,
+    install_boundary_guard,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EVIDENCE_PATH = (
@@ -93,7 +97,7 @@ def _run_hook(script: Path, tool_input_command: str, cwd: Path) -> dict:
     return json.loads(proc.stdout)["hookSpecificOutput"]
 
 
-def _write_evidence(script: Path, allow_result: dict, deny_result: dict) -> None:
+def _write_evidence(allow_result: dict, deny_result: dict) -> None:
     EVIDENCE_PATH.parent.mkdir(parents=True, exist_ok=True)
     content = f"""\
 # Evidência dogfood — `governance.extra_allowed_commands` (gate final da demanda)
@@ -111,7 +115,9 @@ declarando `governance.extra_allowed_commands: ["python -m mar_committee"]`.
 abaixo são a **saída literal** do script instalado, invocado via
 `subprocess.run` (interpretador `{sys.executable}`).
 
-Script instalado: `{script}`
+Script instalado em `{HOOKS_DIR}/{BOUNDARY_HOOK_FILENAME}` (relativo à raiz
+do mock efêmero em `tmp_path` — o path absoluto varia por rodada e não entra
+na evidência versionada).
 
 ---
 
@@ -167,7 +173,7 @@ def test_extra_allowed_commands_e2e_dogfood(tmp_path: Path) -> None:
     deny_result = _run_hook(script, "algum-cli-nao-declarado --flag", mock_root)
     assert deny_result["permissionDecision"] == "deny", deny_result
 
-    _write_evidence(script, allow_result, deny_result)
+    _write_evidence(allow_result, deny_result)
 
     assert EVIDENCE_PATH.is_file()
     written = EVIDENCE_PATH.read_text(encoding="utf-8")

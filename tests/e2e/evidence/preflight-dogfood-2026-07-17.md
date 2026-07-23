@@ -6,8 +6,11 @@
 Prova REAL exigida pelo ROADMAP: dois repositórios git de verdade criados em
 disco (num `tmp_path` efêmero gerado pelo próprio teste) e avaliados pelo
 COMANDO REAL do CLI via `subprocess.run` — o mesmo caminho que a skill
-`/harness-creator:preflight` percorre. Os blocos JSON abaixo são o **stdout
-literal** capturado de cada subprocess (não reescrito à mão).
+`/harness-creator:preflight` percorre. Os blocos JSON abaixo são o laudo real
+de cada subprocess, com o único campo variável por rodada (o path absoluto
+efêmero do `tmp_path`) redigido para um placeholder estável — sem isso, o
+arquivo versionado sujaria a cada execução da suíte só pelo path, mesmo sem
+nenhuma mudança real de comportamento.
 
 Ambiente do subprocess: `PYTHONPATH=C:/Projetos/Harness-creator/src`,
 interpretador `C:\Python314\python.exe`.
@@ -19,11 +22,11 @@ interpretador `C:\Python314\python.exe`.
 `git init` + 1 commit, `pyproject.toml` mínimo (projeto Python válido, mas SEM
 declarar `pytest` e SEM `[tool.ruff]`), SEM diretório `tests/`.
 
-O `--dir` abaixo é um mock efêmero gerado pelo teste (path de `tmp_path`), NÃO
-um caminho fixo do repositório:
+O `--dir` abaixo é um mock efêmero gerado pelo teste (path de `tmp_path`,
+redigido para `<mock_a_cru>`), NÃO um caminho fixo do repositório:
 
 ```
-python.exe -m harness.cli preflight --dir C:\Users\danie\AppData\Local\Temp\pytest-of-danie\pytest-482\test_preflight_e2e_dogfood0\mock_a_cru
+python.exe -m harness.cli preflight --dir <mock_a_cru>
 ```
 
 Exit code: **1** — veredito **NOT_READY**.
@@ -33,7 +36,7 @@ Laudo real (stdout do subprocess):
 ```json
 {
   "verdict": "NOT_READY",
-  "target": "C:\\Users\\danie\\AppData\\Local\\Temp\\pytest-of-danie\\pytest-482\\test_preflight_e2e_dogfood0\\mock_a_cru",
+  "target": "<mock_a_cru>",
   "categories": [
     {
       "id": "git",
@@ -136,7 +139,7 @@ Laudo real (stdout do subprocess):
 `[project.optional-dependencies]` e `[tool.ruff]`, `tests/test_x.py`.
 
 ```
-python.exe -m harness.cli preflight --dir C:\Users\danie\AppData\Local\Temp\pytest-of-danie\pytest-482\test_preflight_e2e_dogfood0\mock_b_completo
+python.exe -m harness.cli preflight --dir <mock_b_completo>
 ```
 
 Exit code: **0** — veredito **READY**.
@@ -146,7 +149,7 @@ Laudo real (stdout do subprocess):
 ```json
 {
   "verdict": "READY",
-  "target": "C:\\Users\\danie\\AppData\\Local\\Temp\\pytest-of-danie\\pytest-482\\test_preflight_e2e_dogfood0\\mock_b_completo",
+  "target": "<mock_b_completo>",
   "categories": [
     {
       "id": "git",
