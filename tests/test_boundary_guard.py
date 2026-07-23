@@ -2399,3 +2399,101 @@ def test_no_harness_yaml_keeps_current_behavior(tmp_path: Path) -> None:
     out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
                               "tool_input": {"command": "python -m mar_committee --help"}})
     assert out["permissionDecision"] == "deny", out
+
+
+# ---------------- branches protegidas: git commit só via PR ----------------
+
+def _write_git_head(target: Path, content: str) -> None:
+    """Simula o estado de branch escrevendo `.git/HEAD` direto — o guard lê
+    só esse arquivo (stdlib, sem subprocess git), então não precisa de um
+    repo git real aqui."""
+    git_dir = target / ".git"
+    git_dir.mkdir(parents=True, exist_ok=True)
+    (git_dir / "HEAD").write_text(content, encoding="utf-8")
+
+
+def test_bash_git_commit_denied_on_protected_branches(tmp_path: Path) -> None:
+    """Finding C (dogfood 2026-07-22): regra 'nunca commit direto na main,
+    só via PR' — o guard nega `git commit` quando a branch atual é protegida
+    (main/homolog/develop por default)."""
+    _contract_with_verify(tmp_path)
+    for branch in ("main", "homolog", "develop"):
+        _write_git_head(tmp_path, f"ref: refs/heads/{branch}\n")
+        script = _script(tmp_path)
+        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                  "tool_input": {"command": "git commit -m x"}})
+        assert out["permissionDecision"] == "deny", (branch, out)
+        assert "protegida" in out["permissionDecisionReason"], out
+
+
+def test_bash_git_commit_allowed_on_contract_branch(tmp_path: Path) -> None:
+    _contract_with_verify(tmp_path)
+    _write_git_head(tmp_path, "ref: refs/heads/contract/exemplo-feature\n")
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "git commit -m x"}})
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_bash_git_commit_denied_on_protected_branch_without_contract(tmp_path: Path) -> None:
+    """A regra é incondicional (postura de floor): mesmo SEM contrato ativo,
+    commit em branch protegida é deny."""
+    _write_git_head(tmp_path, "ref: refs/heads/main\n")
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "git commit -m x"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "protegida" in out["permissionDecisionReason"], out
+
+
+def test_bash_git_commit_allowed_on_detached_head(tmp_path: Path) -> None:
+    _contract_with_verify(tmp_path)
+    _write_git_head(tmp_path, "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2\n")
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "git commit -m x"}})
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_bash_git_add_and_status_still_allowed_on_protected_branch(tmp_path: Path) -> None:
+    """Só COMMIT é negado em branch protegida — add/status/diff seguem
+    liberados (preparar staging não viola a regra do PR)."""
+    _contract_with_verify(tmp_path)
+    _write_git_head(tmp_path, "ref: refs/heads/main\n")
+    script = _script(tmp_path)
+    for cmd in ("git status", "git add .", "git diff"):
+        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                  "tool_input": {"command": cmd}})
+        assert out["permissionDecision"] == "allow", (cmd, out)
+
+
+def test_powershell_git_commit_denied_on_protected_branch(tmp_path: Path) -> None:
+    _contract_with_verify(tmp_path)
+    _write_git_head(tmp_path, "ref: refs/heads/develop\n")
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": "git commit -m x"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "protegida" in out["permissionDecisionReason"], out
+
+
+def test_protected_branches_override_from_harness_yaml(tmp_path: Path) -> None:
+    """`governance.protected_branches` do harness.yaml é bakeado no script
+    gerado (mesmo padrão de EXTRA_ALLOWED_COMMANDS): override substitui o
+    default — main deixa de ser protegida se o dono declarar só trunk."""
+    _contract_with_verify(tmp_path)
+    yaml_path = tmp_path / ".harness" / "harness.yaml"
+    yaml_path.write_text(
+        "governance:\n  protected_branches:\n    - trunk\n", encoding="utf-8"
+    )
+    script = _script(tmp_path)
+
+    _write_git_head(tmp_path, "ref: refs/heads/trunk\n")
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "git commit -m x"}})
+    assert out["permissionDecision"] == "deny", out
+
+    _write_git_head(tmp_path, "ref: refs/heads/main\n")
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "git commit -m x"}})
+    assert out["permissionDecision"] == "allow", out
