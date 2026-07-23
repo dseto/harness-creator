@@ -62,7 +62,7 @@ sempre exige aprovação humana.
 <!-- harness:end -->
 
 <!-- harness:lifecycle:begin -->
-## Agent Session Lifecycle (gerado — 16 passos, docs/project/ROADMAP.md Fase 2)
+## Agent Session Lifecycle (gerado — 17 passos, docs/project/ROADMAP.md Fase 2)
 
 1. Ler `AGENTS.md`.
 2. Rodar `init.sh`/`init.ps1` (deps + health check do profile).
@@ -78,8 +78,9 @@ sempre exige aprovação humana.
 12. Atualizar `claude-progress.md` com o estado atual.
 13. Marcar a feature concluída em `feature_list.json`.
 14. Documentar o que ficou quebrado, se houver.
-15. Commit apenas em estado retomável.
-16. Deixar a working tree limpa.
+15. Parar e pedir aprovação humana explícita antes do commit, com mensagem clara do que foi feito.
+16. Só após aprovação: commit em estado retomável.
+17. Deixar a working tree limpa.
 
 Detalhe de cada passo: ver `.harness/LIFECYCLE.md`.
 <!-- harness:lifecycle:end -->

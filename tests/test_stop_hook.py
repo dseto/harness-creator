@@ -127,6 +127,17 @@ def test_feature_in_progress_without_evidence_signals(tmp_path: Path) -> None:
     assert "harness verify" in context
 
 
+def test_disabled_sentinel_suppresses_stop_feedback(tmp_path: Path) -> None:
+    """Kill-switch: com o sentinel presente, o Stop hook faz no-op (não injeta
+    feedback) mesmo num cenário que normalmente sinalizaria."""
+    feature = _make_feature_with_uncommitted_diff(tmp_path)
+    _write_feature_list(tmp_path, [feature])
+    (tmp_path / ".harness" / "harness.disabled").write_text("{}", encoding="utf-8")
+
+    script_path = _write_hook_script(tmp_path)
+    assert _run_hook(script_path, tmp_path) == ""
+
+
 def test_feature_in_progress_with_up_to_date_evidence_signals_nothing(tmp_path: Path) -> None:
     feature = _make_feature_with_uncommitted_diff(tmp_path)
     _write_feature_list(tmp_path, [feature])

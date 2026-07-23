@@ -62,6 +62,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from harness.killswitch import DISABLED_CHECK_SRC
 from harness.verify import EVIDENCE_DIR, compute_files_hash
 
 HOOKS_DIR = ".harness/hooks"
@@ -165,6 +166,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+
+''' + DISABLED_CHECK_SRC + '''
+
 FEATURE_LIST_FILE = ".harness/feature_list.json"
 EVIDENCE_DIR = ".harness/evidence"
 
@@ -259,6 +263,8 @@ def main() -> None:
     except (json.JSONDecodeError, ValueError):
         payload = {}
     cwd = Path(payload.get("cwd") or ".")
+    if _harness_disabled():
+        return
     message = build_feedback(cwd)
     if message is None:
         return

@@ -296,6 +296,7 @@ import yaml
 from pydantic import ValidationError
 
 from harness.config import HarnessConfig
+from harness.killswitch import DISABLED_CHECK_SRC
 from harness.review import ReviewError, is_test_diff, load_review
 
 HOOKS_DIR = ".harness/hooks"
@@ -430,6 +431,57 @@ def is_floor_bash_secret_redirect(command: str) -> bool:
     if "tee" in tokens:
         idx = tokens.index("tee")
         return any(is_floor_secret_path(tok) for tok in tokens[idx + 1:])
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Floor do kill-switch (Python real, IMPORTÁVEL) — nega o AGENTE se
+# auto-desativar. Enquanto o harness está ativo (sentinel ausente), criar o
+# sentinel `.harness/harness.disabled` ou rodar `harness disable` é DENY
+# incondicional (precede a checagem de contrato, como os demais floors). Sem
+# paradoxo com o short-circuit de `main()`: quando o sentinel EXISTE, `main()`
+# já devolveu allow antes de chegar aqui — estes denies só rodam com o harness
+# ativo. Residual idêntico ao floor de segredo (não persegue escrita indireta
+# via interpretador — ver `is_floor_bash_secret_redirect`). O USUÁRIO roda
+# `harness disable` no terminal próprio, fora do Claude Code, sem hook nenhum.
+# ---------------------------------------------------------------------------
+DISABLE_SENTINEL_BASENAME = "harness.disabled"
+FLOOR_DISABLE_SEQUENCES: list[list[str]] = [
+    ["harness", "disable"],
+    ["python", "-m", "harness.cli", "disable"],
+]
+
+
+def is_floor_disable_sentinel_path(path: str) -> bool:
+    """True se `path` aponta para o sentinel de kill-switch
+    (`.harness/harness.disabled`). Match por nome-base (mesma postura de
+    `is_floor_secret_path`): `harness.disabled` é nome distintivo, então cobre
+    tanto o path relativo do `_evaluate_file` quanto o alvo de um
+    redirecionamento, com ou sem prefixo de diretório."""
+    lower = (path or "").replace("\\", "/").lower()
+    return lower.rsplit("/", 1)[-1] == DISABLE_SENTINEL_BASENAME
+
+
+def is_floor_disable_command(command: str) -> bool:
+    """True se `command` invoca `harness disable` (ou `python -m harness.cli
+    disable`) — as duas formas documentadas, mesmo padrão de
+    `FIXED_HARNESS_SEQUENCES`. `enable`/`status` NÃO casam (re-ativar é
+    inofensivo; status é read-only)."""
+    tokens = _tokenize_command(command)
+    return any(_has_sequence(tokens, seq) for seq in FLOOR_DISABLE_SEQUENCES)
+
+
+def is_floor_bash_disable_redirect(command: str) -> bool:
+    """True se `command` redireciona (`>`/`>>`) ou usa `tee` para criar o
+    sentinel de kill-switch — espelha `is_floor_bash_secret_redirect`, trocando
+    só o matcher do alvo por `is_floor_disable_sentinel_path`."""
+    command = command or ""
+    tokens = _tokenize_command(command)
+    if ">" in command and any(is_floor_disable_sentinel_path(tok) for tok in tokens):
+        return True
+    if "tee" in tokens:
+        idx = tokens.index("tee")
+        return any(is_floor_disable_sentinel_path(tok) for tok in tokens[idx + 1:])
     return False
 
 
@@ -1231,6 +1283,12 @@ def render_boundary_guard(
         inspect.getsource(_current_git_branch),
         inspect.getsource(is_floor_secret_path),
         inspect.getsource(is_floor_bash_secret_redirect),
+        DISABLED_CHECK_SRC,
+        f"DISABLE_SENTINEL_BASENAME = {DISABLE_SENTINEL_BASENAME!r}",
+        f"FLOOR_DISABLE_SEQUENCES = {FLOOR_DISABLE_SEQUENCES!r}",
+        inspect.getsource(is_floor_disable_sentinel_path),
+        inspect.getsource(is_floor_disable_command),
+        inspect.getsource(is_floor_bash_disable_redirect),
         f"_PS_NETWORK_PATTERN = re.compile({_PS_NETWORK_PATTERN.pattern!r})",
         f"_PS_WRITE_CMDLET_PATTERN = re.compile({_PS_WRITE_CMDLET_PATTERN.pattern!r})",
         f"_PS_WRITEALLTEXT_PATTERN = re.compile({_PS_WRITEALLTEXT_PATTERN.pattern!r})",
@@ -1745,6 +1803,14 @@ def _evaluate_file(path, cwd):
             "credentials) e bloqueio incondicional, independente de contrato ativo"
         )
 
+    if is_floor_disable_sentinel_path(path):
+        return "deny", (
+            "runtime floor: criar/editar o sentinel de kill-switch "
+            "(.harness/harness.disabled) e bloqueio incondicional - o agente nao "
+            "pode se auto-desativar; para desativar o harness, rode `harness disable` "
+            "no SEU terminal (fora do Claude Code, onde nenhum hook intercepta)"
+        )
+
     if _is_claude_memory_path(path):
         return "allow", (
             "diretorio de memoria do Claude Code (.claude/projects/<slug>/memory/**) "
@@ -1827,6 +1893,14 @@ def _evaluate_bash(command, cwd):
             "(.env/.pem/id_rsa/credentials) e bloqueio incondicional, independente "
             "de contrato ativo - escopo restrito a redirecionamento/tee, nao "
             "persegue escrita indireta via interpretador (python -c, node -e, etc.)"
+        )
+
+    if is_floor_disable_command(command) or is_floor_bash_disable_redirect(command):
+        return "deny", (
+            "runtime floor: `harness disable` / criar o sentinel de kill-switch "
+            "(.harness/harness.disabled) e bloqueio incondicional - o agente nao "
+            "pode se auto-desativar; rode `harness disable` no SEU terminal (fora do "
+            "Claude Code, onde nenhum hook intercepta)"
         )
 
     protected_problem = _protected_branch_commit_problem(command, cwd)
@@ -1955,6 +2029,13 @@ def _evaluate_powershell(command, cwd):
             "independente de contrato ativo"
         )
 
+    if is_floor_disable_command(command) or is_floor_bash_disable_redirect(command):
+        return "deny", (
+            "runtime floor: `harness disable` / criar o sentinel de kill-switch "
+            "(.harness/harness.disabled) via PowerShell e bloqueio incondicional - o "
+            "agente nao pode se auto-desativar; rode no SEU terminal (fora do Claude Code)"
+        )
+
     protected_problem = _protected_branch_commit_problem(command, cwd)
     if protected_problem:
         return "deny", protected_problem
@@ -2005,6 +2086,26 @@ _UNKNOWN_WRITE_NAME_PATTERN = re.compile(r"(?i)(write|create|edit)")
 def main() -> None:
     try:
         import os
+
+        # Kill-switch: se o usuario desativou o harness (sentinel
+        # .harness/harness.disabled presente), este hook faz no-op -> allow.
+        # Precede TUDO, inclusive o floor: uma vez desativado pelo usuario (que
+        # rodou `harness disable` no terminal proprio, sem hook), o boundary_guard
+        # nao gateia mais nada ate `harness enable`. O floor anti-auto-desativacao
+        # abaixo (_evaluate_*) so roda enquanto ATIVO, negando o agente criar o
+        # sentinel - sem paradoxo.
+        if _harness_disabled():
+            print(json.dumps({
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "allow",
+                    "permissionDecisionReason": (
+                        "harness desativado pelo usuario (.harness/harness.disabled) - "
+                        "kill-switch externo ativo, boundary_guard em no-op ate `harness enable`"
+                    ),
+                }
+            }))
+            return
 
         data = json.load(sys.stdin)
         tool_name = data.get("tool_name") or ""
@@ -2203,6 +2304,22 @@ def install_boundary_guard(target_dir: Path) -> Path:
     scratch_gitignore = scratch_dir / ".gitignore"
     if not scratch_gitignore.is_file():
         scratch_gitignore.write_text("*\n!.gitignore\n", encoding="utf-8")
+
+    # Kill-switch: o sentinel `.harness/harness.disabled` é estado operacional
+    # de máquina (machine-local), nunca versionado — garante (idempotente) uma
+    # linha em `.harness/.gitignore` para ele. `.harness/` no geral É versionado
+    # (work/, feature_list.json viajam pra branch), então o ignore precisa ser
+    # explícito por arquivo. Preserva qualquer conteúdo já presente.
+    harness_gitignore = target_dir / HOOKS_DIR.split("/")[0] / ".gitignore"
+    existing = (
+        harness_gitignore.read_text(encoding="utf-8") if harness_gitignore.is_file() else ""
+    )
+    if DISABLE_SENTINEL_BASENAME not in existing.split():
+        harness_gitignore.write_text(
+            (existing.rstrip("\n") + "\n" if existing.strip() else "")
+            + DISABLE_SENTINEL_BASENAME + "\n",
+            encoding="utf-8",
+        )
 
     command = f'python "{script_path}"'
 

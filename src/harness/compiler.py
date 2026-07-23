@@ -34,6 +34,7 @@ import yaml
 from harness import __version__ as _HARNESS_VERSION
 from harness.config import HarnessConfig
 from harness.governance.approval import _ALWAYS_GATED, _POLICY_MATRIX
+from harness.killswitch import DISABLED_CHECK_SRC
 from harness.patterns import _glob_to_regex
 
 HARNESS_YAML = ".harness/harness.yaml"
@@ -148,10 +149,26 @@ import json
 import re
 import sys
 
+
+{DISABLED_CHECK_SRC}
+
+
 TEST_PATTERN = re.compile({pattern!r})
 
 
 def main() -> None:
+    if _harness_disabled():
+        print(json.dumps({{
+            "hookSpecificOutput": {{
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "allow",
+                "permissionDecisionReason": (
+                    "harness desativado pelo usuario (.harness/harness.disabled) - "
+                    "kill-switch externo ativo"
+                ),
+            }}
+        }}))
+        return
     data = json.load(sys.stdin)
     raw_path = (data.get("tool_input") or {{}}).get("file_path") or ""
     path = raw_path.replace("\\\\", "/")
@@ -196,6 +213,10 @@ import json
 import re
 import sys
 
+
+{DISABLED_CHECK_SRC}
+
+
 RUNNER_TOKENS = {runner_tokens!r}
 # Metacaracteres de shell contam como separador — "pytest&&true" não escapa.
 SHELL_SPLIT = re.compile(r"[\\s;&|()<>`$\\"']+")
@@ -209,6 +230,18 @@ def _has_runner_sequence(tokens: list) -> bool:
 
 
 def main() -> None:
+    if _harness_disabled():
+        print(json.dumps({{
+            "hookSpecificOutput": {{
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "allow",
+                "permissionDecisionReason": (
+                    "harness desativado pelo usuario (.harness/harness.disabled) - "
+                    "kill-switch externo ativo"
+                ),
+            }}
+        }}))
+        return
     data = json.load(sys.stdin)
     command = (data.get("tool_input") or {{}}).get("command") or ""
 
