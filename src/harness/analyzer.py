@@ -276,6 +276,12 @@ def _detect_package_manager(files: list[Path]) -> Finding | None:
         manager = _LOCKFILE_MANAGERS.get(rel.name)
         if manager is not None:
             return Finding(manager, rel.as_posix(), 1.0)
+    # Nenhum lockfile: projeto Python sem lockfile usa pip por definição
+    # (não existe "linguagem Python sem package manager") — inferência com
+    # confidence menor que 1.0 porque não veio de um lockfile explícito.
+    python_manifest = _first(files, _PYTHON_MANIFESTS)
+    if python_manifest is not None:
+        return Finding("pip", python_manifest.as_posix(), 0.6)
     return None
 
 

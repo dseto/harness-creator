@@ -78,7 +78,9 @@ sempre exige aprovação humana.
 12. Atualizar `claude-progress.md` com o estado atual.
 13. Marcar a feature concluída em `feature_list.json`.
 14. Documentar o que ficou quebrado, se houver.
-15. Parar e pedir aprovação humana explícita antes do commit, com mensagem clara do que foi feito.
+15. Parar e pedir aprovação humana explícita antes do commit — a mensagem
+    DEVE conter, por feature: descrição funcional em linguagem natural do
+    que mudou, e link `file:line` do teste que prova.
 16. Só após aprovação: commit em estado retomável.
 17. Deixar a working tree limpa.
 
