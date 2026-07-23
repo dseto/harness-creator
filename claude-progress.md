@@ -1,13 +1,15 @@
 # Claude Progress
 
-Contrato: `infer-pip-package-manager`
+Contrato: `pip-install-command-boundary`
 
 ## Features
 
 | id | desc | status |
 | --- | --- | --- |
-| T-01 | _detect_package_manager infere pip via manifest Python quando falta lockfile | done |
-| T-02 | Rodar suite completa para confirmar ausencia de regressao | done |
+| T-01 | boundary_guard libera "pip install -e ." quando package_manager=pip | done |
+| T-02 | session_permissions gera Bash(pip install -e .) no allow[] quando package_manager=pip | done |
+| T-03 | templates gera "pip install -e ." em init.sh/init.ps1 quando package_manager=pip | done |
+| T-04 | Rodar suite completa para confirmar ausencia de regressao | done |
 
 ## Última atualização
 

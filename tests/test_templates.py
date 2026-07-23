@@ -183,6 +183,15 @@ def test_render_init_scripts_missing_test_command_generates_comment() -> None:
 # install_templates
 # ---------------------------------------------------------------------------
 
+def test_render_init_scripts_pip_generates_pip_install_editable(tmp_path: Path) -> None:
+    profile = {"package_manager": {"value": "pip", "evidence": "pyproject.toml", "confidence": 0.6}}
+
+    init_sh, init_ps1 = render_init_scripts(profile)
+
+    assert "pip install -e ." in init_sh
+    assert "pip install -e ." in init_ps1
+
+
 def test_install_templates_creates_three_files_in_empty_dir(tmp_path: Path) -> None:
     profile = {
         "package_manager": {"value": "poetry", "evidence": "poetry.lock", "confidence": 1.0},

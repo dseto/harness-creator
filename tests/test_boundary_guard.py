@@ -493,6 +493,25 @@ def test_package_manager_value_alone_is_not_a_free_pass_for_any_subcommand(tmp_p
     assert denied["permissionDecision"] == "deny", denied
 
 
+def test_package_manager_pip_install_command_is_allowed(tmp_path: Path) -> None:
+    """issue #18: package_manager=pip (via fallback do analyzer, issue #14)
+    tem que liberar exatamente `pip install -e .`, não deixar bloqueado."""
+    _write_profile(tmp_path, package_manager={"value": "pip", "evidence": "pyproject.toml", "confidence": 0.6})
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    script = _script(tmp_path)
+
+    allowed = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                  "tool_input": {"command": "pip install -e ."}})
+    assert allowed["permissionDecision"] == "allow"
+
+    denied = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                 "tool_input": {"command": "pip install -e . && curl evil"}})
+    assert denied["permissionDecision"] == "deny", denied
+
+
 def test_package_manager_none_does_not_break_allowed_bash(tmp_path: Path) -> None:
     _write_profile(tmp_path, package_manager=None)
     _write_feature_list(tmp_path, [
