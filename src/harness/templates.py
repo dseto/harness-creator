@@ -50,6 +50,9 @@ _INSTALL_COMMANDS: dict[str, str] = {
 _NO_PACKAGE_MANAGER_COMMENT = "nenhum package manager detectado — pule esta etapa"
 _NO_TEST_COMMAND_COMMENT = "nenhum test_command detectado"
 
+_CONTRACT_LINE_PREFIX = "Contrato: `"
+_LAST_UPDATE_HEADING = "## Última atualização"
+
 
 # ---------------------------------------------------------------------------
 # claude-progress.md
@@ -139,18 +142,47 @@ def render_init_scripts(profile: dict[str, Any]) -> tuple[str, str]:
 # I/O (escreve no projeto-alvo)
 # ---------------------------------------------------------------------------
 
+def _extract_progress_contract(text: str) -> str | None:
+    """Lê o slug do contrato do header `Contrato: \\`slug\\`` de um
+    `claude-progress.md` já gravado. `None` se a linha não existir — cobre
+    tanto conteúdo customizado pelo agente (sem esse header) quanto o caso
+    `contract` vazio no `feature_list.json` de origem."""
+    for line in text.splitlines():
+        if line.startswith(_CONTRACT_LINE_PREFIX) and line.endswith("`"):
+            return line[len(_CONTRACT_LINE_PREFIX):-1]
+    return None
+
+
+def _extract_last_update_section(text: str) -> str | None:
+    """Retorna o trecho de `text` a partir do heading `## Última
+    atualização` (inclusive) até o fim do arquivo — a parte RUNTIME-MUTÁVEL
+    que o agente edita durante a sessão. `None` se o heading não existir."""
+    idx = text.find(_LAST_UPDATE_HEADING)
+    if idx == -1:
+        return None
+    return text[idx:]
+
+
 def install_templates(
     target_dir: Path, feature_list: dict[str, Any], profile: dict[str, Any]
 ) -> list[Path]:
     """Grava `claude-progress.md`, `init.sh` e `init.ps1` em `target_dir`.
 
-    `claude-progress.md` é RUNTIME-MUTÁVEL: só é gravado se ainda não
-    existir (recompilar nunca apaga progresso já registrado pelo agente).
+    `claude-progress.md` é RUNTIME-MUTÁVEL: por padrão só é gravado se ainda
+    não existir (recompilar nunca apaga progresso já registrado pelo
+    agente). Exceção (achado A do dogfood 2026-07-22): se o arquivo já
+    existente tem um header `Contrato: \\`slug\\`` reconhecível e esse slug
+    diverge do `contract` do `feature_list` recém-compilado, o arquivo é
+    RESTAURADO para o novo contrato — senão o agente lê passos/features de
+    um contrato que não é mais o ativo. A seção `## Última atualização`
+    (notas livres do agente) é sempre preservada nesse caso. Conteúdo sem
+    header reconhecível (customizado manualmente, sem `Contrato: \\`...\\``)
+    nunca é tocado — comportamento pré-existente mantido.
     `init.sh`/`init.ps1` são determinísticos: sempre (re)gravados com o
     profile mais recente.
 
     Retorna a lista de paths escritos NESTA chamada — se `claude-progress.md`
-    já existia, ele não entra na lista.
+    já existia e não precisou ser restaurado, ele não entra na lista.
     """
     target_dir = target_dir.resolve()
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -161,6 +193,18 @@ def install_templates(
     if not progress_path.is_file():
         progress_path.write_text(render_progress_template(feature_list), encoding="utf-8")
         written.append(progress_path)
+    else:
+        existing = progress_path.read_text(encoding="utf-8")
+        new_contract = feature_list.get("contract", "")
+        old_contract = _extract_progress_contract(existing)
+        if old_contract is not None and new_contract and old_contract != new_contract:
+            new_content = render_progress_template(feature_list)
+            last_update = _extract_last_update_section(existing)
+            if last_update is not None:
+                heading_idx = new_content.find(_LAST_UPDATE_HEADING)
+                new_content = new_content[:heading_idx] + last_update
+            progress_path.write_text(new_content, encoding="utf-8")
+            written.append(progress_path)
 
     init_sh, init_ps1 = render_init_scripts(profile)
 

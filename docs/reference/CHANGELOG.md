@@ -3,10 +3,20 @@
 ## Não lançado
 
 Correções achadas durante o dogfood do próprio harness-creator (contrato
-`hook-reasons-progress-sync` e achado B do backlog de fricção de dogfood
-2026-07-22).
+`hook-reasons-progress-sync` e achados A/B do backlog de fricção de
+dogfood 2026-07-22).
 
 ### Corrigido
+- **`claude-progress.md` regenera quando o contrato compilado muda.**
+  `install_templates` só gravava esse arquivo se ele ainda não existisse —
+  recompilar (`harness compile-session`) sobre um contrato NOVO deixava o
+  agente lendo header/tabela de features de um contrato ANTIGO já
+  encerrado, sem qualquer sinal de que o arquivo estava desatualizado.
+  Agora, se o `claude-progress.md` existente tem um header `Contrato:
+  \`slug\`` reconhecível e esse slug diverge do `contract` recém-compilado,
+  o arquivo é restaurado para o novo contrato — preservando sempre a seção
+  `## Última atualização` (notas livres do agente). Conteúdo sem esse
+  header (customizado manualmente) continua intocado, como antes.
 - **`boundary_guard` não bloqueia mais a memória do Claude Code.**
   `_evaluate_file` negava qualquer escrita em
   `~/.claude/projects/<slug>/memory/*.md` como "fora da superfície do

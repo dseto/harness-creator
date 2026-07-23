@@ -234,3 +234,61 @@ def test_install_templates_preserves_existing_progress_but_regenerates_init(
     init_sh_content = (tmp_path / INIT_SH_FILE).read_text(encoding="utf-8")
     assert "pnpm install --frozen-lockfile" in init_sh_content
     assert "pytest" in init_sh_content
+
+
+def test_install_templates_regenerates_progress_when_contract_diverges(
+    tmp_path: Path,
+) -> None:
+    """Achado A (dogfood 2026-07-22): `claude-progress.md` gerado por um
+    contrato ANTIGO (`compilar-x`) não pode sobreviver a uma recompilação
+    para um contrato NOVO (`exemplo-feature`) — senão o agente lê o header
+    e a tabela de features de um contrato que não é mais o ativo."""
+    old_feature_list = {
+        "contract": "compilar-x",
+        "features": [
+            {"id": "OLD-01", "desc": "Feature do contrato antigo", "passes": False},
+        ],
+    }
+    progress_path = tmp_path / CLAUDE_PROGRESS_FILE
+    progress_path.write_text(render_progress_template(old_feature_list), encoding="utf-8")
+
+    profile = {"package_manager": None, "test_command": None}
+    written = install_templates(tmp_path, _FEATURE_LIST, profile)
+
+    assert progress_path in written
+    new_content = progress_path.read_text(encoding="utf-8")
+    assert "exemplo-feature" in new_content
+    assert "T-01" in new_content
+    assert "compilar-x" not in new_content
+    assert "OLD-01" not in new_content
+
+
+def test_install_templates_regenerate_preserves_ultima_atualizacao_notes(
+    tmp_path: Path,
+) -> None:
+    old_feature_list = {"contract": "compilar-x", "features": []}
+    progress_path = tmp_path / CLAUDE_PROGRESS_FILE
+    old_content = render_progress_template(old_feature_list)
+    old_content += "Nota livre do agente: quebrou X, ver Y.\n"
+    progress_path.write_text(old_content, encoding="utf-8")
+
+    profile = {"package_manager": None, "test_command": None}
+    install_templates(tmp_path, _FEATURE_LIST, profile)
+
+    new_content = progress_path.read_text(encoding="utf-8")
+    assert "Nota livre do agente: quebrou X, ver Y." in new_content
+    assert "exemplo-feature" in new_content
+
+
+def test_install_templates_same_contract_does_not_regenerate_progress(
+    tmp_path: Path,
+) -> None:
+    progress_path = tmp_path / CLAUDE_PROGRESS_FILE
+    original = render_progress_template(_FEATURE_LIST)
+    progress_path.write_text(original, encoding="utf-8")
+
+    profile = {"package_manager": None, "test_command": None}
+    written = install_templates(tmp_path, _FEATURE_LIST, profile)
+
+    assert progress_path not in written
+    assert progress_path.read_text(encoding="utf-8") == original
