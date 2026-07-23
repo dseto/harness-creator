@@ -316,6 +316,121 @@ def test_floor_env_file_denies_without_any_contract(tmp_path: Path) -> None:
     assert "runtime floor" in out["permissionDecisionReason"]
 
 
+# ---------------- achado B (dogfood 2026-07-22): memória do Claude Code ----------------
+
+def test_claude_memory_write_allowed_even_with_active_contract(tmp_path: Path) -> None:
+    """Escrita em ~/.claude/projects/<slug>/memory/ nunca está em files[] de
+    nenhuma tarefa (mora fora do repo) — antes da correção, caía no deny
+    genérico de "fora da superfície do contrato ativo"."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    script = _script(tmp_path)
+    memory_path = str(Path.home() / ".claude" / "projects" / "some-slug" / "memory" / "x.md")
+    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                              "tool_input": {"file_path": memory_path, "content": "x"}})
+    assert out["permissionDecision"] == "allow", out
+    assert "memoria" in out["permissionDecisionReason"] or "memória" in out["permissionDecisionReason"]
+
+
+def test_claude_memory_write_allowed_without_any_contract(tmp_path: Path) -> None:
+    script = _script(tmp_path)
+    memory_path = str(Path.home() / ".claude" / "projects" / "some-slug" / "memory" / "x.md")
+    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
+                              "tool_input": {"file_path": memory_path}})
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_non_memory_path_outside_contract_still_denies(tmp_path: Path) -> None:
+    """Regressão: a exceção é específica de .claude/projects/*/memory/ — um
+    path qualquer fora de files[] (mesmo fora do repo) continua deny."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
+                              "tool_input": {"file_path": "src/other.py"}})
+    assert out["permissionDecision"] == "deny", out
+
+
+# ---------------- achado B (dogfood 2026-07-22): contrato concluído se aposenta ----------------
+
+def test_contract_fully_passed_allows_undeclared_file_write(tmp_path: Path) -> None:
+    """Todas as features com passes:true — contrato concluído. O guard não
+    deve mais restringir escrita ao files[] do contrato já encerrado (antes
+    da correção, isso travava até edição manual de .claude/settings.json)."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": True}
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                              "tool_input": {"file_path": "src/anything_else.py", "content": "x"}})
+    assert out["permissionDecision"] == "allow", out
+    assert "concluido" in out["permissionDecisionReason"] or "concluído" in out["permissionDecisionReason"]
+
+
+def test_contract_fully_passed_still_gates_undeclared_bash_command(tmp_path: Path) -> None:
+    """Escopo deliberadamente restrito a Edit/Write/MultiEdit/NotebookEdit —
+    a superfície de COMANDO (Bash/PowerShell) continua enforçada mesmo com
+    passes:true; é o comportamento provado por
+    tests/e2e/test_extra_allowed_commands_e2e.py (contrato passes:true, CLI
+    do produto fora do verify_cmd, liberado só via
+    governance.extra_allowed_commands — não por um allow genérico de fim de
+    contrato). Só a superfície de ARQUIVO se aposenta, que era a fricção
+    real observada (memória/self-edit do settings.json)."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": True}
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "git branch feature/next"}})
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_contract_partially_passed_still_denies_undeclared_file(tmp_path: Path) -> None:
+    """Regressão: só relaxa quando TODAS as features passam — uma feature
+    ainda pendente continua enforçando a superfície normalmente."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": True},
+        {"id": "T-02", "desc": "y", "files": ["src/other.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False},
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                              "tool_input": {"file_path": "src/unrelated.py", "content": "x"}})
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_contract_fully_passed_still_denies_floor_secret(tmp_path: Path) -> None:
+    """Contrato concluído não relaxa o runtime floor — .env continua deny."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": True}
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
+                              "tool_input": {"file_path": ".env"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "runtime floor" in out["permissionDecisionReason"]
+
+
+def test_contract_fully_passed_still_denies_floor_git_push(tmp_path: Path) -> None:
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": True}
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "git push origin main"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "runtime floor" in out["permissionDecisionReason"]
+
+
 # ---------------- proteção contra enfraquecimento de teste ----------------
 
 def test_test_file_declared_in_contract_allows(tmp_path: Path) -> None:

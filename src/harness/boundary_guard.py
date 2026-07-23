@@ -551,6 +551,30 @@ def _is_progress_file_path(path: str) -> bool:
     return normalized.lower() == PROGRESS_FILE_NAME
 
 
+def _is_claude_memory_path(path: str) -> bool:
+    """True se `path` aponta para o diretório de memória do Claude Code
+    (`.claude/projects/<slug>/memory/...`) — sempre FORA de `repo_root` por
+    design (mora em `~/.claude/projects/`), bookkeeping do próprio agente
+    entre sessões, não arquivo do contrato ativo. Achado B do backlog de
+    fricção do dogfood 2026-07-22: antes desta exceção, `_evaluate_file`
+    tratava um path assim como "fora da superfície do contrato ativo" —
+    mesma classe de deny genérico de um arquivo qualquer fora de `files[]` —
+    travando toda escrita de memória enquanto um contrato estivesse ativo.
+
+    Detecção por segmentos de path (sem regex — evita o escape de barra
+    invertida que uma regex exigiria dentro do template standalone gerado
+    por `render_boundary_guard()`), casa tanto `/` quanto `\\` como
+    separador. Não valida que o `<slug>` seja não-vazio nem que o arquivo
+    termine em `.md` — falso-negativo aqui só reintroduz o deny genérico
+    (fail-safe), nunca abre um bypass novo."""
+    normalized = (path or "").replace("\\\\", "/")
+    parts = [p for p in normalized.split("/") if p]
+    for i in range(len(parts) - 3):
+        if parts[i] == ".claude" and parts[i + 1] == "projects" and parts[i + 3] == "memory":
+            return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Utilitários shell read-only + `cd` intra-repo (Python real, IMPORTÁVEL) —
 # itens 3 do parecer cético sobre os issues 1-2 do dogfood aegis_rpa_suite.
@@ -826,6 +850,30 @@ def _feature_passes_map(data: Any) -> dict[Any, bool]:
         if fid is not None:
             result[fid] = feat.get("passes") is True
     return result
+
+
+def _contract_fully_passed(feature_list: Any) -> bool:
+    """True se `feature_list` tem ao menos UMA feature e TODAS têm
+    `passes: true` — contrato concluído. Reusa `_feature_passes_map` (mesma
+    peça já usada por `_transitions_to_true`), sem ler `features` duas vezes
+    com lógica divergente.
+
+    Achado B do backlog de fricção do dogfood 2026-07-22: sem isto, o guard
+    nunca se "aposentava" ao fim do contrato — `feature_list.json` 100%
+    `passes:true` continuava restringindo a superfície de escrita/comando ao
+    `files[]`/`verify_cmd` do contrato já ENCERRADO, e a única saída
+    observada foi edição manual de `.claude/settings.json` pelo usuário
+    (inclusive um caso de auto-proteção: o próprio guard negava editar o
+    arquivo que o removeria). `_evaluate_file`/`_evaluate_bash`/
+    `_evaluate_powershell` tratam este caso como equivalente a "sem contrato
+    ativo" — mesma superfície aberta, floor (segredo/rede/push) continua
+    incondicional, independente disto. `feature_list.json` VAZIO (`{}` ou
+    `features: []`) devolve `False` — ausência de features não é "concluído",
+    é "nada declarado ainda"; mesmo comportamento anterior (deny genérico)."""
+    passes_map = _feature_passes_map(feature_list)
+    if not passes_map:
+        return False
+    return all(passes_map.values())
 
 
 def _transitions_to_true(old_data: Any, new_data: Any) -> list[Any]:
@@ -1148,6 +1196,7 @@ def render_boundary_guard(extra_allowed_commands: list[str] | None = None) -> st
         inspect.getsource(_is_scratch_surface_path),
         f"PROGRESS_FILE_NAME = {PROGRESS_FILE_NAME!r}",
         inspect.getsource(_is_progress_file_path),
+        inspect.getsource(_is_claude_memory_path),
         f"READONLY_SHELL_UTILITIES = {set(READONLY_SHELL_UTILITIES)!r}",
         f"FIND_WRITE_FLAGS = {set(FIND_WRITE_FLAGS)!r}",
         f"GREP_RG_EXEC_FLAGS = {GREP_RG_EXEC_FLAGS!r}",
@@ -1163,6 +1212,7 @@ def render_boundary_guard(extra_allowed_commands: list[str] | None = None) -> st
         inspect.getsource(_resolve_repo_root_anchor),
         inspect.getsource(_parse_iso8601),
         inspect.getsource(_feature_passes_map),
+        inspect.getsource(_contract_fully_passed),
         inspect.getsource(_transitions_to_true),
         inspect.getsource(_read_last_commit_timestamp),
         inspect.getsource(_evidence_freshness_problem),
@@ -1621,6 +1671,13 @@ def _evaluate_file(path, cwd):
             "credentials) e bloqueio incondicional, independente de contrato ativo"
         )
 
+    if _is_claude_memory_path(path):
+        return "allow", (
+            "diretorio de memoria do Claude Code (.claude/projects/<slug>/memory/**) "
+            "e sempre fora do repo_root por design - bookkeeping do proprio agente "
+            "entre sessoes, nao arquivo do contrato ativo; boundary_guard nao gateia"
+        )
+
     if _is_work_surface_path(path):
         return "allow", (
             "area de autoria de contrato (.harness/work/**) sempre gravavel - "
@@ -1652,6 +1709,12 @@ def _evaluate_file(path, cwd):
     feature_list = _load_json(cwd, FEATURE_LIST_PATH)
     if feature_list is None:
         return "allow", "sem contrato ativo — boundary_guard não gateia fora de uma sessão de contrato"
+    if _contract_fully_passed(feature_list):
+        return "allow", (
+            "contrato concluido (todas as features com passes:true) - boundary_guard "
+            "se aposenta da superficie de escrita ate o proximo /harness-creator:plan; "
+            "floor (segredo/rede/push) continua incondicional"
+        )
 
     surface = _collect_allowed_files(feature_list, cwd)
     profile = _load_json(cwd, PROFILE_PATH)

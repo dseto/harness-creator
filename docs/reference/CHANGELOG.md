@@ -2,10 +2,32 @@
 
 ## Não lançado
 
-Duas correções achadas durante o dogfood do próprio harness-creator
-(contrato `hook-reasons-progress-sync`).
+Correções achadas durante o dogfood do próprio harness-creator (contrato
+`hook-reasons-progress-sync` e achado B do backlog de fricção de dogfood
+2026-07-22).
 
 ### Corrigido
+- **`boundary_guard` não bloqueia mais a memória do Claude Code.**
+  `_evaluate_file` negava qualquer escrita em
+  `~/.claude/projects/<slug>/memory/*.md` como "fora da superfície do
+  contrato ativo" — toda persistência de memória travava com um contrato
+  ativo. Path novo `_is_claude_memory_path` reconhece esse diretório (fora
+  de `repo_root` por design) e sempre permite.
+- **`boundary_guard` se aposenta da superfície de ARQUIVO quando o contrato
+  está 100% concluído.** Com `feature_list.json` totalmente `passes:true`,
+  o guard continuava restringindo `Edit`/`Write`/`MultiEdit`/`NotebookEdit`
+  ao `files[]` do contrato já encerrado — a única saída observada era
+  edição manual de `.claude/settings.json` (inclusive um caso de
+  auto-proteção: o guard negava editar o próprio arquivo que o
+  removeria). Nova função `_contract_fully_passed` trata esse estado como
+  equivalente a "sem contrato ativo" — mesma superfície aberta, floor
+  (segredo/rede/push) continua incondicional. Escopo deliberadamente
+  restrito à superfície de ARQUIVO: a superfície de COMANDO (Bash/
+  PowerShell) continua enforçada mesmo com `passes:true` — é o
+  comportamento provado por `tests/e2e/test_extra_allowed_commands_e2e.py`
+  (CLI do produto fora do `verify_cmd`, liberado só via
+  `governance.extra_allowed_commands`, não por um allow genérico de fim de
+  contrato).
 - **Razão concreta nos hooks TDD gerados.** `guard_test_runner.py` e
   `guard_tests.py` (gerados por `compiler._render_guard_test_runner`/
   `_render_guard_tests`) emitiam `permissionDecisionReason` com texto fixo,
