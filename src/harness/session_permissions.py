@@ -110,6 +110,7 @@ _INSTALL_COMMAND_BY_PACKAGE_MANAGER: dict[str, str] = {
     "yarn": "yarn install --frozen-lockfile",
     "uv": "uv sync",
     "poetry": "poetry install",
+    "pip": "pip install -e .",
 }
 
 _EXTRAS_KEYS = ("lint_command", "typecheck_command", "build_command")

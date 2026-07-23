@@ -1454,6 +1454,7 @@ INSTALL_COMMAND_BY_PACKAGE_MANAGER = {
     "yarn": "yarn install --frozen-lockfile",
     "uv": "uv sync",
     "poetry": "poetry install",
+    "pip": "pip install -e .",
 }
 
 

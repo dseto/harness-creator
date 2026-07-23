@@ -45,6 +45,7 @@ _INSTALL_COMMANDS: dict[str, str] = {
     "yarn": "yarn install --frozen-lockfile",
     "uv": "uv sync",
     "poetry": "poetry install",
+    "pip": "pip install -e .",
 }
 
 _NO_PACKAGE_MANAGER_COMMENT = "nenhum package manager detectado — pule esta etapa"

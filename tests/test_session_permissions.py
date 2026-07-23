@@ -118,6 +118,12 @@ def test_package_manager_npm_generates_install_command() -> None:
     assert "Bash(npm ci)" in rules["allow"]
 
 
+def test_package_manager_pip_generates_install_command() -> None:
+    profile = {"package_manager": {"value": "pip", "evidence": "pyproject.toml", "confidence": 0.6}}
+    rules = render_session_permissions(FEATURE_LIST, profile)
+    assert "Bash(pip install -e .)" in rules["allow"]
+
+
 def test_package_manager_explicit_none_value_does_not_raise() -> None:
     profile = {"package_manager": {"value": None, "evidence": "x", "confidence": 1.0}}
     rules = render_session_permissions(FEATURE_LIST, profile)
