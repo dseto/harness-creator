@@ -3,7 +3,7 @@
 ## Não lançado
 
 Correções achadas durante o dogfood do próprio harness-creator (contrato
-`hook-reasons-progress-sync` e achados A/B do backlog de fricção de
+`hook-reasons-progress-sync` e achados A/B/C do backlog de fricção de
 dogfood 2026-07-22).
 
 ### Corrigido
@@ -46,6 +46,25 @@ dogfood 2026-07-22).
   teste — o humano aprova sabendo o que está em jogo.
 
 ### Adicionado
+- **Fluxo branch-first gerenciado pela CLI (`governance.branch_per_contract`,
+  default `true`) + branches protegidas (`governance.protected_branches`,
+  default `main`/`homolog`/`develop`).** Achado C do dogfood 2026-07-22: sem
+  `checkout`/`branch`/`switch` em `FIXED_GIT_SEQUENCES`, o fluxo branch-first
+  era impossível sob contrato ativo e o agente commitava direto na main. A
+  correção NÃO amplia a superfície git do agente — branch é decisão da
+  FERRAMENTA: `harness compile-session` agora chama
+  `branching.ensure_contract_branch` ANTES de qualquer escrita, criando/
+  mudando para `contract/<slug>` (idempotente; aborta com erro claro se há
+  tracked modificado/staged — untracked não conta, os artefatos `.harness/**`
+  do compile-contract devem viajar pra branch de contrato). Diretório sem
+  `.git` na raiz degrada com aviso (sandboxes/e2e seguem funcionando); o
+  JSON de saída ganha a chave `branch`. Na outra ponta, o guard passa a
+  negar `git commit` quando `.git/HEAD` aponta pra branch protegida
+  (incondicional, postura de floor — vale até sem contrato ativo; detached
+  HEAD/worktree linkado não se aplica, o enforcement definitivo é a branch
+  protection server-side). `protected_branches` é bakeado no script gerado
+  como `PROTECTED_BRANCHES`, mesmo padrão de `EXTRA_ALLOWED_COMMANDS`.
+  `git push` continua floor incondicional: push/PR/merge são do humano.
 - **Sincronização automática do `claude-progress.md`.** Nova função
   `templates.update_progress_status(target_dir, feature_id, status)`
   (idempotente; no-op silencioso se o arquivo ou a linha não existirem),

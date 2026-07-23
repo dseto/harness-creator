@@ -275,6 +275,12 @@ def main() -> None:
 
     if args.command == "compile-session":
         from harness.boundary_guard import install_boundary_guard
+        from harness.branching import (
+            BranchingError,
+            ensure_contract_branch,
+            is_git_repository,
+            load_branch_per_contract,
+        )
         from harness.lifecycle import install_lifecycle
         from harness.session_permissions import (
             FEATURE_LIST_FILE,
@@ -286,6 +292,30 @@ def main() -> None:
         from harness.templates import install_templates
 
         target_dir = Path(args.dir)
+        resolved_dir = target_dir.resolve()
+        feature_list_path = resolved_dir / FEATURE_LIST_FILE
+
+        # Fluxo branch-first (finding C): posicionar em contract/<slug> ANTES
+        # de qualquer escrita — o dirty-check não pode contar artefatos que o
+        # próprio compile-session grava. Sem feature_list, pula: o
+        # compile_session_permissions abaixo produz o erro canônico.
+        branch = None
+        if load_branch_per_contract(target_dir) and feature_list_path.is_file():
+            if not is_git_repository(resolved_dir):
+                print(
+                    "aviso: branch_per_contract ativo mas o diretório não é um "
+                    "repositório git — branch de contrato não criada",
+                    file=sys.stderr,
+                )
+            else:
+                contract_slug = json.loads(
+                    feature_list_path.read_text(encoding="utf-8-sig")
+                ).get("contract", "")
+                try:
+                    branch = ensure_contract_branch(resolved_dir, contract_slug)
+                except BranchingError as exc:
+                    print(f"erro: {exc}", file=sys.stderr)
+                    sys.exit(1)
 
         try:
             settings_path = compile_session_permissions(target_dir)
@@ -293,8 +323,7 @@ def main() -> None:
             print(f"erro: {exc}", file=sys.stderr)
             sys.exit(1)
 
-        resolved_dir = target_dir.resolve()
-        feature_list = json.loads((resolved_dir / FEATURE_LIST_FILE).read_text(encoding="utf-8-sig"))
+        feature_list = json.loads(feature_list_path.read_text(encoding="utf-8-sig"))
         profile_path = resolved_dir / REPO_PROFILE_FILE
         profile = json.loads(profile_path.read_text(encoding="utf-8-sig")) if profile_path.is_file() else {}
 
@@ -312,6 +341,7 @@ def main() -> None:
             "templates": [str(p) for p in templates_written],
             "session_start_hook": str(session_start_path),
             "stop_hook": str(stop_hook_path),
+            "branch": branch,
         }, indent=2, ensure_ascii=False))
         sys.exit(0)
 

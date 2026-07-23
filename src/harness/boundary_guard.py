@@ -358,6 +358,23 @@ def is_floor_bash_command(command: str) -> bool:
     return any(_has_sequence(tokens, seq) for seq in FLOOR_BASH_SEQUENCES)
 
 
+def _current_git_branch(cwd: str) -> str | None:
+    """Nome da branch atual lendo `<cwd>/.git/HEAD` direto (stdlib, sem
+    subprocess git). `None` em detached HEAD, fora de repo git, ou worktree
+    linkado (`.git` é arquivo, não diretório) — nesses casos a checagem de
+    branch protegida não se aplica (fail-open deliberado: o enforcement
+    definitivo do "commit só via PR" é a branch protection server-side)."""
+    try:
+        text = (Path(cwd) / ".git" / "HEAD").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    text = text.strip()
+    prefix = "ref: refs/heads/"
+    if text.startswith(prefix):
+        return text[len(prefix):]
+    return None
+
+
 def is_floor_secret_path(path: str) -> bool:
     """True se `path` é um arquivo de segredo do runtime floor (.env, .pem,
     id_rsa, ou nome contendo 'credentials')."""
@@ -1146,11 +1163,38 @@ def load_extra_allowed_commands(target_dir: Path) -> list[str]:
     return list(config.governance.extra_allowed_commands)
 
 
+def load_protected_branches(target_dir: Path) -> list[str]:
+    """Lê `governance.protected_branches` de `target_dir/.harness/harness.yaml`.
+
+    Mesma degradação graciosa de `load_extra_allowed_commands`, mas o
+    fallback é o DEFAULT do modelo (main/homolog/develop), não lista vazia —
+    fail-safe aqui é PROTEGER: um harness.yaml ausente/malformado nunca pode
+    desligar a regra "commit só via PR"."""
+    default = list(HarnessConfig().governance.protected_branches)
+    yaml_path = Path(target_dir) / HARNESS_YAML_RELATIVE_PATH
+    if not yaml_path.is_file():
+        return default
+    try:
+        raw = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+    except yaml.YAMLError:
+        return default
+    if not isinstance(raw, dict):
+        return default
+    try:
+        config = HarnessConfig.model_validate(raw)
+    except ValidationError:
+        return default
+    return list(config.governance.protected_branches)
+
+
 # ---------------------------------------------------------------------------
 # Render (puro) — devolve o CÓDIGO-FONTE do hook standalone
 # ---------------------------------------------------------------------------
 
-def render_boundary_guard(extra_allowed_commands: list[str] | None = None) -> str:
+def render_boundary_guard(
+    extra_allowed_commands: list[str] | None = None,
+    protected_branches: list[str] | None = None,
+) -> str:
     """Devolve o código-fonte (string) do hook `PreToolUse` standalone.
 
     O script gerado lê o payload JSON do stdin e decide `allow`/`deny` para
@@ -1173,12 +1217,18 @@ def render_boundary_guard(extra_allowed_commands: list[str] | None = None) -> st
     não têm contraparte importável (dependem de peças que só existem no
     script standalone — ver docstring do módulo).
     """
+    baked_protected_branches = list(
+        protected_branches
+        if protected_branches is not None
+        else HarnessConfig().governance.protected_branches
+    )
     shared_sources = [
         f"_SHELL_SPLIT = re.compile({_SHELL_SPLIT.pattern!r})",
         f"FLOOR_BASH_SEQUENCES = {FLOOR_BASH_SEQUENCES!r}",
         inspect.getsource(_tokenize_command),
         inspect.getsource(_has_sequence),
         inspect.getsource(is_floor_bash_command),
+        inspect.getsource(_current_git_branch),
         inspect.getsource(is_floor_secret_path),
         inspect.getsource(is_floor_bash_secret_redirect),
         f"_PS_NETWORK_PATTERN = re.compile({_PS_NETWORK_PATTERN.pattern!r})",
@@ -1301,7 +1351,31 @@ FIXED_HARNESS_SEQUENCES = (
 # (.harness/harness.yaml) — bakeado no momento da instalacao, mesmo padrao
 # de FIXED_GIT_SEQUENCES/FIXED_HARNESS_SEQUENCES acima ---
 EXTRA_ALLOWED_COMMANDS = {list(extra_allowed_commands or [])!r}
+
+# --- branches onde git commit direto e proibido (so via PR) — finding C do
+# dogfood 2026-07-22; governance.protected_branches do harness.yaml, bakeado
+# na instalacao como as constantes acima ---
+PROTECTED_BRANCHES = {baked_protected_branches!r}
 """ + '''
+
+
+def _protected_branch_commit_problem(command, cwd):
+    """Razao de deny se `command` contem `git commit` e a branch atual e
+    protegida; `None` caso contrario. Incondicional (postura de floor):
+    roda antes da checagem de contrato — commit direto em main/homolog/
+    develop e proibido mesmo sem contrato ativo."""
+    if not _has_sequence(_tokenize_command(command), ["git", "commit"]):
+        return None
+    branch = _current_git_branch(cwd)
+    if branch is None or branch not in PROTECTED_BRANCHES:
+        return None
+    return (
+        "branch protegida '" + branch + "' - commit direto proibido, so via "
+        "PR; rode `harness compile-session` para criar/mudar para a branch "
+        "de contrato (contract/<slug>)"
+    )
+
+
 FEATURE_LIST_PATH = ".harness/feature_list.json"
 PROFILE_PATH = ".harness/repo-profile.json"
 EVIDENCE_DIR_NAME = ".harness/evidence"
@@ -1755,6 +1829,10 @@ def _evaluate_bash(command, cwd):
             "persegue escrita indireta via interpretador (python -c, node -e, etc.)"
         )
 
+    protected_problem = _protected_branch_commit_problem(command, cwd)
+    if protected_problem:
+        return "deny", protected_problem
+
     feature_list = _load_json(cwd, FEATURE_LIST_PATH)
     if feature_list is None:
         return "allow", "sem contrato ativo — boundary_guard não gateia fora de uma sessão de contrato"
@@ -1876,6 +1954,10 @@ def _evaluate_powershell(command, cwd):
             "(.env/.pem/id_rsa/credentials) e bloqueio incondicional, "
             "independente de contrato ativo"
         )
+
+    protected_problem = _protected_branch_commit_problem(command, cwd)
+    if protected_problem:
+        return "deny", protected_problem
 
     feature_list = _load_json(cwd, FEATURE_LIST_PATH)
     if feature_list is None:
@@ -2105,7 +2187,11 @@ def install_boundary_guard(target_dir: Path) -> Path:
     hooks_dir.mkdir(parents=True, exist_ok=True)
     script_path = hooks_dir / BOUNDARY_HOOK_FILENAME
     extra_allowed_commands = load_extra_allowed_commands(target_dir)
-    script_path.write_text(render_boundary_guard(extra_allowed_commands), encoding="utf-8")
+    protected_branches = load_protected_branches(target_dir)
+    script_path.write_text(
+        render_boundary_guard(extra_allowed_commands, protected_branches),
+        encoding="utf-8",
+    )
 
     # Garantia 4 (superfície de scratch): cria .harness/scratch/ com
     # .gitignore auto-contido (`*` + `!.gitignore`) — a pasta se ignora

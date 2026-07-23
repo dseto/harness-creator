@@ -312,9 +312,20 @@ def test_task_add_file_subcommand_without_slug_and_no_contracts_exits_one(
     assert err.startswith("erro: ")
 
 
-def test_compile_session_subcommand_success(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+def _init_git_repo(target: Path) -> None:
+    import subprocess
+
+    def _git(*args: str) -> None:
+        subprocess.run(["git", *args], cwd=target, capture_output=True, text=True, check=True)
+
+    _git("init", "-b", "main")
+    _git("config", "user.email", "test@example.com")
+    _git("config", "user.name", "Test")
+    _git("add", "-A")
+    _git("commit", "--allow-empty", "-m", "init")
+
+
+def _prepare_compile_session_fixture(tmp_path: Path) -> None:
     from harness.analyzer import analyze_project, write_profile
     from harness.contract import compile_contract
 
@@ -329,12 +340,22 @@ def test_compile_session_subcommand_success(
     profile = analyze_project(tmp_path)
     write_profile(profile, tmp_path)
 
+
+def test_compile_session_subcommand_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _init_git_repo(tmp_path)
+    _prepare_compile_session_fixture(tmp_path)
+
     monkeypatch.setattr(sys, "argv", ["harness", "compile-session", "--dir", str(tmp_path)])
     with pytest.raises(SystemExit) as exc_info:
         main()
 
     assert exc_info.value.code == 0
     data = json.loads(capsys.readouterr().out)
+    # branch_per_contract default true: compile-session criou e mudou pra
+    # branch de contrato antes de instalar qualquer coisa (finding C).
+    assert data["branch"] == "contract/exemplo-feature"
     assert data["settings"].endswith("settings.json")
     assert data["boundary_guard"].endswith("boundary_guard.py")
     assert data["agents_md"].endswith("AGENTS.md")
@@ -365,6 +386,68 @@ def test_compile_session_subcommand_missing_feature_list_exits_one(
     assert exc_info.value.code == 1
     err = capsys.readouterr().err
     assert err.startswith("erro: ")
+
+
+def test_compile_session_dirty_tree_aborts_before_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Finding C: com branch_per_contract ativo, tracked modificado no
+    momento do compile-session aborta ANTES de qualquer escrita — nunca
+    criar branch carregando sujeira de outro contexto."""
+    _init_git_repo(tmp_path)
+    _prepare_compile_session_fixture(tmp_path)
+    (tmp_path / "pyproject.toml").write_text("# sujeira tracked... ", encoding="utf-8")
+    import subprocess
+    subprocess.run(["git", "add", "pyproject.toml"], cwd=tmp_path,
+                   capture_output=True, text=True, check=True)
+    subprocess.run(["git", "commit", "-m", "track"], cwd=tmp_path,
+                   capture_output=True, text=True, check=True)
+    (tmp_path / "pyproject.toml").write_text("# modificado depois\n", encoding="utf-8")
+
+    monkeypatch.setattr(sys, "argv", ["harness", "compile-session", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    err = capsys.readouterr().err
+    assert "suja" in err
+    assert not (tmp_path / ".claude" / "settings.json").is_file()
+
+
+def test_compile_session_branch_per_contract_false_skips_branch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _prepare_compile_session_fixture(tmp_path)
+    _write(
+        tmp_path / ".harness" / "harness.yaml",
+        "governance:\n  branch_per_contract: false\n",
+    )
+
+    monkeypatch.setattr(sys, "argv", ["harness", "compile-session", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["branch"] is None
+
+
+def test_compile_session_non_git_dir_warns_and_skips_branch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Diretório sem git com a flag ativa: aviso em stderr e segue sem
+    branch (sandboxes/e2e sem git continuam funcionando)."""
+    _prepare_compile_session_fixture(tmp_path)
+
+    monkeypatch.setattr(sys, "argv", ["harness", "compile-session", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert data["branch"] is None
+    assert "aviso" in captured.err
 
 
 def _write_feature_list(tmp_path: Path, verify_cmd: str) -> None:

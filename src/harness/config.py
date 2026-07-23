@@ -27,6 +27,17 @@ class GovernanceConfig(BaseModel):
     # do que já deriva de verify_cmd/lint/build/install/git local — mesma
     # semântica de PREFIXO de tokens que verify_cmd já tem.
     extra_allowed_commands: list[str] = Field(default_factory=list)
+    # Fluxo branch-first (finding C do dogfood 2026-07-22): compile-session
+    # cria/muda para `contract/<slug>` antes de instalar o guard. Branch é
+    # decisão da FERRAMENTA, não do agente — nenhum comando git de branch é
+    # liberado no boundary_guard por causa disto.
+    branch_per_contract: bool = True
+    # Branches onde `git commit` direto é proibido (só via PR) — o
+    # boundary_guard nega commit nelas incondicionalmente (postura de floor),
+    # além da proteção server-side configurada no GitHub.
+    protected_branches: list[str] = Field(
+        default_factory=lambda: ["main", "homolog", "develop"]
+    )
 
 
 class VerificationConfig(BaseModel):
