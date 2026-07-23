@@ -1,13 +1,15 @@
 # Claude Progress
 
-Contrato: `fix-branch-idempotence-order`
+Contrato: `fix-version-single-source`
 
 ## Features
 
 | id | desc | status |
 | --- | --- | --- |
-| T-01 | Inverter ordem: checar branch-ja-correta antes do guard de dirty-tree | done |
-| T-02 | Rodar suite completa para confirmar ausencia de regressao | done |
+| T-01 | Converter pyproject.toml para dynamic version via hatchling | done |
+| T-02 | Guard test: marketplace.json e plugin.json batem com harness.__version__ | done |
+| T-03 | Confirmar build editable reflete a versao dinamica | done |
+| T-04 | Rodar suite completa para confirmar ausencia de regressao | done |
 
 ## Última atualização
 
