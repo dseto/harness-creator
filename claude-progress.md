@@ -1,14 +1,13 @@
 # Claude Progress
 
-Contrato: `legible-approval-gate`
+Contrato: `infer-pip-package-manager`
 
 ## Features
 
 | id | desc | status |
 | --- | --- | --- |
-| T-01 | Passo 15 exige descricao funcional + link file:line por escrito | done |
-| T-02 | Enriquecer evidencia de harness verify com desc e files da feature | done |
-| T-03 | Rodar suite completa para confirmar ausencia de regressao | done |
+| T-01 | _detect_package_manager infere pip via manifest Python quando falta lockfile | done |
+| T-02 | Rodar suite completa para confirmar ausencia de regressao | done |
 
 ## Última atualização
 

@@ -210,6 +210,23 @@ def test_glob_without_matching_files_becomes_unknown(tmp_path: Path) -> None:
     assert "test_glob: nenhum arquivo casa a convenção de 'python'" in profile.unknowns
 
 
+def test_python_project_without_lockfile_infers_pip(tmp_path: Path) -> None:
+    # issue #14: pyproject.toml sem nenhum lockfile -> pip por definição,
+    # não fica unknown.
+    _write(
+        tmp_path / "pyproject.toml",
+        "[project]\nname = \"sample\"\ndependencies = [\"pytest>=8.0\"]\n",
+    )
+
+    profile = analyze_project(tmp_path)
+
+    assert profile.package_manager is not None
+    assert profile.package_manager.value == "pip"
+    assert profile.package_manager.evidence == "pyproject.toml"
+    assert profile.package_manager.confidence < 1.0
+    assert "package_manager: nenhum lockfile detectado" not in profile.unknowns
+
+
 def test_skip_dirs_are_ignored(tmp_path: Path) -> None:
     _bootstrap_node(tmp_path)
     # manifest "fantasma" dentro de node_modules não deve virar evidência
