@@ -75,6 +75,23 @@ def test_ensure_contract_branch_switches_to_existing_branch(tmp_path: Path) -> N
     assert _current_branch(tmp_path) == "contract/exemplo-feature"
 
 
+def test_ensure_contract_branch_is_noop_when_already_correct_branch_and_dirty(
+    tmp_path: Path,
+) -> None:
+    """Regressão: já em contract/<slug> + tracked dirty não deve levantar
+    BranchingError — recompilar mid-task com mudanças não commitadas é o
+    caso comum (compile-contract → compile-session deixa .harness/** e
+    outros arquivos tracked modificados antes do commit do contrato)."""
+    _init_repo(tmp_path)
+    ensure_contract_branch(tmp_path, "exemplo-feature")
+    (tmp_path / "README.md").write_text("modificado", encoding="utf-8")
+
+    result = ensure_contract_branch(tmp_path, "exemplo-feature")
+
+    assert result == "contract/exemplo-feature"
+    assert _current_branch(tmp_path) == "contract/exemplo-feature"
+
+
 def test_ensure_contract_branch_aborts_on_dirty_tracked_file(tmp_path: Path) -> None:
     _init_repo(tmp_path)
     (tmp_path / "README.md").write_text("modificado", encoding="utf-8")

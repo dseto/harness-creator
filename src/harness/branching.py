@@ -75,6 +75,12 @@ def ensure_contract_branch(target_dir: Path, contract: str) -> str:
             "compilar a sessão"
         )
 
+    branch = CONTRACT_BRANCH_PREFIX + contract
+
+    head = _git(target_dir, "rev-parse", "--abbrev-ref", "HEAD")
+    if head.returncode == 0 and head.stdout.strip() == branch:
+        return branch
+
     status = _git(target_dir, "status", "--porcelain", "-uno")
     if status.returncode != 0:
         raise BranchingError(f"git status falhou: {status.stderr.strip()[:200]}")
@@ -84,12 +90,6 @@ def ensure_contract_branch(target_dir: Path, contract: str) -> str:
             "antes de compilar a sessão; criar a branch de contrato com "
             "sujeira misturaria trabalho de outro contexto"
         )
-
-    branch = CONTRACT_BRANCH_PREFIX + contract
-
-    head = _git(target_dir, "rev-parse", "--abbrev-ref", "HEAD")
-    if head.returncode == 0 and head.stdout.strip() == branch:
-        return branch
 
     exists = _git(target_dir, "rev-parse", "--verify", f"refs/heads/{branch}")
     if exists.returncode == 0:

@@ -1,17 +1,13 @@
 # Claude Progress
 
-Contrato: `harness-kill-switch`
+Contrato: `fix-branch-idempotence-order`
 
 ## Features
 
 | id | desc | status |
 | --- | --- | --- |
-| T-01 | Módulo core do kill-switch (`killswitch.py`) | done |
-| T-02 | CLI `harness disable | enable | status` | done |
-| T-03 | boundary_guard: short-circuit + floor anti-auto-desativação + gitignore | done |
-| T-04 | session_start + stop_hook respeitam o sentinel | done |
-| T-05 | guard_tests + guard_test_runner respeitam o sentinel | done |
-| T-06 | Regressão completa + CHANGELOG | done |
+| T-01 | Inverter ordem: checar branch-ja-correta antes do guard de dirty-tree | done |
+| T-02 | Rodar suite completa para confirmar ausencia de regressao | done |
 
 ## Última atualização
 
