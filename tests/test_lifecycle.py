@@ -1,4 +1,4 @@
-"""Testes do Agent Session Lifecycle (16 passos, ROADMAP.md Fase 2) compilado
+"""Testes do Agent Session Lifecycle (17 passos, ROADMAP.md Fase 2) compilado
 como bloco gerenciado adicional no AGENTS.md, com detalhe em
 .harness/LIFECYCLE.md (progressive disclosure)."""
 
@@ -18,9 +18,9 @@ from harness.lifecycle import (
 
 # ---------------- render_lifecycle_block ----------------
 
-def test_block_contains_all_16_numbered_steps() -> None:
+def test_block_contains_all_17_numbered_steps() -> None:
     block = render_lifecycle_block()
-    for n in range(1, 17):
+    for n in range(1, 18):
         assert f"{n}. " in block, f"passo {n} ausente do bloco"
 
 
@@ -29,7 +29,8 @@ def test_block_contains_key_milestones() -> None:
     assert "1. Ler `AGENTS.md`" in block
     assert "scolher exatamente UMA feature" in block
     assert "verify_cmd" in block
-    assert "limpa" in block.lower()  # passo 16: deixar caminho/working tree limpo
+    assert "aprovação humana" in block.lower()  # passo 15: gate antes do commit
+    assert "limpa" in block.lower()  # passo 17: deixar caminho/working tree limpo
 
 
 def test_block_points_to_detail_file() -> None:
@@ -48,8 +49,14 @@ def test_block_uses_own_delimiters_distinct_from_compiler() -> None:
 
 def test_render_lifecycle_detail_covers_all_steps() -> None:
     detail = render_lifecycle_detail()
-    for n in range(1, 17):
+    for n in range(1, 18):
         assert f"{n}. **" in detail, f"detalhe do passo {n} ausente"
+
+
+def test_render_lifecycle_detail_step_15_requires_human_approval_before_commit() -> None:
+    detail = render_lifecycle_detail()
+    assert "aprovação humana" in detail
+    assert "NUNCA commita sem sinal verde" in detail
 
 
 def test_render_lifecycle_detail_step_10_cites_stop_conditions_source() -> None:

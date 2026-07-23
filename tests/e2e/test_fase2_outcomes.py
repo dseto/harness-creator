@@ -37,7 +37,7 @@ Outcomes verificados (extraídos da seção "Fase 2" do ROADMAP.md, linhas
     5. `compile-session` remove o hook legado `guard_tests.py` (mecanismo
        `harness compile` antigo) sem tocar outros hooks legados
        (`guard_test_runner.py` permanece) — evita duplo-gate/`ask` residual.
-    6. Lifecycle de 16 passos compilado como bloco gerenciado idempotente no
+    6. Lifecycle de 17 passos compilado como bloco gerenciado idempotente no
        `AGENTS.md` (delimitadores próprios), coexistindo com o bloco do
        `compiler.py` e com texto humano, com progressive disclosure para
        `.harness/LIFECYCLE.md`.
@@ -211,7 +211,7 @@ _OUTCOME_TITLES = {
     3: "boundary_guard nega fora da superfície com razão legível e permite dentro do raio",
     4: "arquivo que casa test_glob só é editável se declarado em files[] do contrato",
     5: "compile-session remove o hook legado guard_tests.py sem tocar outros hooks",
-    6: "lifecycle de 16 passos como bloco gerenciado idempotente no AGENTS.md + .harness/LIFECYCLE.md",
+    6: "lifecycle de 17 passos como bloco gerenciado idempotente no AGENTS.md + .harness/LIFECYCLE.md",
     7: "templates do contrato/profile: claude-progress.md nunca sobrescrito; init.* regenerados",
     8: "hook SessionStart injeta contexto real e não quebra sem git/sem contrato",
 }
@@ -706,7 +706,7 @@ def test_outcome5_legacy_guard_tests_removed_others_preserved(tmp_path: Path) ->
 
 
 # ---------------------------------------------------------------------------
-# Outcome 6 — lifecycle de 16 passos: bloco gerenciado idempotente no AGENTS.md
+# Outcome 6 — lifecycle de 17 passos: bloco gerenciado idempotente no AGENTS.md
 # ---------------------------------------------------------------------------
 
 def test_outcome6_lifecycle_block_idempotent_and_coexistent(tmp_path: Path) -> None:
@@ -745,28 +745,28 @@ def test_outcome6_lifecycle_block_idempotent_and_coexistent(tmp_path: Path) -> N
             "byte a byte intacto, bloco `<!-- harness:lifecycle:begin -->` adicionado."
         )
 
-        # 16 passos numerados no bloco fino + progressive disclosure
+        # 17 passos numerados no bloco fino + progressive disclosure
         block = re.search(
             r"<!-- harness:lifecycle:begin -->.*?<!-- harness:lifecycle:end -->",
             text, re.DOTALL,
         ).group(0)
         steps = re.findall(r"^\d+\. ", block, re.MULTILINE)
-        assert len(steps) == 16, f"bloco do lifecycle tem {len(steps)} passos, esperado 16"
+        assert len(steps) == 17, f"bloco do lifecycle tem {len(steps)} passos, esperado 17"
         assert ".harness/LIFECYCLE.md" in block, "bloco fino não aponta para o detalhe"
         for marker in ("exatamente UMA feature pendente", "claude-progress.md",
-                       "feature_list.json", "git log"):
+                       "feature_list.json", "git log", "aprovação humana"):
             assert marker in block, f"passo esperado ausente do bloco: {marker!r}"
         proof.append(
-            "Bloco do lifecycle: 16 passos numerados (1 linha por passo), citando "
+            "Bloco do lifecycle: 17 passos numerados (1 linha por passo), citando "
             "init/claude-progress.md/feature_list.json/git log/'exatamente UMA "
-            "feature pendente', com ponteiro de progressive disclosure para "
-            "`.harness/LIFECYCLE.md`."
+            "feature pendente'/gate de aprovação humana antes do commit, com "
+            "ponteiro de progressive disclosure para `.harness/LIFECYCLE.md`."
         )
 
         detail = (project / ".harness" / "LIFECYCLE.md").read_text(encoding="utf-8")
         detail_steps = re.findall(r"^\d+\. \*\*", detail, re.MULTILINE)
-        assert len(detail_steps) == 16, f"LIFECYCLE.md tem {len(detail_steps)} passos detalhados"
-        proof.append("`.harness/LIFECYCLE.md` existe com os 16 passos detalhados "
+        assert len(detail_steps) == 17, f"LIFECYCLE.md tem {len(detail_steps)} passos detalhados"
+        proof.append("`.harness/LIFECYCLE.md` existe com os 17 passos detalhados "
                      "(um parágrafo por passo).")
 
         # idempotência: recompilar não duplica o bloco nem mexe no resto

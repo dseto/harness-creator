@@ -419,7 +419,7 @@ Isso pega o contrato aprovado e compila a **sessão autônoma**:
 - **Runtime floor** (sempre, inegociável): segredos, `curl`/`wget`,
   `npm publish`/`pip upload`/`twine upload`/`gh release` e `git push` nunca
   entram na superfície liberada.
-- **Lifecycle de 16 passos** no `AGENTS.md` — o ritual que toda sessão segue
+- **Lifecycle de 17 passos** no `AGENTS.md` — o ritual que toda sessão segue
   (ler AGENTS.md → init → ler progresso → escolher UMA feature → implementar
   → verificar → autocorrigir → registrar evidência → commit retomável →
   working tree limpa).
