@@ -70,7 +70,7 @@ time (1× na criação, Fase 4).
   repo-profile + demanda  ──►  spec.md + Plans.md  ──►  contrato COMPILA para:
                                                           • feature_list.json (escopo)
                                                           • permissions da sessão (allow no raio)
-                                                          • AGENTS.md (lifecycle de 16 passos)
+                                                          • AGENTS.md (lifecycle de 17 passos)
                                         │
                                         ▼
                      Agent Session Lifecycle (autônomo, sem humano)
@@ -181,7 +181,7 @@ compilação do próprio contrato.
   expectativa do teste"*; sem esta regra, o `allow` de Edit no raio deixaria
   o agente afrouxar o teste para o `verify_cmd` passar sem detecção.
 - **Agent Session Lifecycle compilado nas Instruções:** o bloco gerenciado do
-  AGENTS.md passa a conter o ciclo de 16 passos da referência como manual
+  AGENTS.md passa a conter o ciclo de 17 passos da referência como manual
   operacional (progressive disclosure: AGENTS.md fino aponta para skills
   locais geradas):
   1. ler AGENTS.md → 2. rodar `init.sh`/`init.ps1` (gerado do profile:
@@ -384,7 +384,7 @@ Três achados da revisão de coerência continuam valendo e estão absorvidos:
 | Fase | Paradigma que instala | Arquivos/fluxos que controlam o comportamento | Contato humano | Depende de |
 |---|---|---|---|---|
 | 1. Delegação por Contratos | autoridade humana concentrada num artefato aprovável | `repo-profile.json`, `spec.md`, `Plans.md`, `feature_list.json` | aprova contrato (único gate) | — |
-| 2. Autonomia no Raio de Impacto | allow na superfície enumerada do contrato (inclui git local e deps no toque 1); deny-como-feedback na fronteira; runtime floor imutável; lifecycle autônomo | permissions compiladas, `boundary_guard.py`, AGENTS.md (16 passos), `claude-progress.md`, `init.*`, SessionStart | nenhum durante execução (piso: segredos/destrutivo/push nunca viram allow) | F1 |
+| 2. Autonomia no Raio de Impacto | allow na superfície enumerada do contrato (inclui git local e deps no toque 1); deny-como-feedback na fronteira; runtime floor imutável; lifecycle autônomo | permissions compiladas, `boundary_guard.py`, AGENTS.md (17 passos), `claude-progress.md`, `init.*`, SessionStart | nenhum durante execução (piso: segredos/destrutivo/push nunca viram allow) | F1 |
 | 3. Auto-verificação em Loop | prova executável como moeda de "pronto"; autocorreção até passar | `harness verify`, `evidence/`, feature-lock, hook Stop, stop conditions do spec | só se stop condition disparar | F1 + F2 |
 | 4. Team Factory L3 | revisão e distribuição por agentes; humano só assina e aceita | `.claude/agents/*.md`, catálogo de padrões, estado `pending→in_review→rejected\|approved` [design próprio; fonte usa PASS/FIX/REDO], veto ligado ao feature-lock | aprova arquitetura do time (1×) + aceita release | F1–F3 |
 

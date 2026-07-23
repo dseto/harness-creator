@@ -1,4 +1,4 @@
-"""Agent Session Lifecycle: compila o ciclo de 16 passos (docs/project/ROADMAP.md, Fase 2)
+"""Agent Session Lifecycle: compila o ciclo de 17 passos (docs/project/ROADMAP.md, Fase 2)
 como bloco gerenciado ADICIONAL no `AGENTS.md`, com progressive disclosure
 (bloco fino aponta para o detalhe em `.harness/LIFECYCLE.md`).
 
@@ -26,11 +26,11 @@ LIFECYCLE_DETAIL_PATH = ".harness/LIFECYCLE.md"
 
 
 def render_lifecycle_block() -> str:
-    """Bloco curto (progressive disclosure) para o AGENTS.md: os 16 passos
+    """Bloco curto (progressive disclosure) para o AGENTS.md: os 17 passos
     do Agent Session Lifecycle (docs/project/ROADMAP.md, Fase 2) como lista numerada
     compacta — uma linha por passo, sem repetir o detalhe completo."""
     return f"""{LIFECYCLE_BEGIN}
-## Agent Session Lifecycle (gerado — 16 passos, docs/project/ROADMAP.md Fase 2)
+## Agent Session Lifecycle (gerado — 17 passos, docs/project/ROADMAP.md Fase 2)
 
 1. Ler `AGENTS.md`.
 2. Rodar `init.sh`/`init.ps1` (deps + health check do profile).
@@ -46,8 +46,9 @@ def render_lifecycle_block() -> str:
 12. Atualizar `claude-progress.md` com o estado atual.
 13. Marcar a feature concluída em `feature_list.json`.
 14. Documentar o que ficou quebrado, se houver.
-15. Commit apenas em estado retomável.
-16. Deixar a working tree limpa.
+15. Parar e pedir aprovação humana explícita antes do commit, com mensagem clara do que foi feito.
+16. Só após aprovação: commit em estado retomável.
+17. Deixar a working tree limpa.
 
 Detalhe de cada passo: ver `.harness/LIFECYCLE.md`.
 {LIFECYCLE_END}"""
@@ -56,10 +57,10 @@ Detalhe de cada passo: ver `.harness/LIFECYCLE.md`.
 def render_lifecycle_detail() -> str:
     """Conteúdo completo de `.harness/LIFECYCLE.md`: um parágrafo por passo,
     explicando o objetivo de cada um (prosa baseada no docs/project/ROADMAP.md Fase 2)."""
-    return """# Agent Session Lifecycle — Detalhe dos 16 Passos
+    return """# Agent Session Lifecycle — Detalhe dos 17 Passos
 
 Este arquivo é o detalhe de progressive disclosure do bloco "Agent Session
-Lifecycle" em `AGENTS.md`. Cada passo abaixo corresponde ao ciclo de 16
+Lifecycle" em `AGENTS.md`. Cada passo abaixo corresponde ao ciclo de 17
 passos descrito no `docs/project/ROADMAP.md` (Fase 2 — "Execução Autônoma no Raio de
 Impacto"): a sessão nasce sabendo onde parou, trabalha dentro do contrato
 aprovado e só devolve o controle ao humano em estado retomável.
@@ -128,11 +129,20 @@ aprovado e só devolve o controle ao humano em estado retomável.
     ficou incompleto ou quebrado, isso é registrado explicitamente — nunca
     escondido atrás de um commit "limpo".
 
-15. **Commit apenas em estado retomável.** O commit local (`git add`/
-    `git commit`) só acontece quando o repositório está em um estado que a
-    próxima sessão (ou o humano) consegue retomar sem arqueologia.
+15. **Parar e pedir aprovação humana explícita antes do commit.** Gate
+    obrigatório: o agente NUNCA commita sem sinal verde do humano. A sessão
+    reporta, em mensagem clara e direta (não sub-entendida em log), que o
+    trabalho terminou e passou pela verificação — tipicamente: o que foi
+    feito, prova de que `verify_cmd` passou (passo 11), o que ficou quebrado
+    se houver (passo 14), e um pedido explícito de OK para commitar. Só
+    avança para o passo 16 com essa aprovação recebida na conversa.
 
-16. **Deixar a working tree limpa.** Fim de sessão: nenhuma mudança solta
+16. **Só após aprovação: commit em estado retomável.** O commit local
+    (`git add`/`git commit`) só acontece depois do sinal verde do passo 15,
+    e apenas quando o repositório está em um estado que a próxima sessão
+    (ou o humano) consegue retomar sem arqueologia.
+
+17. **Deixar a working tree limpa.** Fim de sessão: nenhuma mudança solta
     fora de commit, nenhum arquivo temporário esquecido — o handoff para a
     próxima sessão (ou para o humano) começa de um estado previsível.
 """

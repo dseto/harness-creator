@@ -89,13 +89,13 @@ Mecanismo antigo (`harness compile`, enforce_tdd: true) instalou `guard_tests.py
 Após `compile-session`: `guard_tests.py` REMOVIDO de hooks.PreToolUse (a proteção de teste agora é por-tarefa no boundary_guard), `guard_test_runner.py` PRESERVADO intacto, `boundary_guard.py` registrado. Matchers finais: ['*', 'Bash'].
 Segunda rodada de `compile-session`: uma única entrada do boundary_guard (idempotente).
 
-## Outcome 6 — lifecycle de 16 passos como bloco gerenciado idempotente no AGENTS.md + .harness/LIFECYCLE.md
+## Outcome 6 — lifecycle de 17 passos como bloco gerenciado idempotente no AGENTS.md + .harness/LIFECYCLE.md
 
 Veredito: **ATINGIDO**
 
 AGENTS.md após `compile` (mecanismo antigo) + `compile-session`: texto humano preservado, bloco `<!-- harness:begin -->` do compiler.py byte a byte intacto, bloco `<!-- harness:lifecycle:begin -->` adicionado.
-Bloco do lifecycle: 16 passos numerados (1 linha por passo), citando init/claude-progress.md/feature_list.json/git log/'exatamente UMA feature pendente', com ponteiro de progressive disclosure para `.harness/LIFECYCLE.md`.
-`.harness/LIFECYCLE.md` existe com os 16 passos detalhados (um parágrafo por passo).
+Bloco do lifecycle: 17 passos numerados (1 linha por passo), citando init/claude-progress.md/feature_list.json/git log/'exatamente UMA feature pendente'/gate de aprovação humana antes do commit, com ponteiro de progressive disclosure para `.harness/LIFECYCLE.md`.
+`.harness/LIFECYCLE.md` existe com os 17 passos detalhados (um parágrafo por passo).
 Segunda rodada: um único bloco lifecycle (substituído in-place), bloco do compiler e texto humano seguem intactos.
 
 ## Outcome 7 — templates do contrato/profile: claude-progress.md nunca sobrescrito; init.* regenerados

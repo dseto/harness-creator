@@ -65,7 +65,10 @@ identificador curto kebab-case derivado da demanda.
 ## Passo 5 — Gate de aprovação (REGRA DURA)
 
 Apresente o `spec.md` e o `Plans.md` completos ao usuário e peça aprovação
-explícita.
+explícita. Sempre mostre o caminho relativo (NUNCA o caminho absoluto) dos
+dois arquivos como link markdown antes de pedir aprovação (ex.:
+`.harness/work/<slug>/spec.md`) — caminho relativo é clicável no client;
+sem isso o usuário precisa perguntar onde o contrato está.
 
 > **A skill NUNCA preenche `approved_by`/`approved_at` por conta própria.**
 > Esses dois campos ficam vazios no frontmatter até o humano dizer, em
@@ -137,7 +140,7 @@ Isso compila, em sequência, os 5 artefatos da Fase 2 a partir do contrato
 recém-aprovado e do `repo-profile.json` (se já existir): `.claude/settings.json`
 com a superfície `allow` ENUMERADA do contrato, `boundary_guard.py` ativo
 como hook `PreToolUse` único de Edit/Write/Bash, `AGENTS.md` com o Agent
-Session Lifecycle de 16 passos (mais o detalhe em `.harness/LIFECYCLE.md`),
+Session Lifecycle de 17 passos (mais o detalhe em `.harness/LIFECYCLE.md`),
 `claude-progress.md`/`init.sh`/`init.ps1` gerados a partir do profile, e o
 hook `SessionStart` registrado (injeta o estado da sessão anterior no
 início da próxima sessão).
