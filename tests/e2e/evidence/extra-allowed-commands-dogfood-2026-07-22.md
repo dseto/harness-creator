@@ -13,7 +13,9 @@ declarando `governance.extra_allowed_commands: ["python -m mar_committee"]`.
 abaixo são a **saída literal** do script instalado, invocado via
 `subprocess.run` (interpretador `C:\Python314\python.exe`).
 
-Script instalado: `C:\Users\danie\AppData\Local\Temp\pytest-of-danie\pytest-500\test_extra_allowed_commands_e20\mar_committee_mock\.harness\hooks\boundary_guard.py`
+Script instalado em `.harness/hooks/boundary_guard.py` (relativo à raiz
+do mock efêmero em `tmp_path` — o path absoluto varia por rodada e não entra
+na evidência versionada).
 
 ---
 
