@@ -665,6 +665,80 @@ def test_verify_subcommand_with_mark_passed_flag_on_failure_does_not_mark(
     assert features_by_id["T-02"]["passes"] is False
 
 
+# ---------------- harness disable | enable | status (kill-switch) ----------------
+
+def _sentinel(tmp_path: Path) -> Path:
+    return tmp_path / ".harness" / "harness.disabled"
+
+
+def test_disable_subcommand_creates_sentinel_and_exits_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        sys, "argv", ["harness", "disable", "--dir", str(tmp_path), "--note", "destravando deploy"]
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["disabled"] is True
+    assert data["note"] == "destravando deploy"
+    assert _sentinel(tmp_path).is_file()
+
+
+def test_status_subcommand_reports_active_then_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["harness", "status", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    assert exc_info.value.code == 0
+    assert json.loads(capsys.readouterr().out)["disabled"] is False
+
+    from harness.killswitch import disable as _disable
+
+    _disable(tmp_path, note="manutencao")
+    monkeypatch.setattr(sys, "argv", ["harness", "status", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    assert exc_info.value.code == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["disabled"] is True
+    assert data["note"] == "manutencao"
+
+
+def test_enable_subcommand_removes_sentinel_and_exits_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from harness.killswitch import disable as _disable
+
+    _disable(tmp_path)
+    assert _sentinel(tmp_path).is_file()
+
+    monkeypatch.setattr(sys, "argv", ["harness", "enable", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["disabled"] is False
+    assert not _sentinel(tmp_path).is_file()
+
+
+def test_enable_subcommand_when_already_active_is_noop_exits_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["harness", "enable", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["disabled"] is False
+    assert data["removed"] is False
+
+
 def test_audit_runtime_subcommand_exits_one_when_score_low(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

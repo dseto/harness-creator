@@ -6,6 +6,28 @@ Correções achadas durante o dogfood do próprio harness-creator (contrato
 `hook-reasons-progress-sync` e achados A/B/C do backlog de fricção de
 dogfood 2026-07-22).
 
+### Adicionado
+- **Kill-switch externo do harness (`harness disable | enable | status`).**
+  Comando rodável **apenas pelo usuário no terminal próprio** (fora do Claude
+  Code, onde nenhum hook `PreToolUse` intercepta) que desativa
+  **completamente** o harness — todos os hooks gerados (`boundary_guard`,
+  `session_start`, `stop_hook`, `guard_tests`, `guard_test_runner`) passam a
+  no-op no topo do `main()`. Serve para destravar processos legítimos que o
+  harness bloqueia, sem cirurgia manual em `.claude/settings.json`. Estado =
+  arquivo-sentinela `.harness/harness.disabled` (machine-local, gitignored por
+  `install_boundary_guard`; um clone novo nasce ativo). O **agente não pode se
+  auto-desativar**: uma regra de nível *floor* no `boundary_guard` (novo módulo
+  `harness.killswitch` + `is_floor_disable_sentinel_path`/
+  `is_floor_disable_command`/`is_floor_bash_disable_redirect`) nega
+  incondicionalmente, enquanto o harness está ativo, criar o sentinel
+  (Edit/Write/PowerShell/Bash-redirect) e rodar `harness disable`. Sem paradoxo:
+  com o sentinel presente o hook faz short-circuit para `allow` antes do floor;
+  ausente, o floor protege a criação. A checagem `_harness_disabled()`
+  (fonte única `DISABLED_CHECK_SRC`, embutida nos cinco renders de hook) é
+  ancorada por `__file__`, não pelo `cwd` do payload. Residual idêntico ao
+  floor de segredo (não persegue escrita indireta via interpretador,
+  `python -c open(...)`).
+
 ### Corrigido
 - **`claude-progress.md` regenera quando o contrato compilado muda.**
   `install_templates` só gravava esse arquivo se ele ainda não existisse —

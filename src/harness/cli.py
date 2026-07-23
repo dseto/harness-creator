@@ -135,6 +135,19 @@ def main() -> None:
     aud_team = sub.add_parser("audit-team", help="Audita os artefatos de time da Fase 4 — score + findings JSON")
     aud_team.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
 
+    dis = sub.add_parser(
+        "disable",
+        help="Kill-switch: desativa COMPLETAMENTE o harness (todos os hooks) — rodar só no terminal do usuário",
+    )
+    dis.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+    dis.add_argument("--note", default="", help="Nota livre registrada no sentinel (motivo da desativação)")
+
+    ena = sub.add_parser("enable", help="Kill-switch: reativa o harness (remove o sentinel de desativação)")
+    ena.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+
+    stat = sub.add_parser("status", help="Kill-switch: mostra se o harness está ativo ou desativado")
+    stat.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+
     args = parser.parse_args()
 
     if args.command == "compile":
@@ -480,6 +493,28 @@ def main() -> None:
         report = audit_team(Path(args.dir))
         print(report.to_json())
         sys.exit(0 if report.score >= 60 else 1)
+
+    if args.command == "disable":
+        from harness.killswitch import disable, status
+
+        disable(Path(args.dir), note=args.note)
+        print(json.dumps(status(Path(args.dir)), indent=2, ensure_ascii=False))
+        sys.exit(0)
+
+    if args.command == "enable":
+        from harness.killswitch import enable, status
+
+        removed = enable(Path(args.dir))
+        result = status(Path(args.dir))
+        result["removed"] = removed
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        sys.exit(0)
+
+    if args.command == "status":
+        from harness.killswitch import status
+
+        print(json.dumps(status(Path(args.dir)), indent=2, ensure_ascii=False))
+        sys.exit(0)
 
 
 if __name__ == "__main__":

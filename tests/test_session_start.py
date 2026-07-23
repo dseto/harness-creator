@@ -135,6 +135,26 @@ def test_no_git_repo_does_not_break_session(tmp_path: Path) -> None:
     assert "Nenhum contrato ativo" in _context(payload)
 
 
+def test_disabled_sentinel_makes_session_start_noop(tmp_path: Path) -> None:
+    """Kill-switch: com o sentinel presente, o SessionStart hook faz no-op
+    (não injeta contexto) mesmo com contrato ativo."""
+    feature_list_path = tmp_path / ".harness" / "feature_list.json"
+    feature_list_path.parent.mkdir(parents=True, exist_ok=True)
+    feature_list_path.write_text(json.dumps(FEATURE_LIST_PENDING), encoding="utf-8")
+    (tmp_path / ".harness" / "harness.disabled").write_text("{}", encoding="utf-8")
+
+    script_path = _write_hook_script(tmp_path)
+    proc = subprocess.run(
+        [sys.executable, str(script_path)],
+        input=json.dumps({"cwd": str(tmp_path)}),
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == ""
+
+
 # ---------------- install_session_start ----------------
 
 def test_install_writes_hook_file(tmp_path: Path) -> None:

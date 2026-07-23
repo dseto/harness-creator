@@ -2497,3 +2497,112 @@ def test_protected_branches_override_from_harness_yaml(tmp_path: Path) -> None:
     out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
                               "tool_input": {"command": "git commit -m x"}})
     assert out["permissionDecision"] == "allow", out
+
+
+# ---------------- kill-switch: floor anti-auto-desativação + short-circuit ----------------
+
+from harness.boundary_guard import (  # noqa: E402
+    is_floor_bash_disable_redirect,
+    is_floor_disable_command,
+    is_floor_disable_sentinel_path,
+)
+
+
+def test_is_floor_disable_sentinel_path_matches_sentinel() -> None:
+    assert is_floor_disable_sentinel_path(".harness/harness.disabled") is True
+    assert is_floor_disable_sentinel_path("harness.disabled") is True
+    assert is_floor_disable_sentinel_path("src/harness/killswitch.py") is False
+
+
+def test_is_floor_disable_command_matches_both_invocations() -> None:
+    assert is_floor_disable_command("harness disable") is True
+    assert is_floor_disable_command("python -m harness.cli disable") is True
+    assert is_floor_disable_command("harness disable --note x") is True
+    assert is_floor_disable_command("harness enable") is False
+    assert is_floor_disable_command("harness status") is False
+    assert is_floor_disable_command("pytest tests -q") is False
+
+
+def test_is_floor_bash_disable_redirect_matches_sentinel_target() -> None:
+    assert is_floor_bash_disable_redirect("echo x > .harness/harness.disabled") is True
+    assert is_floor_bash_disable_redirect("echo x | tee .harness/harness.disabled") is True
+    assert is_floor_bash_disable_redirect("echo x > out.txt") is False
+
+
+def _sentinel(tmp_path: Path) -> Path:
+    return tmp_path / ".harness" / "harness.disabled"
+
+
+def test_hook_denies_harness_disable_command_no_contract(tmp_path: Path) -> None:
+    """Floor incondicional: `harness disable` negado MESMO sem contrato ativo."""
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                             "tool_input": {"command": "harness disable"}})
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_hook_denies_harness_disable_command_with_contract(tmp_path: Path) -> None:
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/x.py"], "verify_cmd": "pytest", "passes": False},
+    ])
+    _write_profile(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                             "tool_input": {"command": "python -m harness.cli disable"}})
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_hook_denies_creating_sentinel_via_edit(tmp_path: Path) -> None:
+    script = _script(tmp_path)
+    out = _run_hook(script, {
+        "tool_name": "Write", "cwd": str(tmp_path),
+        "tool_input": {"file_path": str(_sentinel(tmp_path)), "content": "{}"},
+    })
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_hook_denies_creating_sentinel_via_bash_redirect(tmp_path: Path) -> None:
+    script = _script(tmp_path)
+    out = _run_hook(script, {
+        "tool_name": "Bash", "cwd": str(tmp_path),
+        "tool_input": {"command": "echo x > .harness/harness.disabled"},
+    })
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_hook_denies_harness_disable_via_powershell(tmp_path: Path) -> None:
+    script = _script(tmp_path)
+    out = _run_hook(script, {
+        "tool_name": "PowerShell", "cwd": str(tmp_path),
+        "tool_input": {"command": "harness disable"},
+    })
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_hook_short_circuits_to_allow_when_sentinel_present(tmp_path: Path) -> None:
+    """Sentinel presente (harness desativado) -> qualquer tool call vira allow,
+    mesmo uma que normalmente seria negada (comando arbitrário com contrato
+    ativo)."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/x.py"], "verify_cmd": "pytest", "passes": False},
+    ])
+    _write_profile(tmp_path)
+    script = _script(tmp_path)
+
+    # sem sentinel: comando arbitrário é negado
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                             "tool_input": {"command": "rm -rf algo"}})
+    assert out["permissionDecision"] == "deny", out
+
+    # com sentinel: short-circuit -> allow
+    _sentinel(tmp_path).write_text("{}", encoding="utf-8")
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                             "tool_input": {"command": "rm -rf algo"}})
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_install_creates_harness_gitignore_for_sentinel(tmp_path: Path) -> None:
+    _script(tmp_path)
+    gitignore = tmp_path / ".harness" / ".gitignore"
+    assert gitignore.is_file()
+    assert "harness.disabled" in gitignore.read_text(encoding="utf-8")

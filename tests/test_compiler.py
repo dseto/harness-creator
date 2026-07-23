@@ -264,3 +264,37 @@ def test_guard_tests_reason_names_the_file_path(tmp_path: Path) -> None:
     assert "tests/test_widget.py" in out["permissionDecisionReason"], (
         out["permissionDecisionReason"]
     )
+
+
+# ---------------- kill-switch: guard_tests / guard_test_runner no-op ----------------
+
+def test_guard_tests_hook_noop_when_sentinel_present(tmp_path: Path) -> None:
+    """Com o sentinel presente, guard_tests faz no-op -> allow, mesmo para um
+    arquivo de teste que normalmente exigiria aprovação (ask)."""
+    _write_yaml(tmp_path, BASIC_YAML)
+    compile_project(tmp_path)
+    script = tmp_path / ".harness" / "hooks" / "guard_tests.py"
+
+    ask = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
+                             "tool_input": {"file_path": "tests/test_x.py"}})
+    assert ask["permissionDecision"] == "ask"
+
+    (tmp_path / ".harness" / "harness.disabled").write_text("{}", encoding="utf-8")
+    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
+                             "tool_input": {"file_path": "tests/test_x.py"}})
+    assert out["permissionDecision"] == "allow"
+
+
+def test_guard_test_runner_hook_noop_when_sentinel_present(tmp_path: Path) -> None:
+    """Com o sentinel presente, guard_test_runner faz no-op -> allow, mesmo
+    para um comando que normalmente exigiria aprovação (ask)."""
+    _write_yaml(tmp_path, BASIC_YAML)
+    compile_project(tmp_path)
+    script = tmp_path / ".harness" / "hooks" / "guard_test_runner.py"
+
+    ask = _run_hook(script, {"tool_name": "Bash", "tool_input": {"command": "pytest -x"}})
+    assert ask["permissionDecision"] == "ask"
+
+    (tmp_path / ".harness" / "harness.disabled").write_text("{}", encoding="utf-8")
+    out = _run_hook(script, {"tool_name": "Bash", "tool_input": {"command": "pytest -x"}})
+    assert out["permissionDecision"] == "allow"

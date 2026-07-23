@@ -39,6 +39,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from harness.killswitch import DISABLED_CHECK_SRC
+
 HOOKS_DIR = ".harness/hooks"
 HOOK_FILENAME = "session_start.py"
 SESSION_STATE_FILE = ".harness/compiled-state-session.json"
@@ -70,6 +72,9 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+
+
+''' + DISABLED_CHECK_SRC + '''
 
 
 def _read_feature_summary(cwd: Path) -> str:
@@ -149,6 +154,8 @@ def main() -> None:
     except (json.JSONDecodeError, ValueError):
         payload = {}
     cwd = Path(payload.get("cwd") or ".")
+    if _harness_disabled():
+        return
     context = build_context(cwd)
 
     print(json.dumps({
