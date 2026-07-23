@@ -19,6 +19,11 @@ stop_conditions:
 
 # Spec: <título da demanda>
 
+## Resumo executivo
+<objetivo em 2-3 frases, sem jargão técnico: o que muda do ponto de vista
+de quem usa/pede a demanda (não de quem implementa), e qual o resultado
+esperado. Deve fazer sentido pra um product owner sem background técnico.>
+
 ## Escopo
 <descrição em linguagem natural do que deve ser feito e por quê>
 
