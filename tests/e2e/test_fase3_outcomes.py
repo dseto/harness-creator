@@ -322,7 +322,7 @@ def test_outcome1_verify_records_evidence_only_on_success(tmp_path: Path) -> Non
         assert evidence_path.is_file(), "sucesso não gravou .harness/evidence/T-OK.json"
         evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
         assert set(evidence.keys()) == {
-            "feature_id", "verify_cmd", "recorded_at", "exit_code", "files_hash",
+            "feature_id", "desc", "files", "verify_cmd", "recorded_at", "exit_code", "files_hash",
         }, f"schema da evidência divergiu do fixado em verify.py: {sorted(evidence)}"
         assert evidence["feature_id"] == "T-OK"
         assert evidence["verify_cmd"] == "echo verify-ok > verify_ran.txt"

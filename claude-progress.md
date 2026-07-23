@@ -1,15 +1,14 @@
 # Claude Progress
 
-Contrato: `fix-version-single-source`
+Contrato: `legible-approval-gate`
 
 ## Features
 
 | id | desc | status |
 | --- | --- | --- |
-| T-01 | Converter pyproject.toml para dynamic version via hatchling | done |
-| T-02 | Guard test: marketplace.json e plugin.json batem com harness.__version__ | done |
-| T-03 | Confirmar build editable reflete a versao dinamica | done |
-| T-04 | Rodar suite completa para confirmar ausencia de regressao | done |
+| T-01 | Passo 15 exige descricao funcional + link file:line por escrito | done |
+| T-02 | Enriquecer evidencia de harness verify com desc e files da feature | done |
+| T-03 | Rodar suite completa para confirmar ausencia de regressao | done |
 
 ## Última atualização
 

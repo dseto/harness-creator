@@ -387,6 +387,8 @@ def run_verify(
 
     evidence = {
         "feature_id": feature_id,
+        "desc": feature.get("desc", ""),
+        "files": files,
         "verify_cmd": verify_cmd,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "exit_code": returncode,

@@ -59,6 +59,23 @@ def test_render_lifecycle_detail_step_15_requires_human_approval_before_commit()
     assert "NUNCA commita sem sinal verde" in detail
 
 
+def test_render_lifecycle_detail_step_15_requires_functional_description_and_file_line_link() -> None:
+    """Issue #12 (dogfood 2026-07-23): mostrar só T-ID + JSON cru do
+    verify_cmd foi classificado como "péssimo, não dá pra entender" — o
+    passo 15 precisa exigir, por escrito, descrição funcional + link
+    file:line, não deixar implícito em "mensagem clara"."""
+    detail = render_lifecycle_detail()
+    assert "não é suficiente" in detail
+    assert "descrição funcional" in detail
+    assert "file:line" in detail
+
+
+def test_render_lifecycle_block_step_15_mentions_functional_description_and_file_line() -> None:
+    block = render_lifecycle_block()
+    assert "descrição funcional" in block
+    assert "file:line" in block
+
+
 def test_render_lifecycle_detail_step_10_cites_stop_conditions_source() -> None:
     detail = render_lifecycle_detail()
     assert "stop_conditions" in detail

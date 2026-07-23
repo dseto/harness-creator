@@ -74,11 +74,15 @@ def test_run_verify_success_writes_evidence_with_correct_schema(tmp_path: Path) 
 
     data = json.loads(evidence_path.read_text(encoding="utf-8"))
     assert data["feature_id"] == "T-01"
+    assert data["desc"] == "Criar x"
+    assert data["files"] == ["src/x.py"]
     assert data["verify_cmd"] == _true_cmd()
     assert data["exit_code"] == 0
     assert "recorded_at" in data
     assert data["files_hash"] == compute_files_hash(["src/x.py"], tmp_path)
-    assert set(data.keys()) == {"feature_id", "verify_cmd", "recorded_at", "exit_code", "files_hash"}
+    assert set(data.keys()) == {
+        "feature_id", "desc", "files", "verify_cmd", "recorded_at", "exit_code", "files_hash",
+    }
 
 
 def test_run_verify_success_syncs_claude_progress_row_to_done(tmp_path: Path) -> None:
