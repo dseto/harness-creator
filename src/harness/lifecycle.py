@@ -46,7 +46,9 @@ def render_lifecycle_block() -> str:
 12. Atualizar `claude-progress.md` com o estado atual.
 13. Marcar a feature concluída em `feature_list.json`.
 14. Documentar o que ficou quebrado, se houver.
-15. Parar e pedir aprovação humana explícita antes do commit, com mensagem clara do que foi feito.
+15. Parar e pedir aprovação humana explícita antes do commit — a mensagem
+    DEVE conter, por feature: descrição funcional em linguagem natural do
+    que mudou, e link `file:line` do teste que prova.
 16. Só após aprovação: commit em estado retomável.
 17. Deixar a working tree limpa.
 
@@ -132,10 +134,16 @@ aprovado e só devolve o controle ao humano em estado retomável.
 15. **Parar e pedir aprovação humana explícita antes do commit.** Gate
     obrigatório: o agente NUNCA commita sem sinal verde do humano. A sessão
     reporta, em mensagem clara e direta (não sub-entendida em log), que o
-    trabalho terminou e passou pela verificação — tipicamente: o que foi
-    feito, prova de que `verify_cmd` passou (passo 11), o que ficou quebrado
-    se houver (passo 14), e um pedido explícito de OK para commitar. Só
-    avança para o passo 16 com essa aprovação recebida na conversa.
+    trabalho terminou e passou pela verificação. Mostrar só o identificador
+    da feature (`T-01`) e o JSON cru do `verify_cmd` **não é suficiente** —
+    ninguém entende o que está aprovando só com isso. Por feature, a
+    mensagem PRECISA conter: (a) descrição funcional em linguagem natural
+    do comportamento que mudou (não o nome do arquivo, não o comando — o
+    que o teste efetivamente cobre), e (b) link direto `file:line` do
+    teste que prova o critério, para o humano abrir e ler sem caçar. Além
+    disso: o que ficou quebrado se houver (passo 14), e um pedido explícito
+    de OK para commitar. Só avança para o passo 16 com essa aprovação
+    recebida na conversa.
 
 16. **Só após aprovação: commit em estado retomável.** O commit local
     (`git add`/`git commit`) só acontece depois do sinal verde do passo 15,

@@ -11,6 +11,10 @@ Veredito: **ATINGIDO**
 ```json
 {
   "feature_id": "T-OK",
+  "desc": "Feature T-OK",
+  "files": [
+    "src/app.py"
+  ],
   "verify_cmd": "echo verify-ok > verify_ran.txt",
   "recorded_at": "<ISO8601 real, redigido>",
   "exit_code": 0,
