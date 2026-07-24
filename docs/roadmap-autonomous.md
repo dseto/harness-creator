@@ -127,6 +127,37 @@ humano vira exceção de política, não rotina.
 7. **Housekeeping (gap nº 10):** reescrever o `AGENTS.md` da raiz (ainda
    descreve a era congelada — TDDGuard/sandbox/ContextManager) e instalar o
    harness no próprio repo (dogfood permanente).
+8. **Anti-viés de autoria de teste — default simples, opt-in completo**
+   (parecer do comitê MAR de 2026-07-24, avaliação cega Verificador/Cético/
+   Lógico + Juiz, aprovado nota 4/5). Veredicto: o conjunto default da fase
+   — par red→green (item 5) + `judge-contract` (item 2) sobre os mecanismos
+   já entregues (gate humano legível, freeze de testes, revisor frio,
+   verify externo) — é provavelmente suficiente contra teste enviesado.
+   **Esse é o escopo DEFAULT: nada além disso entra no gate da Fase 5.**
+   O modo completo — *test-author independente* (sessão `claude -p` fria
+   escreve o teste a partir do spec aprovado; implementador herda o teste
+   congelado) — fica como **opt-in por escolha do usuário**, declarado por
+   tarefa no `Plans.md` (ex.: `test_author: independent`), e só se torna
+   elegível quando TODAS as condições valerem:
+   - (a) red→green + judge-contract entregues e medidos no dogfood;
+   - (b) ≥1 exemplar concreto de teste enviesado que passou por ambos —
+     com instrumento de detecção dedicado (ex.: mutation testing amostral
+     ou auditoria amostral de profundidade de asserção), pois o modo de
+     falha é silencioso e sem instrumento o gate de evidência é
+     insatisfazível por construção (ressalva R1 do comitê);
+   - (c) mudança explícita de semântica da isenção `tdd: true` do
+     `boundary_guard` (isenção de escrita em teste restrita à sessão
+     autora-de-teste; implementador volta a ter teste congelado mesmo em
+     tarefa TDD) — alteração de mecanismo existente, com trilha própria
+     de aprovação.
+   Deadlock teste-congelado-errado resolve-se máquina-máquina antes de
+   humano (ressalva R3: re-spawn do test-author com feedback do
+   implementador; escalação humana só após N tentativas). Limite declarado
+   pelo comitê: **independência de autoria ≠ independência de
+   especificação** (test-author frio lê o mesmo `spec.md`) — por isso o
+   modo completo nunca vira default. Ressalva R2: até red→green +
+   judge-contract chegarem, o caminho `tdd: true` é o maior furo do
+   conjunto entregue — reforça a prioridade dos itens 2 e 5 desta fase.
 
 **Entregas no plugin:** `contract-risk` + `judge-contract` +
 `approve-contract` na CLI, regra floor de frontmatter no `boundary_guard`,
