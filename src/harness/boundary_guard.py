@@ -1911,6 +1911,12 @@ def _evaluate_bash(command, cwd):
     feature_list = _load_json(cwd, FEATURE_LIST_PATH)
     if feature_list is None:
         return "allow", "sem contrato ativo — boundary_guard não gateia fora de uma sessão de contrato"
+    if _contract_fully_passed(feature_list):
+        return "allow", (
+            "contrato concluido (todas as features com passes:true) - boundary_guard "
+            "se aposenta da superficie de comando ate o proximo /harness-creator:plan; "
+            "floor (segredo/rede/push/kill-switch/branch protegida) continua incondicional"
+        )
 
     if "$(" in command or "`" in command:
         return "deny", (
@@ -2044,6 +2050,12 @@ def _evaluate_powershell(command, cwd):
     feature_list = _load_json(cwd, FEATURE_LIST_PATH)
     if feature_list is None:
         return "allow", "sem contrato ativo — boundary_guard não gateia fora de uma sessão de contrato"
+    if _contract_fully_passed(feature_list):
+        return "allow", (
+            "contrato concluido (todas as features com passes:true) - boundary_guard "
+            "se aposenta da superficie de comando ate o proximo /harness-creator:plan; "
+            "floor (segredo/rede/push/kill-switch/branch protegida) continua incondicional"
+        )
 
     target = _extract_powershell_write_target(command)
     if target is not None:
