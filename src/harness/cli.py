@@ -148,6 +148,13 @@ def main() -> None:
     stat = sub.add_parser("status", help="Kill-switch: mostra se o harness está ativo ou desativado")
     stat.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
 
+    doc = sub.add_parser(
+        "doctor",
+        help="Compara a versão do pacote pip, do .harness/ compilado e do cache de "
+        "plugin do Claude Code — aponta o comando exato para corrigir divergência",
+    )
+    doc.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+
     args = parser.parse_args()
 
     if args.command == "compile":
@@ -515,6 +522,13 @@ def main() -> None:
 
         print(json.dumps(status(Path(args.dir)), indent=2, ensure_ascii=False))
         sys.exit(0)
+
+    if args.command == "doctor":
+        from harness.doctor import run_doctor
+
+        report = run_doctor(Path(args.dir))
+        print(report.to_json())
+        sys.exit(0 if report.ok else 1)
 
 
 if __name__ == "__main__":
