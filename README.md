@@ -58,6 +58,32 @@ claude --plugin-dir <path-acima>
 
 Ou registre em `~/.claude/settings.json` como marketplace local (path do `pip show harness-creator | grep Location`).
 
+## Atualizando
+
+O harness-creator chega ao usuário por 3 camadas independentes, cada uma
+com ciclo de atualização próprio — atualizar só uma e esquecer as outras é
+a causa mais comum de "atualizei e continua com comportamento antigo":
+
+```bash
+# 1. pacote Python (lib + CLI `harness`)
+pip install --upgrade harness-creator            # ou: pip install -e . (checkout local)
+
+# 2. artefatos compilados no repo-alvo (hooks, permissions, AGENTS.md)
+harness compile --dir <repo-alvo>
+
+# 3. plugin instalado no Claude Code (skills, comandos) — reiniciar a sessão depois
+claude plugin update harness-creator@<marketplace>
+
+# 4. confirma que as 3 camadas batem — aponta exatamente o que ficou pra trás
+harness doctor --dir <repo-alvo>
+```
+
+`harness doctor` compara a versão do pacote pip instalado, a versão gravada
+no último `harness compile` (`.harness/compiled-state.json`) e a versão no
+cache de plugin do Claude Code (`~/.claude/plugins/installed_plugins.json`);
+exit code 0 se tudo bate, 1 se alguma camada ficou atrasada — com o comando
+exato para corrigir.
+
 ## Skills
 
 | Skill | Faz |
@@ -96,7 +122,9 @@ runtime-mutáveis, distinto do `harness audit`) · `harness team
 design|generate --dir <alvo>`, `harness review <feature-id>
 submit|approve|reject --dir <alvo>`, `harness supervise --dir <alvo>`,
 `harness audit-team --dir <alvo>` (Fase 4 — time de agentes com revisão de
-qualidade independente embutida; ver seção abaixo).
+qualidade independente embutida; ver seção abaixo) · `harness doctor --dir
+<alvo>` (compara pip/`.harness/` compilado/cache de plugin do Claude Code —
+ver seção "Atualizando" acima).
 
 ## Fase 4 — Team-Architecture Factory (Nível L3)
 

@@ -12,7 +12,7 @@ __all__ = ["HarnessConfig"]
 # (compiled_with_version) e .harness/compiled-state.json (plugin_version) -
 # mudar aqui SEM bumpar .claude-plugin/plugin.json, .claude-plugin/marketplace.json
 # e pyproject.toml deixa os quatro dessincronizados (ja aconteceu uma vez).
-__version__ = "0.17.6"
+__version__ = "0.17.7"
 
 
 def __getattr__(name: str) -> Any:
