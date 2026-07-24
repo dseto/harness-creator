@@ -372,15 +372,12 @@ def test_contract_fully_passed_allows_undeclared_file_write(tmp_path: Path) -> N
     assert "concluido" in out["permissionDecisionReason"] or "concluído" in out["permissionDecisionReason"]
 
 
-def test_contract_fully_passed_still_gates_undeclared_bash_command(tmp_path: Path) -> None:
-    """Escopo deliberadamente restrito a Edit/Write/MultiEdit/NotebookEdit —
-    a superfície de COMANDO (Bash/PowerShell) continua enforçada mesmo com
-    passes:true; é o comportamento provado por
-    tests/e2e/test_extra_allowed_commands_e2e.py (contrato passes:true, CLI
-    do produto fora do verify_cmd, liberado só via
-    governance.extra_allowed_commands — não por um allow genérico de fim de
-    contrato). Só a superfície de ARQUIVO se aposenta, que era a fricção
-    real observada (memória/self-edit do settings.json)."""
+def test_contract_fully_passed_allows_undeclared_bash_command(tmp_path: Path) -> None:
+    """Assimetria corrigida: a aposentadoria do fim de contrato agora cobre
+    a superfície de COMANDO (Bash), não só arquivo — mesma fricção real que
+    motivou achado B (memória/self-edit do settings.json), observada
+    também com CLI do próprio produto (`python -m mar_committee ...`)
+    negado com contrato 100% verde antes desta correção."""
     _write_feature_list(tmp_path, [
         {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
          "depends": [], "passes": True}
@@ -388,7 +385,115 @@ def test_contract_fully_passed_still_gates_undeclared_bash_command(tmp_path: Pat
     script = _script(tmp_path)
     out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
                               "tool_input": {"command": "git branch feature/next"}})
+    assert out["permissionDecision"] == "allow", out
+    assert "concluido" in out["permissionDecisionReason"] or "concluído" in out["permissionDecisionReason"]
+
+
+def test_contract_fully_passed_allows_undeclared_powershell_command(tmp_path: Path) -> None:
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": True}
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": "python -m mar_committee config-show"}})
+    assert out["permissionDecision"] == "allow", out
+    assert "concluido" in out["permissionDecisionReason"] or "concluído" in out["permissionDecisionReason"]
+
+
+def test_contract_partially_passed_still_gates_undeclared_bash_command(tmp_path: Path) -> None:
+    """Regressão: aposentadoria só dispara com 100% das features passes:true
+    — contrato ainda em andamento continua enforçando a superfície normal
+    de comando."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": True},
+        {"id": "T-02", "desc": "y", "files": ["src/other.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False},
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "git branch feature/next"}})
     assert out["permissionDecision"] == "deny", out
+
+
+def test_contract_fully_passed_still_denies_floor_bash_push(tmp_path: Path) -> None:
+    """Aposentadoria de comando não relaxa o runtime floor: git push
+    continua deny incondicional mesmo com contrato 100% verde."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": True}
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "git push origin main"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "runtime floor" in out["permissionDecisionReason"]
+
+
+def test_contract_fully_passed_still_denies_floor_bash_secret_redirect(tmp_path: Path) -> None:
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": True}
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "echo x > .env"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "runtime floor" in out["permissionDecisionReason"]
+
+
+def test_contract_fully_passed_still_denies_floor_bash_disable(tmp_path: Path) -> None:
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": True}
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "python -m harness.cli disable"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "runtime floor" in out["permissionDecisionReason"]
+
+
+def test_contract_fully_passed_still_denies_floor_powershell_network(tmp_path: Path) -> None:
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": True}
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": "Invoke-WebRequest https://x"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "runtime floor" in out["permissionDecisionReason"]
+
+
+def test_contract_fully_passed_still_denies_floor_powershell_disable(tmp_path: Path) -> None:
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": True}
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": "python -m harness.cli disable"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "runtime floor" in out["permissionDecisionReason"]
+
+
+def test_contract_fully_passed_still_denies_bash_commit_on_protected_branch(tmp_path: Path) -> None:
+    """Aposentadoria de comando não relaxa a regra de branch protegida —
+    `git commit` em main continua deny mesmo com contrato 100% verde."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": True}
+    ])
+    git_dir = tmp_path / ".git"
+    git_dir.mkdir(parents=True, exist_ok=True)
+    (git_dir / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "git commit -m x"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "protegida" in out["permissionDecisionReason"], out
 
 
 def test_contract_partially_passed_still_denies_undeclared_file(tmp_path: Path) -> None:

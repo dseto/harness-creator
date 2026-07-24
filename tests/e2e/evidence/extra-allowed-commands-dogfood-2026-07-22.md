@@ -5,9 +5,12 @@
 
 Prova REAL exigida pelo ROADMAP: mock em disco de um repo cujo produto é um
 CLI (`python -m mar_committee` — mesmo comando do cenário real do repo
-`entebate` que motivou esta demanda), contrato ativo com a feature
-`passes:true` mas SEM `verify_cmd` cobrindo o CLI, e `.harness/harness.yaml`
-declarando `governance.extra_allowed_commands: ["python -m mar_committee"]`.
+`entebate` que motivou esta demanda), contrato ATIVO com a feature
+`passes:false` (propositalmente não concluído — contrato 100% verde
+aposenta a superfície de comando inteira, ver achado de assimetria
+`_evaluate_bash`/`_evaluate_powershell` corrigido depois desta evidência)
+SEM `verify_cmd` cobrindo o CLI, e `.harness/harness.yaml` declarando
+`governance.extra_allowed_commands: ["python -m mar_committee"]`.
 `install_boundary_guard` (função REAL do pacote, mesmo caminho de
 `harness compile-session`) instala o hook em disco; os dois blocos JSON
 abaixo são a **saída literal** do script instalado, invocado via
@@ -53,8 +56,11 @@ qualquer comando.
 
 O comando declarado (`python -m mar_committee config-show`, prefixado por
 `python -m mar_committee`) recebe **allow** — o cenário real que motivou a
-demanda (CLI do próprio produto bloqueado mesmo com contrato `passes:true`)
-está resolvido sem precisar de um contrato ad-hoc cujos `verify_cmd` SEJAM os
-subcomandos do CLI. Um comando fora da superfície declarada continua **deny**
-— `extra_allowed_commands` amplia a superfície de forma explícita e auditável,
-não abre um allow genérico.
+demanda (CLI do próprio produto bloqueado durante um contrato ativo cujo
+`verify_cmd` não cobre o CLI) está resolvido sem precisar de um contrato
+ad-hoc cujos `verify_cmd` SEJAM os subcomandos do CLI. Um comando fora da
+superfície declarada continua **deny** — `extra_allowed_commands` amplia a
+superfície de forma explícita e auditável, não abre um allow genérico.
+(Com contrato 100% `passes:true` o boundary_guard se aposenta da
+superfície de comando inteira — cenário coberto separadamente em
+`tests/test_boundary_guard.py`.)
