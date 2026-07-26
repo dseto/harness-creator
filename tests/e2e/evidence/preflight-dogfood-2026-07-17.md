@@ -225,6 +225,13 @@ Laudo real (stdout do subprocess):
           "message": "arquivos de teste observados na convenção reconhecida",
           "fix": "",
           "evidence": "tests/test_x.py"
+        },
+        {
+          "code": "test_command_resolvable",
+          "status": "PASS",
+          "message": "o comando de teste inferido (`pytest`) resolve no PATH",
+          "fix": "",
+          "evidence": null
         }
       ]
     },
@@ -239,6 +246,13 @@ Laudo real (stdout do subprocess):
           "message": "linter configurado",
           "fix": "",
           "evidence": "pyproject.toml"
+        },
+        {
+          "code": "lint_command_resolvable",
+          "status": "PASS",
+          "message": "o comando de lint inferido (`ruff check .`) resolve no PATH",
+          "fix": "",
+          "evidence": null
         }
       ]
     }

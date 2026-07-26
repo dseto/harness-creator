@@ -39,6 +39,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from harness.hook_launcher import hook_command
 from harness.killswitch import DISABLED_CHECK_SRC
 
 HOOKS_DIR = ".harness/hooks"
@@ -196,7 +197,9 @@ def install_session_start(target_dir: Path) -> Path:
     hook_path = hooks_dir / HOOK_FILENAME
     hook_path.write_text(render_session_start_hook(), encoding="utf-8")
 
-    command = f'python "{hook_path}"'
+    # Item 1 do backlog do dogfood Savant.Backend: interpretador ABSOLUTO
+    # bakeado — ver `harness.hook_launcher`.
+    command = hook_command(hook_path)
 
     state_path = target_dir / SESSION_STATE_FILE
     state = _load_json(state_path)
@@ -209,8 +212,14 @@ def install_session_start(target_dir: Path) -> Path:
     entries: list[dict[str, Any]] = hooks.get("SessionStart", [])
 
     def _is_managed(entry: dict[str, Any]) -> bool:
+        # Casa também por NOME DE ARQUIVO, não só pelo comando exato: desde
+        # que o formato do `command` mudou (Item 1 do backlog do dogfood
+        # Savant.Backend), uma entrada antiga ausente do
+        # `compiled-state-session.json` sobreviveria ao merge e o hook
+        # rodaria duas vezes por sessão.
         return any(
             h.get("command") in (prev_command, command)
+            or HOOK_FILENAME in (h.get("command") or "")
             for h in entry.get("hooks", [])
         )
 

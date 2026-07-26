@@ -296,6 +296,7 @@ import yaml
 from pydantic import ValidationError
 
 from harness.config import HarnessConfig
+from harness.hook_launcher import hook_command
 from harness.killswitch import DISABLED_CHECK_SRC
 from harness.review import ReviewError, is_test_diff, load_review
 
@@ -2334,7 +2335,10 @@ def install_boundary_guard(target_dir: Path) -> Path:
             encoding="utf-8",
         )
 
-    command = f'python "{script_path}"'
+    # Item 1 do backlog do dogfood Savant.Backend: interpretador ABSOLUTO
+    # bakeado (não `python` nu resolvido pelo PATH de runtime) — ver
+    # `harness.hook_launcher` para o porquê e o risco residual.
+    command = hook_command(script_path)
 
     settings_path = target_dir / ".claude" / "settings.json"
     settings: dict[str, Any] = _load_json_state(settings_path)
@@ -2357,8 +2361,25 @@ def install_boundary_guard(target_dir: Path) -> Path:
             for h in entry.get("hooks", [])
         )
 
+    def _references_our_script(entry: dict[str, Any]) -> bool:
+        """Entrada que aponta para o NOSSO script, independente da forma do
+        comando. Necessário desde que o formato do `command` mudou (`python
+        "<script>"` -> `"<interp absoluto>" "<script>"`, Item 1 do backlog do
+        dogfood Savant.Backend): sem isto, um `settings.json` cuja entrada
+        antiga não conste do `compiled-state-session.json` (state apagado,
+        repo clonado com o settings versionado) sobreviveria ao merge e o
+        guard rodaria DUAS vezes por tool call. Casa por nome de arquivo, o
+        mesmo critério já usado por `_is_legacy_guard_tests` acima."""
+        return any(
+            BOUNDARY_HOOK_FILENAME in (h.get("command") or "")
+            for h in entry.get("hooks", [])
+        )
+
     kept_entries = [
-        e for e in pre if not _is_old_managed(e) and not _is_legacy_guard_tests(e)
+        e for e in pre
+        if not _is_old_managed(e)
+        and not _is_legacy_guard_tests(e)
+        and not _references_our_script(e)
     ]
     new_entry = {
         "matcher": BOUNDARY_HOOK_MATCHER,

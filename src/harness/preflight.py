@@ -393,7 +393,150 @@ def _test_runner_fix(profile: RepoProfile) -> str:
     )
 
 
-def _check_tests(profile: RepoProfile) -> PreflightCategory:
+# ---------------------------------------------------------------------------
+# Resolubilidade do comando inferido (Item 2 do backlog do dogfood
+# `Savant.Backend.APP-15167`).
+#
+# As categorias 2-4 checavam DECLARAÇÃO: existe manifesto, existe runner
+# declarado, existe config de lint. Nenhuma checava se o comando inferido de
+# fato RESOLVE no shell. No dogfood, o analyzer inferiu `pytest` a partir do
+# manifesto, gravou no `repo-profile.json`, e ninguém verificou que `pytest`
+# nu não está no PATH sem ativar `.venv\\Scripts` — preflight devolveu READY,
+# o contrato foi compilado com um `verify_cmd` que não executa, e descobrir a
+# forma correta virou tentativa-e-erro sob guard ativo (~13 ciclos
+# disable/compile-session/enable).
+#
+# **Resolução, não execução.** A tentação era rodar o comando a seco. Isso
+# violaria a stop condition documentada de `run_preflight` ("Read-only
+# absoluto: nenhum byte é escrito no alvo") — `pytest` cria `.pytest_cache/`
+# e `__pycache__/`, `npm test` pode tocar `node_modules/.cache`. `shutil.which`
+# responde exatamente a pergunta que interessa (o binário existe e é
+# executável?) com zero efeito colateral, e no Windows respeita `PATHEXT`,
+# então shims `.cmd`/`.exe` (`ng`, `npm`) são encontrados — o mesmo caso que
+# no backlog do elegant-heisenberg exigiu `shell=True` na execução real.
+#
+# **Limite conhecido e assumido:** `shutil.which` usa o PATH do processo que
+# roda o preflight, que pode não ser o PATH do shell da Bash tool do agente.
+# Um PASS aqui não é prova de que o agente vai conseguir rodar o comando — é
+# a checagem barata que pega o caso comum e observável (venv não ativado).
+# Falso-PASS reintroduz a fricção; falso-WARNING só gera um aviso a mais.
+# Nunca FAIL: runner declarado porém não resolvido não impede o repo de
+# receber o harness, só exige escolher a forma de invocação certa.
+# ---------------------------------------------------------------------------
+_VENV_DIR_NAMES = (".venv", "venv")
+_VENV_BIN_DIRS = ("Scripts", "bin")
+_BIN_SUFFIXES = ("", ".exe", ".cmd", ".bat")
+
+
+def _command_head(command: str | None) -> str | None:
+    """Primeiro token de um comando (o binário invocado), sem aspas. `None`
+    para comando vazio/ausente."""
+    tokens = (command or "").split()
+    if not tokens:
+        return None
+    head = tokens[0]
+    if len(head) >= 2 and head[0] == head[-1] and head[0] in ('"', "'"):
+        head = head[1:-1]
+    return head or None
+
+
+def _venv_binary_candidates(target_dir: Path, head: str) -> list[str]:
+    """Caminhos relativos (POSIX) de um binário homônimo dentro de um venv do
+    próprio repo. Vazio se não houver venv ou se o binário não estiver lá.
+
+    Serve para dois propósitos: montar um Actionable Fix com caminhos REAIS
+    (não um palpite genérico) e detectar o caso de sombra descrito em
+    `_command_resolution_check`."""
+    found: list[str] = []
+    for venv_dir in _VENV_DIR_NAMES:
+        for bin_dir in _VENV_BIN_DIRS:
+            base = target_dir / venv_dir / bin_dir
+            if not base.is_dir():
+                continue
+            for suffix in _BIN_SUFFIXES:
+                candidate = base / f"{head}{suffix}"
+                if candidate.is_file():
+                    found.append(f"{venv_dir}/{bin_dir}/{head}{suffix}")
+    return found
+
+
+def _command_resolution_check(
+    code: str,
+    label: str,
+    command: str,
+    target_dir: Path,
+) -> PreflightCheck:
+    """Um check de resolubilidade para um comando inferido. Três desfechos:
+
+    - binário não resolve no PATH -> WARNING, com fix listando as formas
+      concretas achadas em disco (`.venv/Scripts/<bin>`, `python -m <bin>`);
+    - binário resolve, mas existe homônimo dentro de um venv do repo e o
+      resolvido está FORA dele -> WARNING de sombra: o comando "funciona" e
+      roda o ambiente errado, que é pior que falhar alto porque falha em
+      silêncio (dependência do projeto ausente, versão divergente);
+    - resolve sem ambiguidade -> PASS.
+    """
+    head = _command_head(command)
+    if head is None:
+        return PreflightCheck(
+            code=code,
+            status="WARNING",
+            message=f"{label} está declarado mas vazio",
+            fix=f"declarar um {label} não-vazio no manifesto do projeto",
+            evidence=None,
+        )
+
+    resolved = shutil.which(head)
+    venv_candidates = _venv_binary_candidates(target_dir, head)
+
+    if resolved is None:
+        options = list(venv_candidates) + [f"python -m {head}"]
+        return PreflightCheck(
+            code=code,
+            status="WARNING",
+            message=(
+                f"o {label} inferido (`{command}`) começa por `{head}`, que não resolve "
+                "no PATH — o comando compilado para o contrato pode não executar"
+            ),
+            fix=(
+                f"usar uma forma de invocação que resolva, e declará-la no manifesto/"
+                f"perfil: {', '.join(options)}"
+            ),
+            evidence=None,
+        )
+
+    if venv_candidates:
+        resolved_path = Path(resolved).resolve()
+        inside_venv = any(
+            part in _VENV_DIR_NAMES for part in resolved_path.parts
+        )
+        if not inside_venv:
+            return PreflightCheck(
+                code=code,
+                status="WARNING",
+                message=(
+                    f"o {label} inferido (`{command}`) resolve para `{resolved}`, FORA do "
+                    f"venv do projeto, embora exista um `{head}` dentro dele — o comando "
+                    "roda, mas no ambiente errado (dependências do projeto ausentes ou "
+                    "em versão divergente)"
+                ),
+                fix=(
+                    f"declarar a forma explícita do venv: {', '.join(venv_candidates)} "
+                    f"(ou `python -m {head}` com o venv ativado)"
+                ),
+                evidence=venv_candidates[0],
+            )
+
+    return PreflightCheck(
+        code=code,
+        status="PASS",
+        message=f"o {label} inferido (`{command}`) resolve no PATH",
+        fix="",
+        evidence=None,
+    )
+
+
+def _check_tests(profile: RepoProfile, target_dir: Path) -> PreflightCategory:
     """Categoria 3: Ferramentas de Verificação/TDD.
 
     Política de severidade sobre `profile.test_command` e `profile.test_glob`
@@ -460,6 +603,20 @@ def _check_tests(profile: RepoProfile) -> PreflightCategory:
             )
         )
 
+    # test_command_resolvable — o comando inferido de fato resolve no shell?
+    # Só faz sentido quando há comando declarado; sem ele, o FAIL de
+    # `test_runner_detected` acima já é o achado, e um segundo check sobre o
+    # mesmo vazio seria ruído.
+    if profile.test_command is not None:
+        checks.append(
+            _command_resolution_check(
+                code="test_command_resolvable",
+                label="comando de teste",
+                command=str(profile.test_command.value),
+                target_dir=target_dir,
+            )
+        )
+
     return PreflightCategory(
         id="tests",
         title="Ferramentas de Verificação/TDD",
@@ -467,7 +624,7 @@ def _check_tests(profile: RepoProfile) -> PreflightCategory:
     )
 
 
-def _check_lint(profile: RepoProfile) -> PreflightCategory:
+def _check_lint(profile: RepoProfile, target_dir: Path) -> PreflightCategory:
     """Categoria 4: Qualidade Estática/Linting.
 
     Política de severidade sobre `profile.extras["lint_command"]` (derivado de
@@ -477,29 +634,44 @@ def _check_lint(profile: RepoProfile) -> PreflightCategory:
     """
     lint_command = profile.extras.get("lint_command")
     if lint_command is None:
-        check = PreflightCheck(
-            code="linter_configured",
-            status="WARNING",
-            message="nenhum linter configurado para a stack detectada",
-            fix=(
-                "configurar linter da stack (ex.: [tool.ruff] no pyproject.toml, "
-                "config do eslint)"
-            ),
-            evidence=None,
-        )
+        checks = [
+            PreflightCheck(
+                code="linter_configured",
+                status="WARNING",
+                message="nenhum linter configurado para a stack detectada",
+                fix=(
+                    "configurar linter da stack (ex.: [tool.ruff] no pyproject.toml, "
+                    "config do eslint)"
+                ),
+                evidence=None,
+            )
+        ]
     else:
-        check = PreflightCheck(
-            code="linter_configured",
-            status="PASS",
-            message="linter configurado",
-            fix="",
-            evidence=lint_command.evidence,
-        )
+        checks = [
+            PreflightCheck(
+                code="linter_configured",
+                status="PASS",
+                message="linter configurado",
+                fix="",
+                evidence=lint_command.evidence,
+            ),
+            # Mesma checagem de resolubilidade do comando de teste — o linter
+            # entra no `verify_cmd`/quality gate pelos mesmos caminhos e sofre
+            # exatamente o mesmo problema de venv (no dogfood, `ruff` foi o
+            # comando que mais oscilou de forma: `.venv/Scripts/ruff` ->
+            # `python -m ruff` -> de volta).
+            _command_resolution_check(
+                code="lint_command_resolvable",
+                label="comando de lint",
+                command=str(lint_command.value),
+                target_dir=target_dir,
+            ),
+        ]
 
     return PreflightCategory(
         id="lint",
         title="Qualidade Estática/Linting",
-        checks=[check],
+        checks=checks,
     )
 
 
@@ -525,8 +697,8 @@ def run_preflight(target_dir: Path) -> PreflightReport:
     categories = [
         _check_git(target_dir),
         _check_manifest(profile),
-        _check_tests(profile),
-        _check_lint(profile),
+        _check_tests(profile, target_dir),
+        _check_lint(profile, target_dir),
     ]
 
     return PreflightReport(

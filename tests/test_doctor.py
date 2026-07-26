@@ -14,6 +14,7 @@ from pathlib import Path
 import harness
 from harness.compiler import STATE_FILE
 from harness.doctor import run_doctor
+from harness.hook_launcher import hook_command
 
 _PIP_VERSION = harness.__version__
 
@@ -107,6 +108,75 @@ def test_plugin_install_of_other_plugin_is_ignored(tmp_path: Path) -> None:
     assert report.ok
 
 
+# ---------------- interpretador dos hooks ----------------
+# Item 1 do backlog do dogfood Savant.Backend: hook com interpretador
+# irresolúvel não roda, e a tool call PASSA sem gate. É estado silencioso em
+# runtime — o `doctor` é o único lugar onde ele fica visível.
+
+def _write_settings_with_hook(tmp_path: Path, command: str, event: str = "PreToolUse") -> None:
+    path = tmp_path / ".claude" / "settings.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"hooks": {event: [{"matcher": "*", "hooks": [
+            {"type": "command", "command": command}
+        ]}]}}),
+        encoding="utf-8",
+    )
+
+
+def test_hook_with_baked_interpreter_is_ok(tmp_path: Path) -> None:
+    _write_settings_with_hook(
+        tmp_path, hook_command(tmp_path / ".harness" / "hooks" / "boundary_guard.py")
+    )
+    report = run_doctor(tmp_path, plugins_file=tmp_path / "no-such-file.json")
+    assert len(report.hooks) == 1
+    assert report.hooks[0]["ok"] is True
+    assert report.hooks[0]["event"] == "PreToolUse"
+    assert report.ok
+
+
+def test_hook_with_bare_python_is_issue(tmp_path: Path) -> None:
+    _write_settings_with_hook(tmp_path, 'python ".harness/hooks/boundary_guard.py"')
+    report = run_doctor(tmp_path, plugins_file=tmp_path / "no-such-file.json")
+    assert not report.ok
+    assert report.hooks[0]["ok"] is False
+    assert any("PreToolUse" in i and "compile-session" in i for i in report.issues)
+
+
+def test_hook_with_dead_interpreter_is_issue(tmp_path: Path) -> None:
+    ghost = tmp_path / ".venv" / "Scripts" / "python.exe"
+    _write_settings_with_hook(
+        tmp_path, f'"{ghost}" ".harness/hooks/stop_hook.py"', event="Stop"
+    )
+    report = run_doctor(tmp_path, plugins_file=tmp_path / "no-such-file.json")
+    assert not report.ok
+    assert any("não existe mais em disco" in i for i in report.issues)
+
+
+def test_third_party_hook_is_ignored(tmp_path: Path) -> None:
+    # Não cabe ao doctor opinar sobre hooks que não são deste pacote — mesmo
+    # que estejam com interpretador nu.
+    _write_settings_with_hook(tmp_path, 'python "outro_plugin/hook.py"')
+    report = run_doctor(tmp_path, plugins_file=tmp_path / "no-such-file.json")
+    assert report.hooks == []
+    assert report.ok
+
+
+def test_malformed_settings_does_not_raise(tmp_path: Path) -> None:
+    path = tmp_path / ".claude" / "settings.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{ nao é json", encoding="utf-8")
+    report = run_doctor(tmp_path, plugins_file=tmp_path / "no-such-file.json")
+    assert report.hooks == []
+    assert report.ok
+
+
+def test_no_settings_file_yields_no_hooks(tmp_path: Path) -> None:
+    report = run_doctor(tmp_path, plugins_file=tmp_path / "no-such-file.json")
+    assert report.hooks == []
+    assert report.ok
+
+
 # ---------------- to_json ----------------
 
 def test_to_json_roundtrips_all_fields(tmp_path: Path) -> None:
@@ -117,3 +187,4 @@ def test_to_json_roundtrips_all_fields(tmp_path: Path) -> None:
     assert data["compiled_version"] == _PIP_VERSION
     assert data["ok"] is True
     assert "issues" in data and "notes" in data
+    assert data["hooks"] == []

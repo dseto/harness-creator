@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 from harness.boundary_guard import (
+    BOUNDARY_HOOK_FILENAME,
     BOUNDARY_HOOK_MATCHER,
     BOUNDARY_STATE_KEY,
     REPO_ROOT_STATE_KEY,
@@ -660,6 +661,45 @@ def test_install_is_idempotent(tmp_path: Path) -> None:
     entries = settings["hooks"]["PreToolUse"]
     matching = [e for e in entries if e.get("matcher") == BOUNDARY_HOOK_MATCHER]
     assert len(matching) == 1
+
+
+def test_install_bakes_absolute_interpreter_not_bare_python(tmp_path: Path) -> None:
+    """Item 1 do backlog do dogfood Savant.Backend: `python` nu é resolvido
+    pelo PATH só no instante da tool call. Se não resolver ali, o hook não
+    roda — e a tool call PASSA sem floor, sem proteção de segredo, sem
+    bloqueio de push (só exit 2 bloqueia; qualquer outro não-zero é erro
+    não-bloqueante para o Claude Code)."""
+    install_boundary_guard(tmp_path)
+    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    command = settings["hooks"]["PreToolUse"][-1]["hooks"][0]["command"]
+    assert sys.executable in command
+    assert not command.startswith("python ")
+
+
+def test_install_replaces_legacy_command_format_without_duplicating(tmp_path: Path) -> None:
+    """Entrada no formato antigo AUSENTE do compiled-state-session.json (state
+    apagado, ou settings.json versionado vindo de outra máquina) não pode
+    sobreviver ao merge — dois guards por tool call é o sintoma."""
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+    (claude_dir / "settings.json").write_text(json.dumps({
+        "hooks": {"PreToolUse": [
+            {"matcher": "*", "hooks": [{
+                "type": "command",
+                "command": 'python ".harness/hooks/boundary_guard.py"',
+            }]},
+        ]},
+    }), encoding="utf-8")
+
+    install_boundary_guard(tmp_path)
+
+    entries = json.loads((claude_dir / "settings.json").read_text(encoding="utf-8"))
+    guard_entries = [
+        e for e in entries["hooks"]["PreToolUse"]
+        if BOUNDARY_HOOK_FILENAME in json.dumps(e)
+    ]
+    assert len(guard_entries) == 1
+    assert sys.executable in guard_entries[0]["hooks"][0]["command"]
 
 
 def test_install_preserves_unrelated_settings_and_hooks(tmp_path: Path) -> None:
