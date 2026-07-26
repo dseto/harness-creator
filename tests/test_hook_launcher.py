@@ -215,3 +215,67 @@ def test_fail_closed_suffix_does_not_mask_a_successful_hook(tmp_path: Path) -> N
     assert proc.returncode == 0, (proc.returncode, proc.stderr)
     decision = json.loads(proc.stdout)["hookSpecificOutput"]["permissionDecision"]
     assert decision == "deny", proc.stdout
+
+
+# ---------------------------------------------------------------------------
+# B2 — o sufixo precisa estar no que os INSTALADORES gravam, não só no que
+# `hook_command()` devolve.
+#
+# Achado do comitê MAR sobre a onda 1: nenhum teste de instalação assertava o
+# sufixo. Os três testes de instalação existentes checavam apenas
+# `sys.executable in command` e `not startswith("python ")`. Um instalador que
+# parasse de chamar `hook_command()` e montasse a string à mão reintroduziria
+# o fail-open com a suíte inteira verde — a mesma classe de furo de composição
+# do Item 0: a peça correta existe, mas ninguém prova que ela é a usada.
+# ---------------------------------------------------------------------------
+
+_INSTALLERS = [
+    ("harness.boundary_guard", "install_boundary_guard", "PreToolUse"),
+    ("harness.session_start", "install_session_start", "SessionStart"),
+    ("harness.stop_hook", "install_stop_hook", "Stop"),
+]
+
+
+def _installed_command(tmp_path: Path, module: str, func: str, event: str) -> str:
+    import importlib
+    import json
+
+    getattr(importlib.import_module(module), func)(tmp_path)
+    settings = json.loads(
+        (tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8")
+    )
+    return settings["hooks"][event][0]["hooks"][0]["command"]
+
+
+def test_every_installer_writes_the_fail_closed_suffix(tmp_path: Path) -> None:
+    for i, (module, func, event) in enumerate(_INSTALLERS):
+        target = tmp_path / f"repo{i}"
+        target.mkdir()
+        command = _installed_command(target, module, func, event)
+        assert command.endswith(FAIL_CLOSED_SUFFIX), (module, command)
+
+
+def test_installed_command_blocks_when_the_hook_script_is_broken(tmp_path: Path) -> None:
+    """O teste de DESFECHO, não de string: pega o comando que o instalador
+    gravou de fato e roda no shell da plataforma com o script corrompido.
+
+    A quebra é erro de SINTAXE, deliberadamente, e não script ausente:
+    `python script_que_nao_existe.py` já sai 2 por conta do próprio Python, o
+    que faria o teste passar mesmo SEM o sufixo — não discriminaria nada.
+    Erro de sintaxe sai 1, que é o código que o Claude Code trata como erro
+    NÃO-bloqueante ("execution continues"). Sem o sufixo este teste retorna 1
+    e falha; com ele, 2."""
+    import subprocess
+
+    for i, (module, func, event) in enumerate(_INSTALLERS):
+        target = tmp_path / f"repo{i}"
+        target.mkdir()
+        command = _installed_command(target, module, func, event)
+
+        script = next((target / ".harness" / "hooks").glob("*.py"))
+        script.write_text("def quebrado(\n", encoding="utf-8")
+
+        proc = subprocess.run(
+            command, shell=True, input="{}", capture_output=True, text=True, timeout=30
+        )
+        assert proc.returncode == 2, (module, proc.returncode, proc.stderr[:400])
