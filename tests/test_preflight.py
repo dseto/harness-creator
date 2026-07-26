@@ -956,3 +956,115 @@ def test_cli_preflight_file_target_exit_two(tmp_path: Path, monkeypatch, capsys)
     captured = capsys.readouterr()
     assert captured.out.strip() == ""
     assert "erro:" in captured.err
+
+
+# ---------------------------------------------------------------------------
+# B3 — o cenário do dogfood: preflight rodado COM o venv ativado.
+#
+# `shutil.which` responde sobre o PATH do processo do preflight (terminal do
+# usuário, venv ativo); o comando aprovado roda depois na Bash tool do agente
+# (shell limpo, sem ativação). O desenho anterior dava PASS aqui — e portanto
+# só pegava o problema quando o usuário rodava o preflight SEM ativar o venv.
+# ---------------------------------------------------------------------------
+
+def test_bare_command_in_venv_repo_warns_even_when_which_resolves_inside_venv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """O caso exato do dogfood. Antes: PASS. Agora: WARNING."""
+    _write_python_repo_complete(tmp_path)
+    _make_venv_binary(tmp_path, "pytest.exe")
+    # venv ATIVADO: which acha o binário dentro do próprio venv.
+    monkeypatch.setattr(
+        preflight_mod.shutil, "which",
+        _fake_which({"pytest": str(tmp_path / ".venv" / "Scripts" / "pytest.exe")}),
+    )
+    profile = analyze_project(tmp_path)
+
+    check = _by_code(_check_tests(profile, tmp_path), "test_command_resolvable")
+    assert check.status == "WARNING", check
+    assert "não está ancorado no venv" in check.message
+    assert "SEM ativação" in check.message
+    assert ".venv/Scripts/pytest.exe" in check.fix
+
+
+def test_venv_anchored_command_is_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """O simétrico: a forma que o fix manda declarar precisa passar, senão o
+    check vira um WARNING que ninguém consegue silenciar."""
+    _write_python_repo_complete(tmp_path)
+    _make_venv_binary(tmp_path, "pytest.exe")
+    # Layout POSIX, para provar que a forma ancorada vale nos dois sistemas.
+    posix_bin = tmp_path / "venv" / "bin" / "pytest"
+    posix_bin.parent.mkdir(parents=True, exist_ok=True)
+    posix_bin.write_text("", encoding="utf-8")
+    # `which` vazio de propósito: a forma ancorada NÃO pode depender do PATH —
+    # é exatamente essa independência que o fix promete ao usuário.
+    monkeypatch.setattr(preflight_mod.shutil, "which", _fake_which({}))
+
+    for forma in (
+        ".venv/Scripts/pytest.exe -q",
+        r".venv\Scripts\pytest.exe -q",
+        ".venv/Scripts/pytest -q",
+        "venv/bin/pytest -q",
+    ):
+        check = preflight_mod._command_resolution_check(
+            code="test_command_resolvable", label="comando de teste",
+            command=forma, target_dir=tmp_path,
+        )
+        assert check.status == "PASS", (forma, check)
+
+
+def test_env_manager_launcher_is_not_flagged_in_venv_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`uv run` / `poetry run` / `tox` resolvem o próprio ambiente — exigir
+    ancoragem deles seria falso positivo, e falso positivo é a fricção que
+    este check existe para matar."""
+    _write_python_repo_complete(tmp_path)
+    _make_venv_binary(tmp_path, "pytest.exe")
+    monkeypatch.setattr(
+        preflight_mod.shutil, "which",
+        _fake_which({"uv": "/usr/bin/uv", "poetry": "/usr/bin/poetry", "tox": "/usr/bin/tox"}),
+    )
+
+    for forma in ("uv run pytest -q", "poetry run pytest -q", "tox -e py311"):
+        check = preflight_mod._command_resolution_check(
+            code="test_command_resolvable", label="comando de teste",
+            command=forma, target_dir=tmp_path,
+        )
+        assert check.status == "PASS", (forma, check)
+
+
+def test_bare_command_without_venv_repo_stays_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A regra é sobre repo COM venv. Sem venv, comando nu que resolve
+    continua PASS — não há forma ancorada a exigir."""
+    _write_python_repo_complete(tmp_path)
+    monkeypatch.setattr(
+        preflight_mod.shutil, "which", _fake_which({"pytest": r"C:\Python\Scripts\pytest.exe"})
+    )
+    profile = analyze_project(tmp_path)
+
+    check = _by_code(_check_tests(profile, tmp_path), "test_command_resolvable")
+    assert check.status == "PASS", check
+
+
+def test_venv_anchoring_warning_never_blocks_readiness(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mesma política dos demais desfechos: nunca FAIL. Runner declarado numa
+    forma frágil não impede o repo de receber o harness."""
+    _write_python_repo_complete(tmp_path)
+    _make_venv_binary(tmp_path, "pytest.exe")
+    _make_venv_binary(tmp_path, "ruff.exe")
+    monkeypatch.setattr(
+        preflight_mod.shutil, "which",
+        _fake_which({"pytest": str(tmp_path / ".venv" / "Scripts" / "pytest.exe"),
+                     "ruff": str(tmp_path / ".venv" / "Scripts" / "ruff.exe")}),
+    )
+    profile = analyze_project(tmp_path)
+
+    for categoria in (_check_tests(profile, tmp_path), _check_lint(profile, tmp_path)):
+        assert all(c.status != "FAIL" for c in categoria.checks), categoria

@@ -253,7 +253,7 @@ visível na suíte verde de 721 testes:
 |---|---|---|
 | **B1** | `is_floor_control_plane_path` case-sensitive e sem match de path absoluto — a cadeia do Item 0 reabre com `.Harness/` no Windows | ✅ **CORRIGIDO** |
 | **B2** | Nenhum teste de instalação asserta o sufixo `\|\| exit 2` no `settings.json` gravado; só o unitário de `hook_command()` | ✅ **CORRIGIDO** |
-| **B3** | Item 2: preflight rodado com venv ATIVADO resolve `pytest` dentro do venv → PASS, enquanto a Bash tool do agente (sem ativação) não resolve — o cenário exato do dogfood passa | pendente |
+| **B3** | Item 2: preflight rodado com venv ATIVADO resolve `pytest` dentro do venv → PASS, enquanto a Bash tool do agente (sem ativação) não resolve — o cenário exato do dogfood passa | ✅ **CORRIGIDO** |
 
 **O que B1 ensina, e que vale mais que o fix.** As duas camadas do Item 0
 foram construídas deliberadamente separadas, com a justificativa escrita de

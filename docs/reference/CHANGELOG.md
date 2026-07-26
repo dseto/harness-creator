@@ -62,6 +62,18 @@ ordem de execução (pós-parecer MAR) em `…correction.plano-v2.md`.
   resolve sem ambiguidade → PASS. Implementado por resolução (`shutil.which`),
   não por execução — `run_preflight` é read-only por contrato, e `pytest`
   criaria `.pytest_cache/`.
+  Quarto desfecho, que os três primeiros não alcançavam: num repo COM venv, um
+  comando **não ancorado nele** é WARNING mesmo que resolva. `shutil.which`
+  responde sobre o PATH do processo do preflight — o terminal do usuário, em
+  geral com o venv ativado —, enquanto o comando aprovado será executado pela
+  Bash tool do agente, que abre um shell sem ativação. São PATHs diferentes, e
+  o check respondia sobre o errado: o cenário exato do dogfood dava PASS, e o
+  desenho só pegava o problema quando o preflight rodava **sem** o venv ativo.
+  A regra nova não depende de qual terminal rodou o preflight. Lançadores que
+  gerenciam o próprio ambiente (`uv run`, `poetry run`, `tox`, …) ficam de
+  fora. E um `head` em forma de caminho passa a ser resolvido por existência em
+  disco, não por `shutil.which` — sem isso, declarar a forma ancorada que a
+  própria mensagem de fix pede produziria um WARNING impossível de silenciar.
 
 ### Corrigido
 - **Mensagens de deny apontam o escape barato.** O deny de superfície de
