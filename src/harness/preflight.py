@@ -427,6 +427,13 @@ _VENV_DIR_NAMES = (".venv", "venv")
 _VENV_BIN_DIRS = ("Scripts", "bin")
 _BIN_SUFFIXES = ("", ".exe", ".cmd", ".bat")
 
+# Lançadores que resolvem o próprio ambiente: `uv run pytest`,
+# `poetry run pytest`, `tox` etc. não dependem de venv ativado, então a regra
+# de ancoragem abaixo não se aplica a eles.
+_ENV_MANAGER_HEADS = frozenset({
+    "uv", "poetry", "pipenv", "pdm", "rye", "hatch", "tox", "nox",
+})
+
 
 def _command_head(command: str | None) -> str | None:
     """Primeiro token de um comando (o binário invocado), sem aspas. `None`
@@ -460,6 +467,53 @@ def _venv_binary_candidates(target_dir: Path, head: str) -> list[str]:
     return found
 
 
+def _repo_has_venv(target_dir: Path) -> str | None:
+    """Nome do diretório de venv presente no repo (`.venv`/`venv`), ou `None`.
+    Exige o diretório de binários dentro (`Scripts`/`bin`) — uma pasta `venv/`
+    vazia ou de outro propósito não conta."""
+    for venv_dir in _VENV_DIR_NAMES:
+        for bin_dir in _VENV_BIN_DIRS:
+            if (target_dir / venv_dir / bin_dir).is_dir():
+                return venv_dir
+    return None
+
+
+def _is_venv_anchored(head: str) -> bool:
+    """True se o binário invocado aponta explicitamente para dentro de um venv
+    (`.venv/Scripts/pytest`, `venv/bin/pytest`, com ou sem barra invertida)."""
+    parts = (head or "").replace("\\", "/").split("/")
+    return any(
+        part in _VENV_DIR_NAMES and parts[index + 1] in _VENV_BIN_DIRS
+        for index, part in enumerate(parts[:-1])
+    )
+
+
+def _resolve_head(head: str, target_dir: Path) -> str | None:
+    """Caminho do binário invocado, ou `None` se não for encontrado.
+
+    Dois modos, porque `shutil.which` responde bem a só um deles:
+
+    - **head SEM separador** (`pytest`): busca no PATH via `shutil.which` —
+      respeita `PATHEXT` no Windows, então shim `.cmd`/`.exe` é encontrado.
+    - **head COM separador** (`.venv/Scripts/pytest.exe`): é um caminho, não
+      um nome de PATH. `shutil.which` de um caminho relativo devolve `None`
+      mesmo com o arquivo existindo, o que faria o check RECUSAR justamente a
+      forma que a própria mensagem de fix manda declarar — um WARNING que o
+      usuário não conseguiria silenciar fazendo o que foi pedido. Aqui a
+      pergunta certa é existência em disco, relativa à raiz do repo.
+    """
+    normalized = (head or "").replace("\\", "/")
+    if "/" not in normalized:
+        return shutil.which(head)
+
+    candidate = Path(head) if Path(head).is_absolute() else target_dir / normalized
+    for suffix in _BIN_SUFFIXES:
+        with_suffix = candidate.with_name(candidate.name + suffix)
+        if with_suffix.is_file():
+            return str(with_suffix)
+    return None
+
+
 def _command_resolution_check(
     code: str,
     label: str,
@@ -486,7 +540,7 @@ def _command_resolution_check(
             evidence=None,
         )
 
-    resolved = shutil.which(head)
+    resolved = _resolve_head(head, target_dir)
     venv_candidates = _venv_binary_candidates(target_dir, head)
 
     if resolved is None:
@@ -526,6 +580,41 @@ def _command_resolution_check(
                 ),
                 evidence=venv_candidates[0],
             )
+
+    # B3 — o desfecho que o `which` sozinho NÃO enxerga.
+    #
+    # `shutil.which` responde sobre o PATH do processo que roda o preflight —
+    # tipicamente o terminal do usuário, COM o venv ativado. O comando aprovado
+    # aqui vai ser executado depois pela Bash tool do agente, que abre um shell
+    # limpo, SEM ativação. São dois PATHs diferentes, e o check estava
+    # respondendo sobre o errado: com o venv ativo, `pytest` resolve dentro do
+    # venv, cai no PASS acima, e o contrato nasce com um `verify_cmd` que não
+    # executa no shell do agente — exatamente a falha do dogfood que originou
+    # este item, e que o desenho anterior só pegava quando o usuário rodava o
+    # preflight SEM ativar o venv (isto é, só quando ele era descuidado).
+    #
+    # A regra abaixo não depende de qual terminal rodou o preflight: num repo
+    # COM venv, só é robusto o comando ancorado nele. Lançadores que gerenciam
+    # o próprio ambiente (`uv run`, `poetry run`, `tox`) ficam de fora porque
+    # não dependem de ativação.
+    venv_dir = _repo_has_venv(target_dir)
+    if venv_dir and not _is_venv_anchored(head) and head.lower() not in _ENV_MANAGER_HEADS:
+        options = list(venv_candidates) or [f"{venv_dir}/{_VENV_BIN_DIRS[0]}/{head}"]
+        return PreflightCheck(
+            code=code,
+            status="WARNING",
+            message=(
+                f"o {label} inferido (`{command}`) não está ancorado no venv do "
+                f"projeto (`{venv_dir}/`). Ele resolve no terminal onde o venv está "
+                "ativado, mas a Bash tool do agente abre um shell SEM ativação — o "
+                "comando compilado para o contrato pode não executar lá"
+            ),
+            fix=(
+                "declarar a forma ancorada no venv, que não depende de ativação: "
+                + ", ".join(options)
+            ),
+            evidence=venv_candidates[0] if venv_candidates else None,
+        )
 
     return PreflightCheck(
         code=code,

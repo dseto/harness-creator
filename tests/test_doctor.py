@@ -188,3 +188,27 @@ def test_to_json_roundtrips_all_fields(tmp_path: Path) -> None:
     assert data["ok"] is True
     assert "issues" in data and "notes" in data
     assert data["hooks"] == []
+
+
+def test_hook_without_fail_closed_suffix_is_reported(tmp_path: Path) -> None:
+    """Item 1b: hook compilado por versão <= 0.17.7 tem o interpretador certo
+    mas não tem o `|| exit 2` — falha ABERTO se o processo não iniciar. O
+    interpretador está vivo, então só o segundo check dispara."""
+    import sys
+
+    _write_settings_with_hook(tmp_path, f'"{sys.executable}" ".harness/hooks/boundary_guard.py"')
+    report = run_doctor(tmp_path, plugins_file=tmp_path / "no-such-file.json")
+    assert report.hooks[0]["ok"] is False
+    assert "exit 2" in report.hooks[0]["problem"]
+    assert any("exit 2" in issue for issue in report.issues)
+
+
+def test_hook_with_both_problems_reports_both(tmp_path: Path) -> None:
+    """Formato totalmente legado: interpretador nu E sem sufixo. Os dois
+    problemas são independentes e precisam aparecer juntos — corrigir só um
+    deixaria o fail-open de pé."""
+    _write_settings_with_hook(tmp_path, 'python ".harness/hooks/session_start.py"')
+    report = run_doctor(tmp_path, plugins_file=tmp_path / "no-such-file.json")
+    problem = report.hooks[0]["problem"]
+    assert "PATH" in problem
+    assert "exit 2" in problem

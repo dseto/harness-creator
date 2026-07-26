@@ -36,7 +36,7 @@ from pathlib import Path
 
 from harness import __version__ as _PIP_VERSION
 from harness.compiler import STATE_FILE
-from harness.hook_launcher import interpreter_problem
+from harness.hook_launcher import fail_closed_problem, interpreter_problem
 
 PLUGIN_NAME = "harness-creator"
 DEFAULT_INSTALLED_PLUGINS_FILE = Path.home() / ".claude" / "plugins" / "installed_plugins.json"
@@ -147,7 +147,16 @@ def _read_managed_hooks(target_dir: Path) -> list[dict]:
                 command = hook.get("command") or ""
                 if not any(name in command for name in MANAGED_HOOK_FILENAMES):
                     continue
-                problem = interpreter_problem(command)
+                # Dois modos de fail-open independentes: interpretador que
+                # não resolve (Item 1) e ausência do sufixo `|| exit 2`
+                # (Item 1b). Reportados juntos porque a consequência é a
+                # mesma — tool call passa sem gate — e a correção também
+                # (`harness compile-session`).
+                problems = [
+                    p for p in (interpreter_problem(command), fail_closed_problem(command))
+                    if p is not None
+                ]
+                problem = " | ".join(problems) if problems else None
                 found.append(
                     {
                         "event": event,

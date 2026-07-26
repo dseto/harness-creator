@@ -588,16 +588,19 @@ def test_outcome3_feature_lock_requires_fresh_evidence(tmp_path: Path) -> None:
             "tool_input": no_transition_input,
         })
         assert out["permissionDecision"] == "deny", out
-        assert "fora da superficie do contrato ativo" in out["permissionDecisionReason"], out
+        assert "plano de controle do harness" in out["permissionDecisionReason"], out
         assert evaluate_feature_list_edit("Edit", no_transition_input, project) is None, (
             "versão importável deveria delegar (None) quando não há transição"
         )
         proof.append(
             "Edição do feature_list.json que NÃO transiciona nenhuma feature "
             "(só muda desc): a versão importável delega (`None`) e o hook "
-            "standalone cai no comportamento genérico de superfície -> deny "
-            "('fora da superficie do contrato ativo') — o feature-lock não abriu "
-            "uma porta nova para edições arbitrárias do arquivo."
+            "standalone cai no floor do plano de controle -> deny. Desde o "
+            "Item 0 do plano v2 esse deny é INCONDICIONAL (`.harness/**` fora "
+            "de work/scratch), e não mais dependente da superfície do contrato "
+            "— o feature-lock não abriu uma porta nova para edições arbitrárias "
+            "do arquivo, e declarar o path em `files[]` deixou de ser um "
+            "contorno."
         )
         achieved = True
     finally:

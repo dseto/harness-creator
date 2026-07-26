@@ -606,3 +606,56 @@ def test_compile_contract_dry_run_verify_with_floor_verify_cmd_never_runs_it(
     err = capsys.readouterr().err
     assert "floor" in err.lower()
     assert out_path.is_file()
+
+
+# ---------------------------------------------------------------------------
+# Item 0 do plano v2 da correção do dogfood Savant.Backend — `add_task_file` é
+# a PORTA DE ENTRADA de uma cadeia de auto-ampliação de superfície de comando.
+# Sem esta recusa: declarar `.harness/harness.yaml` numa tarefa tornava o
+# `Write` nele allow, o agente escrevia a própria `extra_allowed_commands`,
+# `compile-session` re-bakeava o guard, e `scp`/`ssh` viravam allow.
+# ---------------------------------------------------------------------------
+
+def test_add_task_file_refuses_control_plane_paths(tmp_path: Path) -> None:
+    contract_dir = _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, BASIC_PLANS)
+    plans_path = contract_dir / "Plans.md"
+    before = plans_path.read_bytes()
+
+    for path in (
+        ".harness/harness.yaml",
+        ".harness/repo-profile.json",
+        ".harness/feature_list.json",
+        ".harness/evidence/T-01.json",
+        ".harness/hooks/boundary_guard.py",
+        ".harness/work/../harness.yaml",
+        r".harness\harness.yaml",
+        # B1: no Windows estas grafias apontam para o MESMO arquivo. Com o
+        # predicado case-sensitive anterior, `add-file` ACEITAVA a variante
+        # maiuscula e a cadeia de auto-ampliacao reabria inteira.
+        ".Harness/harness.yaml",
+        ".HARNESS/harness.yaml",
+        r".Harness\harness.yaml",
+        ".Harness/work/../harness.yaml",
+        "C:/Projetos/alvo/.harness/harness.yaml",
+    ):
+        with pytest.raises(ContractError, match="plano de controle"):
+            add_task_file(tmp_path, "exemplo-feature", "T-01", path)
+
+    # Nenhum byte escrito em nenhuma das tentativas.
+    assert plans_path.read_bytes() == before
+
+
+def test_add_task_file_still_accepts_work_and_scratch(tmp_path: Path) -> None:
+    """As duas áreas com regra própria não podem ser vítimas do floor — elas
+    já são sempre graváveis, e recusá-las aqui quebraria fluxo legítimo."""
+    _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, BASIC_PLANS)
+    assert add_task_file(tmp_path, "exemplo-feature", "T-01", ".harness/work/outro/spec.md")
+    assert add_task_file(tmp_path, "exemplo-feature", "T-01", ".harness/scratch/dump.html")
+
+
+def test_add_task_file_still_accepts_ordinary_paths(tmp_path: Path) -> None:
+    """Regressão do caso comum: o item existe para BARATEAR a ampliação de
+    superfície de arquivo, não para estrangulá-la."""
+    _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, BASIC_PLANS)
+    for path in ("src/harness/novo.py", "docs/nota.md", "harness/x.py", ".harnessfoo/y.py"):
+        assert add_task_file(tmp_path, "exemplo-feature", "T-01", path), path

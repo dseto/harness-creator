@@ -2770,3 +2770,338 @@ def test_install_creates_harness_gitignore_for_sentinel(tmp_path: Path) -> None:
     gitignore = tmp_path / ".harness" / ".gitignore"
     assert gitignore.is_file()
     assert "harness.disabled" in gitignore.read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Item 0 do plano v2 — floor do plano de controle (`.harness/**`).
+#
+# O furo que estes testes fecham foi provado por execução contra o guard do
+# HEAD: `harness task add-file T-01 .harness/harness.yaml` (allow) tornava o
+# `Write` nesse path allow, o agente escrevia a própria
+# `governance.extra_allowed_commands`, `harness compile-session` re-bakeava o
+# guard, e um comando fora do floor (`scp`) virava allow. Quatro tool calls,
+# nenhum toque humano.
+# ---------------------------------------------------------------------------
+
+_CONTROL_PLANE_DENIED = [
+    ".harness/harness.yaml",
+    ".harness/repo-profile.json",
+    ".harness/evidence/T-01.json",
+    ".harness/team/manifest.json",
+    ".harness/review/T-01.json",
+    ".harness/hooks/boundary_guard.py",
+    ".harness/compiled-state-session.json",
+]
+
+
+def test_control_plane_write_denied_even_when_declared_in_files(tmp_path: Path) -> None:
+    """O núcleo do Item 0: declarar o path em `files[]` NÃO abre exceção.
+
+    Antes, esta era exatamente a rota de auto-ampliação — a superfície do
+    contrato governava `.harness/`, e a superfície é ampliável pelo agente."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": _CONTROL_PLANE_DENIED,
+         "verify_cmd": "pytest -q", "passes": False},
+    ])
+    script = _script(tmp_path)
+    for path in _CONTROL_PLANE_DENIED:
+        for tool in ("Write", "Edit", "MultiEdit"):
+            out = _run_hook(script, {"tool_name": tool, "cwd": str(tmp_path),
+                                     "tool_input": {"file_path": path}})
+            assert out["permissionDecision"] == "deny", (path, tool, out)
+            assert "plano de controle" in out["permissionDecisionReason"], (path, tool, out)
+
+
+def test_control_plane_floor_applies_without_any_contract(tmp_path: Path) -> None:
+    """Postura de floor: vale mesmo sem `feature_list.json` — o caminho em que
+    `_evaluate_file` devolveria `allow` por "sem contrato ativo"."""
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                             "tool_input": {"file_path": ".harness/harness.yaml"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "plano de controle" in out["permissionDecisionReason"], out
+
+
+def test_control_plane_floor_applies_with_contract_fully_passed(tmp_path: Path) -> None:
+    """O guard "se aposenta" da superfície quando o contrato está 100% passed
+    (achado B do dogfood 2026-07-22). O floor NÃO se aposenta junto."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/app.py"],
+         "verify_cmd": "pytest -q", "passes": True},
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                             "tool_input": {"file_path": ".harness/harness.yaml"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "plano de controle" in out["permissionDecisionReason"], out
+
+
+def test_control_plane_floor_resists_traversal_and_backslash(tmp_path: Path) -> None:
+    """Os dois bypasses triviais: `..` para entrar por fora e barra invertida
+    (o path chega Windows-style em algumas tools)."""
+    script = _script(tmp_path)
+    for path in (
+        ".harness/work/../harness.yaml",
+        ".harness/scratch/../../.harness/harness.yaml",
+        r".harness\harness.yaml",
+        ".harness/./harness.yaml",
+    ):
+        out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                                 "tool_input": {"file_path": path}})
+        assert out["permissionDecision"] == "deny", (path, out)
+
+
+def test_control_plane_floor_preserves_work_and_scratch(tmp_path: Path) -> None:
+    """Regressão: as duas áreas com regra própria continuam sempre graváveis —
+    sem isso o floor quebraria o planejamento do próximo contrato."""
+    script = _script(tmp_path)
+    for path in (
+        ".harness/work/novo-contrato/spec.md",
+        ".harness/work/novo-contrato/Plans.md",
+        ".harness/scratch/dump.html",
+    ):
+        out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                                 "tool_input": {"file_path": path}})
+        assert out["permissionDecision"] == "allow", (path, out)
+
+
+def test_control_plane_floor_does_not_touch_paths_outside_harness(tmp_path: Path) -> None:
+    """O prefixo é `.harness/` — não pode pegar `harness/` nem um arquivo cujo
+    nome apenas comece com o mesmo texto."""
+    from harness.boundary_guard import is_floor_control_plane_path
+
+    for path in ("harness/x.py", ".harnessfoo/x.py", "src/.harness_notes.md", "docs/harness.yaml"):
+        assert not is_floor_control_plane_path(path), path
+
+
+def test_control_plane_deny_message_names_the_legitimate_route(tmp_path: Path) -> None:
+    """A mensagem não pode ser um beco sem saída: quem precisa mudar governança
+    tem que sair dela sabendo que o caminho é o terminal do usuário."""
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                             "tool_input": {"file_path": ".harness/harness.yaml"}})
+    reason = out["permissionDecisionReason"]
+    assert "SEU terminal" in reason
+    assert "compile-session" in reason
+    assert ".harness/work/" in reason
+
+
+def test_control_plane_floor_blocks_the_proven_amplification_chain(tmp_path: Path) -> None:
+    """Regressão da cadeia completa do Item 0, na ordem em que foi executada
+    contra o guard do HEAD. Passos 1 e 2 são negados INDEPENDENTEMENTE — é o
+    ponto de ter duas camadas; qualquer uma sozinha fecharia a cadeia, e as
+    duas juntas sobrevivem a uma delas ser contornada."""
+    from harness.contract import ContractError, add_task_file
+
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/a.py"],
+         "verify_cmd": "pytest -q", "passes": False},
+    ])
+    _write_profile(tmp_path)
+    script = _script(tmp_path)
+
+    # Passo 1 — camada 1: `add-file` recusa o path na entrada.
+    plans = tmp_path / ".harness" / "work" / "demo" / "Plans.md"
+    plans.parent.mkdir(parents=True, exist_ok=True)
+    plans.write_text(
+        "## [T-01] x\n- files: `src/a.py`\n- verify: `pytest -q`\n", encoding="utf-8"
+    )
+    try:
+        add_task_file(tmp_path, "demo", "T-01", ".harness/harness.yaml")
+        raise AssertionError("add_task_file deveria recusar path do plano de controle")
+    except ContractError as exc:
+        assert "plano de controle" in str(exc), exc
+    # E não escreveu nada: o Plans.md continua sem o path.
+    assert ".harness/harness.yaml" not in plans.read_text(encoding="utf-8")
+
+    # Passo 2 — camada 2: mesmo com o path JÁ na superfície (simulando um
+    # Plans.md editado à mão, ou um contrato legado já compilado), o Write é
+    # negado pelo floor.
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/a.py", ".harness/harness.yaml"],
+         "verify_cmd": "pytest -q", "passes": False},
+    ])
+    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                             "tool_input": {"file_path": ".harness/harness.yaml"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "plano de controle" in out["permissionDecisionReason"], out
+
+
+
+# ---------------------------------------------------------------------------
+# B1 — variantes de path que precisam casar o floor do plano de controle.
+#
+# O primeiro desenho do floor era prefixo case-SENSITIVE sobre o path ja
+# `/`-separado. No Windows -- plataforma exata do dogfood -- `.Harness\x` e
+# `.harness\x` sao o MESMO arquivo, entao trocar a caixa contornava as DUAS
+# camadas de uma vez: `add_task_file` aceitava o path e o guard devolvia allow.
+# As duas camadas compartilhavam o mesmo predicado, entao nao eram duas
+# barreiras -- eram uma barreira instanciada duas vezes.
+#
+# Esta tabela e o teste do DESFECHO ("escrita no plano de controle e negada"),
+# nao da rota: qualquer grafia que aponte para o mesmo arquivo tem que cair.
+# ---------------------------------------------------------------------------
+
+_CONTROL_PLANE_VARIANTS = [
+    ".harness/harness.yaml",
+    ".Harness/harness.yaml",
+    ".HARNESS/harness.yaml",
+    ".hArNeSs/harness.yaml",
+    ".harness/HARNESS.YAML",
+    r".harness\harness.yaml",
+    r".Harness\harness.yaml",
+    "./.harness/harness.yaml",
+    ".harness/./harness.yaml",
+    ".harness/work/../harness.yaml",
+    ".Harness/work/../harness.yaml",
+    ".harness/scratch/../../.harness/harness.yaml",
+    "C:/Projetos/alvo/.harness/harness.yaml",
+    r"C:\Projetos\alvo\.harness\harness.yaml",
+    "/home/user/alvo/.harness/harness.yaml",
+    ".harness/repo-profile.json",
+    ".HARNESS/repo-profile.json",
+    ".harness/hooks/boundary_guard.py",
+    ".harness/evidence/T-01.json",
+]
+
+
+def test_control_plane_predicate_covers_every_path_variant() -> None:
+    from harness.boundary_guard import is_floor_control_plane_path
+
+    falhas = [v for v in _CONTROL_PLANE_VARIANTS if not is_floor_control_plane_path(v)]
+    assert not falhas, f"variantes que escapam do floor: {falhas}"
+
+
+def test_control_plane_floor_denies_every_path_variant(tmp_path: Path) -> None:
+    """O desfecho, ponta a ponta, com o path JA declarado em files[] --
+    simula a camada 1 contornada e exige que a camada 2 segure sozinha."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": list(_CONTROL_PLANE_VARIANTS),
+         "verify_cmd": "pytest -q", "passes": False},
+    ])
+    script = _script(tmp_path)
+    for path in _CONTROL_PLANE_VARIANTS:
+        out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                                 "tool_input": {"file_path": path}})
+        assert out["permissionDecision"] == "deny", (path, out)
+
+
+def test_control_plane_variants_do_not_swallow_legitimate_paths(tmp_path: Path) -> None:
+    """O simetrico: alargar o predicado nao pode engolir path legitimo.
+    `.harness-notes/`, `harness/` e homonimos parciais seguem fora."""
+    from harness.boundary_guard import is_floor_control_plane_path
+
+    for path in (
+        "harness/x.py",
+        ".harnessfoo/x.py",
+        ".harness-notes/x.md",
+        "src/.harness_notes.md",
+        "docs/harness.yaml",
+        "src/dotharness/x.py",
+    ):
+        assert not is_floor_control_plane_path(path), path
+
+
+def test_control_plane_write_via_bash_redirect_is_denied(tmp_path: Path) -> None:
+    """Rota nao coberta pelos testes originais (so exercitavam Write/Edit/
+    MultiEdit): gravar no plano de controle por redirecionamento de shell."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/a.py"],
+         "verify_cmd": "pytest -q", "passes": False},
+    ])
+    _write_profile(tmp_path)
+    script = _script(tmp_path)
+    for command in (
+        "echo evil > .harness/harness.yaml",
+        "echo evil >> .harness/harness.yaml",
+        "echo evil | tee .harness/harness.yaml",
+    ):
+        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                 "tool_input": {"command": command}})
+        assert out["permissionDecision"] == "deny", (command, out)
+
+
+# ---------------------------------------------------------------------------
+# Item 5 — mensagens de deny apontam o escape barato
+# ---------------------------------------------------------------------------
+
+def test_file_deny_cites_add_file_with_the_pending_task_id(tmp_path: Path) -> None:
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "ja feita", "files": ["src/a.py"],
+         "verify_cmd": "pytest -q", "passes": True},
+        {"id": "T-07", "desc": "pendente", "files": ["src/b.py"],
+         "verify_cmd": "pytest -q", "passes": False},
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                             "tool_input": {"file_path": "src/novo.py"}})
+    assert out["permissionDecision"] == "deny", out
+    reason = out["permissionDecisionReason"]
+    # O id PENDENTE, não o primeiro da lista: é ele que o agente precisa passar.
+    assert "harness task add-file T-07 src/novo.py" in reason, reason
+
+
+def test_file_deny_still_mentions_replan_but_as_the_last_resort(tmp_path: Path) -> None:
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/a.py"],
+         "verify_cmd": "pytest -q", "passes": False},
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                             "tool_input": {"file_path": "src/novo.py"}})
+    reason = out["permissionDecisionReason"]
+    assert reason.index("add-file") < reason.index("/harness-creator:plan"), reason
+
+
+def test_command_deny_names_extra_allowed_commands_not_only_replan(tmp_path: Path) -> None:
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/a.py"],
+         "verify_cmd": "pytest -q", "passes": False},
+    ])
+    _write_profile(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                             "tool_input": {"command": "mypy src"}})
+    assert out["permissionDecision"] == "deny", out
+    reason = out["permissionDecisionReason"]
+    assert "extra_allowed_commands" in reason, reason
+    assert "harness.yaml" in reason, reason
+
+
+def test_protected_branch_deny_points_to_checkout_and_refutes_the_message_theory(
+    tmp_path: Path,
+) -> None:
+    """Item 5, ponto 2. O texto anterior sugeria `harness compile-session`, que
+    não resolve nada quando o problema é estar em `main` — e numa sessão real o
+    agente diagnosticou errado, atribuindo o deny à tokenização da mensagem de
+    commit e gastando ciclos reescrevendo a mensagem. A mensagem agora nomeia a
+    saída (`git checkout -b`) e refuta a hipótese errada explicitamente."""
+    _contract_with_verify(tmp_path)
+    _write_git_head(tmp_path, "ref: refs/heads/main\n")
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                             "tool_input": {"command": "git commit -m x"}})
+    assert out["permissionDecision"] == "deny", out
+    reason = out["permissionDecisionReason"]
+    assert "git checkout -b" in reason, reason
+    assert "MENSAGEM do commit NAO e o problema" in reason, reason
+
+
+def test_commit_message_form_is_irrelevant_off_protected_branch(tmp_path: Path) -> None:
+    """Fixa a refutação como regressão: fora de branch protegida, TODAS as
+    formas de `git commit` são allow. A hipótese "a tokenização da mensagem
+    causa o deny" é falsa, e este teste impede que ela volte."""
+    _contract_with_verify(tmp_path)
+    _write_git_head(tmp_path, "ref: refs/heads/feat/algo\n")
+    script = _script(tmp_path)
+    for command in (
+        "git commit -m x",
+        'git commit -m "mensagem com espacos e acentuacao"',
+        "git commit -F -",
+        "git commit",
+        'git commit -m "linha 1\nlinha 2"',
+    ):
+        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                 "tool_input": {"command": command}})
+        assert out["permissionDecision"] == "allow", (command, out)
+

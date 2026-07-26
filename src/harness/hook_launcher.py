@@ -27,12 +27,36 @@ correção é o comando registrado: bakear o caminho ABSOLUTO do
 interpretador que rodou o `compile-session` (`sys.executable`), em vez de
 delegar a resolução ao PATH de runtime.
 
-**Risco residual assumido, por escrito:** se o venv do projeto for
-recriado, movido ou apagado, o caminho bakeado aponta para um
-interpretador que não existe mais — mesmo fail-open de antes. A diferença
-é que agora o estado é DETECTÁVEL: `interpreter_problem` (consumido por
-`harness doctor`) reporta o caminho morto, em vez de o sintoma ficar
-invisível em runtime.
+**O bake sozinho NÃO fecha o fail-open — Item 1b do plano v2.** Bakear o
+caminho absoluto troca a CAUSA da falha (PATH divergente) por outra (venv
+recriado, que é operação rotineira justamente em repo Python com venv), mas
+o modo de falha continua idêntico: processo morre com código != 2, tool
+call passa. O que fecha é o sufixo `|| exit 2` no próprio `command`:
+
+    "<interpretador>" "<script>" || exit 2
+
+`||` e `exit` são sintaxe comum a `sh` e a `cmd.exe`, então o mesmo string
+funciona nos dois shells que o Claude Code pode usar para rodar o hook — sem
+gerar arquivo de lançador, que teria o problema simétrico (`.cmd` não roda
+sob `sh`, `.sh` não roda sob `cmd.exe`).
+
+A semântica é exata porque o `main()` do script gerado **nunca** sai com
+código != 0: ele imprime a decisão JSON (inclusive `deny`) e retorna, e o
+`except Exception` interno já converte qualquer erro de avaliação em `deny`.
+Logo, todo exit não-zero do processo é, por construção, "o hook não rodou" —
+e o `|| exit 2` o converte no único código que o Claude Code trata como
+bloqueio. Fail-open vira fail-closed.
+
+**Escape, por escrito:** um guard quebrado (script corrompido, interpretador
+morto) passa a bloquear TODA tool call em vez de nenhuma — postura correta,
+mas que precisa de saída. A saída é a mesma do kill-switch: `harness disable`
+no terminal do usuário, fora do Claude Code, onde nenhum hook intercepta.
+
+**Risco residual assumido, por escrito:** o caminho bakeado pode morrer
+(venv recriado, movido ou apagado). Com o `|| exit 2` isso deixa de ser um
+bypass silencioso e vira bloqueio visível; e o estado continua DETECTÁVEL a
+frio por `interpreter_problem` (consumido por `harness doctor`), que nomeia
+o caminho morto.
 """
 
 from __future__ import annotations
@@ -47,6 +71,10 @@ from pathlib import Path
 # comportamento pré-correção (PATH em runtime), que é pior mas nunca deixa
 # de instalar o hook; `interpreter_problem` sinaliza o caso ao `doctor`.
 _FALLBACK_INTERPRETER = "python"
+
+# Sufixo fail-closed do `command` — ver a seção "O bake sozinho NÃO fecha o
+# fail-open" no docstring do módulo. Portátil entre `sh` e `cmd.exe`.
+FAIL_CLOSED_SUFFIX = "|| exit 2"
 
 
 def resolve_interpreter() -> str:
@@ -64,8 +92,10 @@ def hook_command(script_path: Path | str) -> str:
     """String do `command` registrado em `.claude/settings.json` para um
     script de hook: interpretador absoluto + caminho do script, ambos entre
     aspas (caminho com espaço é a regra, não a exceção, em
-    `C:\\Users\\<nome> Sobrenome\\...`)."""
-    return f'"{resolve_interpreter()}" "{script_path}"'
+    `C:\\Users\\<nome> Sobrenome\\...`), mais o sufixo fail-closed
+    `|| exit 2` — se o interpretador não resolver, o hook BLOQUEIA a tool call
+    em vez de deixá-la passar. Ver o docstring do módulo."""
+    return f'"{resolve_interpreter()}" "{script_path}" {FAIL_CLOSED_SUFFIX}'
 
 
 def interpreter_from_command(command: str) -> str | None:
@@ -91,6 +121,25 @@ def interpreter_from_command(command: str) -> str | None:
     if len(head) >= 2 and head[0] == head[-1] and head[0] in ('"', "'"):
         head = head[1:-1]
     return head or None
+
+
+def fail_closed_problem(command: str) -> str | None:
+    """`None` se o `command` do hook tem o sufixo fail-closed; senão, a
+    descrição do problema.
+
+    Detecta o hook compilado por uma versão <= 0.17.7, que registrava só
+    `<interpretador> "<script>"`: nesse formato, qualquer falha de partida do
+    processo (interpretador morto, script corrompido) sai com código != 2 e a
+    tool call PASSA. É o mesmo fail-open do formato legado, e é invisível em
+    runtime — daí o check a frio."""
+    if FAIL_CLOSED_SUFFIX in (command or ""):
+        return None
+    return (
+        "o hook não tem o sufixo fail-closed `" + FAIL_CLOSED_SUFFIX + "` — se o "
+        "processo do hook não iniciar (interpretador morto, script corrompido), ele "
+        "sai com código != 2 e a tool call PASSA sem o gate. Rode `harness "
+        "compile-session` para regravar o comando."
+    )
 
 
 def interpreter_problem(command: str) -> str | None:
