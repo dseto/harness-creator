@@ -3,6 +3,16 @@
 # `enable` e ao abandono do harness numa sessão de dogfood real
 # (`Savant.Backend.APP-15167`, API Python com venv, 2026-07-25/26).
 #
+# >> ORDEM SUPERADA (2026-07-26). A seção "Sequenciamento sugerido" no fim
+# >> deste arquivo foi substituída por
+# >> `ROADMAP-dogfood-savant-venv.correction.plano-v2.md`, que repriorizou os
+# >> itens após o parecer MAR (`…correction.parecer-MAR.md`) e após medir as
+# >> premissas que o parecer deixou em aberto. Mudanças: Item 0 (NOVO, P0 —
+# >> rota de auto-ampliação provada por execução) entra na frente de tudo e
+# >> BLOQUEIA o Item 3; Item 5 promovido à onda 1; Item 1 reaberto como 1b;
+# >> Item 2 encerrado; Item 9 rejeitado em definitivo. O CONTEÚDO de cada item
+# >> abaixo (evidência, file:line, fix, verificação) continua válido.
+#
 # Origem: dois relatos do usuário (transcrições da sessão do projeto-alvo) +
 # `harness doctor` do projeto-alvo. Nenhum item entrou aqui sem verificação
 # própria contra o código deste repo nesta sessão de planejamento: cada
@@ -562,7 +572,10 @@ fazer é baixo.
 
 ---
 
-## Sequenciamento sugerido
+## Sequenciamento sugerido — ⚠️ SUPERADO
+
+> Esta tabela é histórica. A ordenação vigente está em
+> [`ROADMAP-dogfood-savant-venv.correction.plano-v2.md`](ROADMAP-dogfood-savant-venv.correction.plano-v2.md).
 
 | Onda | Itens | Racional |
 |---|---|---|

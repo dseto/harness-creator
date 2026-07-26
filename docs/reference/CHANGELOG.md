@@ -1,5 +1,80 @@
 # Changelog
 
+## Não lançado
+
+Correção da fricção do dogfood real em `Savant.Backend.APP-15167` (API Python
+com venv, Windows, atrás de proxy corporativo), que acumulou ~13 ciclos
+`disable`/`compile-session`/`enable` e terminou com o harness desativado.
+Backlog em `docs/project/ROADMAP-dogfood-savant-venv.correction.backlog.md`;
+ordem de execução (pós-parecer MAR) em `…correction.plano-v2.md`.
+
+### Segurança
+- **Floor do plano de controle: escrita do agente em `.harness/**` é deny
+  incondicional** (exceto `work/` e `scratch/`, que já tinham regra própria).
+  Fecha uma rota de auto-ampliação de superfície de **comando** que estava
+  aberta e foi provada por execução contra o guard gerado do HEAD:
+  `harness task add-file T-01 .harness/harness.yaml` (allow) tornava o `Write`
+  nesse arquivo allow, o agente escrevia a própria
+  `governance.extra_allowed_commands`, `harness compile-session` re-bakeava o
+  guard, e um comando fora do floor (`scp`, `ssh`, `rsync`, `nc`, `docker run`,
+  `certutil -urlcache`) passava a ser allow — **quatro tool calls, nenhum toque
+  humano**. O floor de rede (`git push`) resistia em todos os passos, então a
+  exposição era exatamente tudo o que a denylist do floor não enumera.
+  Corrigido em **duas camadas independentes**: `harness.contract.add_task_file`
+  recusa o path na entrada, e `_evaluate_file` nega a escrita mesmo que o path
+  entre em `files[]` por outra via (Plans.md editado à mão, contrato legado já
+  compilado). O usuário continua editando `.harness/harness.yaml` no terminal
+  próprio, fora do Claude Code, como sempre.
+- **Hooks passam a falhar FECHADO.** O `command` gravado em
+  `.claude/settings.json` ganha o sufixo `|| exit 2`. Os três hooks eram
+  registrados como `python "<script>"` — interpretador nu, resolvido pelo PATH
+  só no instante da tool call; quando não resolvia, o processo morria antes do
+  script e, pela semântica de exit code de hook do Claude Code (apenas `exit 2`
+  bloqueia), a tool call **prosseguia** sem runtime floor, sem proteção de
+  segredo e sem bloqueio de push. Bakear o caminho absoluto do interpretador
+  (`sys.executable`, resolvido no `compile-session`) trocava a causa da falha
+  sem mudar o modo; o sufixo converte qualquer falha de partida no único código
+  que bloqueia. `||` e `exit` têm a mesma semântica em `sh` e em `cmd.exe`, o
+  que evita gerar um arquivo de lançador (que teria o problema simétrico).
+  Escape para guard quebrado: `harness disable` no terminal do usuário.
+
+### Adicionado
+- **`harness doctor` reporta hooks que falham aberto.** Dois checks
+  independentes por hook gerenciado: interpretador irresolúvel (nu, caminho
+  morto, sem permissão de execução) e ausência do sufixo fail-closed. Ambos
+  aparecem em `hooks[]` e viram `issues` com o comando exato de correção.
+- **`harness preflight` verifica se o comando inferido resolve.** As 4
+  categorias checavam declaração, nunca resolução — no dogfood o analyzer
+  inferiu `pytest`, gravou no `repo-profile.json`, e ninguém verificou que
+  `pytest` nu não está no PATH sem ativar `.venv\Scripts`; o preflight devolveu
+  READY e o contrato nasceu com um `verify_cmd` que não executa. Novos checks
+  `test_command_resolvable` e `lint_command_resolvable`, **nunca FAIL** (runner
+  declarado porém não resolvido não impede o repo de receber o harness). Três
+  desfechos: não resolve → WARNING listando as formas reais achadas em disco;
+  resolve FORA do venv havendo homônimo dentro dele → WARNING de sombra;
+  resolve sem ambiguidade → PASS. Implementado por resolução (`shutil.which`),
+  não por execução — `run_preflight` é read-only por contrato, e `pytest`
+  criaria `.pytest_cache/`.
+
+### Corrigido
+- **Mensagens de deny apontam o escape barato.** O deny de superfície de
+  arquivo mandava "replaneje via `/harness-creator:plan`" quando
+  `harness task add-file` já existia, já estava liberado no guard e já
+  resolvia — criar um `verify-env.sh` na raiz custou um ciclo inteiro por isso.
+  Agora cita `harness task add-file <task_id> <path>` com o id da tarefa
+  pendente **já preenchido**. O deny de comando nomeia
+  `governance.extra_allowed_commands` (o escape real; replanejar muda
+  `files[]`/`verify_cmd`, não a allowlist permanente). O deny de branch
+  protegida aponta `git checkout -b <tipo>/<slug>` e **refuta explicitamente**
+  a hipótese de que a mensagem do commit seja o problema — numa sessão real o
+  agente diagnosticou errado e gastou ciclos reescrevendo a mensagem; fixado
+  como regressão que `-m`, `-F -` e mensagem multi-linha são todos allow fora
+  de branch protegida.
+- Instaladores dos três hooks passam a casar entrada gerenciada também por
+  nome de arquivo. Sem isso, a mudança de formato do `command` deixaria a
+  entrada antiga órfã no `settings.json` de quem já tem o harness instalado, e
+  o hook rodaria duas vezes por tool call.
+
 ## 0.17.7 — 2026-07-24
 
 Fecha o ciclo de dogfood do próprio harness-creator (contrato
