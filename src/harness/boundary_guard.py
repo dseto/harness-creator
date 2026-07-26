@@ -635,24 +635,49 @@ def _is_scratch_surface_path(path: str) -> bool:
 # O USUÁRIO continua editando `.harness/harness.yaml` no terminal próprio, fora
 # do Claude Code, onde nenhum hook intercepta — mesma postura do kill-switch.
 # ---------------------------------------------------------------------------
-CONTROL_PLANE_DIR_PREFIX = ".harness/"
-CONTROL_PLANE_WRITABLE_PREFIXES = (WORK_DIR_PREFIX, SCRATCH_DIR_PREFIX)
+CONTROL_PLANE_DIR_NAME = ".harness"
+CONTROL_PLANE_WRITABLE_DIRS = ("work", "scratch")
 
 
 def is_floor_control_plane_path(path: str) -> bool:
     """True se `path` aponta para o plano de controle do harness
     (`.harness/**`) FORA das duas áreas com regra própria (`work/`, `scratch/`).
 
-    Normaliza com `posixpath.normpath` antes do prefixo (mesmo anti-traversal
-    de `_is_work_surface_path`) e converte `\\` para `/` DEPOIS da
-    normalização — um path Windows-style (`.harness\\harness.yaml`) precisa
-    casar aqui, senão a barra invertida vira o bypass trivial deste floor."""
+    Casa por SEGMENTO e case-INSENSITIVE, não por prefixo literal. As duas
+    escolhas são correções do desenho anterior, que era prefixo
+    case-sensitive e foi contornado em execução real:
+
+    - **Caixa.** No Windows — plataforma exata do dogfood que originou este
+      floor — `.Harness\\harness.yaml` e `.harness\\harness.yaml` são o MESMO
+      arquivo. Com o predicado case-sensitive, trocar a caixa fazia
+      `add_task_file` aceitar o path E o guard devolver `allow`, reabrindo a
+      cadeia de auto-ampliação inteira. As duas camadas do Item 0 compartilham
+      este predicado, então elas caíam juntas: não eram duas barreiras, eram
+      uma barreira instanciada duas vezes. Lowercase incondicional (mesma
+      postura de `is_floor_secret_path` e `is_floor_disable_sentinel_path`) —
+      em POSIX isso nega um `.Harness/` que seria um diretório distinto e
+      inofensivo, e esse falso-deny é o lado certo para errar num floor.
+    - **Segmento.** `_evaluate_file` recebe o path já relativizado à raiz do
+      repo, mas a relativização não acontece quando o path aponta para fora
+      dela (outro drive, outro projeto). Um `C:/outro/.harness/harness.yaml`
+      não tem o prefixo e escapava. Procurar o segmento `.harness` em qualquer
+      posição cobre as duas formas com uma regra só.
+
+    A conversão de `\\` para `/` vem ANTES do `normpath` (o anterior fazia
+    depois): em POSIX o `normpath` não entende barra invertida como separador,
+    então `.harness\\work\\..\\harness.yaml` não colapsava.
+
+    As exceções são casadas no segmento SEGUINTE ao `.harness` — e só no
+    primeiro `.harness` encontrado, que é o plano de controle do repo."""
     import posixpath
 
-    normalized = posixpath.normpath(path or "").replace("\\", "/")
-    if not normalized.startswith(CONTROL_PLANE_DIR_PREFIX):
-        return False
-    return not normalized.startswith(CONTROL_PLANE_WRITABLE_PREFIXES)
+    normalized = posixpath.normpath((path or "").replace("\\", "/")).lower()
+    segments = [s for s in normalized.split("/") if s not in ("", ".")]
+    for index, segment in enumerate(segments):
+        if segment == CONTROL_PLANE_DIR_NAME:
+            rest = segments[index + 1:]
+            return not (rest and rest[0] in CONTROL_PLANE_WRITABLE_DIRS)
+    return False
 
 
 PROGRESS_FILE_NAME = "claude-progress.md"
@@ -1375,8 +1400,8 @@ def render_boundary_guard(
         f"SCRATCH_DIR_PREFIX = {SCRATCH_DIR_PREFIX!r}",
         inspect.getsource(_is_work_surface_path),
         inspect.getsource(_is_scratch_surface_path),
-        f"CONTROL_PLANE_DIR_PREFIX = {CONTROL_PLANE_DIR_PREFIX!r}",
-        f"CONTROL_PLANE_WRITABLE_PREFIXES = {CONTROL_PLANE_WRITABLE_PREFIXES!r}",
+        f"CONTROL_PLANE_DIR_NAME = {CONTROL_PLANE_DIR_NAME!r}",
+        f"CONTROL_PLANE_WRITABLE_DIRS = {CONTROL_PLANE_WRITABLE_DIRS!r}",
         inspect.getsource(is_floor_control_plane_path),
         f"PROGRESS_FILE_NAME = {PROGRESS_FILE_NAME!r}",
         inspect.getsource(_is_progress_file_path),

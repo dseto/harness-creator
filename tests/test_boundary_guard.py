@@ -2927,6 +2927,100 @@ def test_control_plane_floor_blocks_the_proven_amplification_chain(tmp_path: Pat
     assert "plano de controle" in out["permissionDecisionReason"], out
 
 
+
+# ---------------------------------------------------------------------------
+# B1 — variantes de path que precisam casar o floor do plano de controle.
+#
+# O primeiro desenho do floor era prefixo case-SENSITIVE sobre o path ja
+# `/`-separado. No Windows -- plataforma exata do dogfood -- `.Harness\x` e
+# `.harness\x` sao o MESMO arquivo, entao trocar a caixa contornava as DUAS
+# camadas de uma vez: `add_task_file` aceitava o path e o guard devolvia allow.
+# As duas camadas compartilhavam o mesmo predicado, entao nao eram duas
+# barreiras -- eram uma barreira instanciada duas vezes.
+#
+# Esta tabela e o teste do DESFECHO ("escrita no plano de controle e negada"),
+# nao da rota: qualquer grafia que aponte para o mesmo arquivo tem que cair.
+# ---------------------------------------------------------------------------
+
+_CONTROL_PLANE_VARIANTS = [
+    ".harness/harness.yaml",
+    ".Harness/harness.yaml",
+    ".HARNESS/harness.yaml",
+    ".hArNeSs/harness.yaml",
+    ".harness/HARNESS.YAML",
+    r".harness\harness.yaml",
+    r".Harness\harness.yaml",
+    "./.harness/harness.yaml",
+    ".harness/./harness.yaml",
+    ".harness/work/../harness.yaml",
+    ".Harness/work/../harness.yaml",
+    ".harness/scratch/../../.harness/harness.yaml",
+    "C:/Projetos/alvo/.harness/harness.yaml",
+    r"C:\Projetos\alvo\.harness\harness.yaml",
+    "/home/user/alvo/.harness/harness.yaml",
+    ".harness/repo-profile.json",
+    ".HARNESS/repo-profile.json",
+    ".harness/hooks/boundary_guard.py",
+    ".harness/evidence/T-01.json",
+]
+
+
+def test_control_plane_predicate_covers_every_path_variant() -> None:
+    from harness.boundary_guard import is_floor_control_plane_path
+
+    falhas = [v for v in _CONTROL_PLANE_VARIANTS if not is_floor_control_plane_path(v)]
+    assert not falhas, f"variantes que escapam do floor: {falhas}"
+
+
+def test_control_plane_floor_denies_every_path_variant(tmp_path: Path) -> None:
+    """O desfecho, ponta a ponta, com o path JA declarado em files[] --
+    simula a camada 1 contornada e exige que a camada 2 segure sozinha."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": list(_CONTROL_PLANE_VARIANTS),
+         "verify_cmd": "pytest -q", "passes": False},
+    ])
+    script = _script(tmp_path)
+    for path in _CONTROL_PLANE_VARIANTS:
+        out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                                 "tool_input": {"file_path": path}})
+        assert out["permissionDecision"] == "deny", (path, out)
+
+
+def test_control_plane_variants_do_not_swallow_legitimate_paths(tmp_path: Path) -> None:
+    """O simetrico: alargar o predicado nao pode engolir path legitimo.
+    `.harness-notes/`, `harness/` e homonimos parciais seguem fora."""
+    from harness.boundary_guard import is_floor_control_plane_path
+
+    for path in (
+        "harness/x.py",
+        ".harnessfoo/x.py",
+        ".harness-notes/x.md",
+        "src/.harness_notes.md",
+        "docs/harness.yaml",
+        "src/dotharness/x.py",
+    ):
+        assert not is_floor_control_plane_path(path), path
+
+
+def test_control_plane_write_via_bash_redirect_is_denied(tmp_path: Path) -> None:
+    """Rota nao coberta pelos testes originais (so exercitavam Write/Edit/
+    MultiEdit): gravar no plano de controle por redirecionamento de shell."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/a.py"],
+         "verify_cmd": "pytest -q", "passes": False},
+    ])
+    _write_profile(tmp_path)
+    script = _script(tmp_path)
+    for command in (
+        "echo evil > .harness/harness.yaml",
+        "echo evil >> .harness/harness.yaml",
+        "echo evil | tee .harness/harness.yaml",
+    ):
+        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                 "tool_input": {"command": command}})
+        assert out["permissionDecision"] == "deny", (command, out)
+
+
 # ---------------------------------------------------------------------------
 # Item 5 — mensagens de deny apontam o escape barato
 # ---------------------------------------------------------------------------

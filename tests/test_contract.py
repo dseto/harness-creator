@@ -629,6 +629,14 @@ def test_add_task_file_refuses_control_plane_paths(tmp_path: Path) -> None:
         ".harness/hooks/boundary_guard.py",
         ".harness/work/../harness.yaml",
         r".harness\harness.yaml",
+        # B1: no Windows estas grafias apontam para o MESMO arquivo. Com o
+        # predicado case-sensitive anterior, `add-file` ACEITAVA a variante
+        # maiuscula e a cadeia de auto-ampliacao reabria inteira.
+        ".Harness/harness.yaml",
+        ".HARNESS/harness.yaml",
+        r".Harness\harness.yaml",
+        ".Harness/work/../harness.yaml",
+        "C:/Projetos/alvo/.harness/harness.yaml",
     ):
         with pytest.raises(ContractError, match="plano de controle"):
             add_task_file(tmp_path, "exemplo-feature", "T-01", path)

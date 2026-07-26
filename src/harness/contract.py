@@ -350,7 +350,7 @@ def add_task_file(target_dir: Path, slug: str, task_id: str, new_path: str) -> b
             "que corromperia o formato de files[] no Plans.md"
         )
 
-    if is_floor_control_plane_path(new_path.replace("\\", "/")):
+    if is_floor_control_plane_path(new_path):
         raise ContractError(
             f"path '{new_path}' está no plano de controle do harness "
             "(.harness/**, exceto work/ e scratch/) e não pode entrar na "

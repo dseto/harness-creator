@@ -25,6 +25,13 @@ ordem de execução (pós-parecer MAR) em `…correction.plano-v2.md`.
   entre em `files[]` por outra via (Plans.md editado à mão, contrato legado já
   compilado). O usuário continua editando `.harness/harness.yaml` no terminal
   próprio, fora do Claude Code, como sempre.
+  O predicado casa por **segmento** e é **case-insensitive**: o primeiro
+  desenho era prefixo case-sensitive e foi contornado em execução real
+  trocando a caixa (`.Harness\harness.yaml` é o MESMO arquivo no Windows,
+  plataforma do dogfood), o que derrubava as duas camadas de uma vez — elas
+  compartilham o predicado, então não eram duas barreiras, eram uma barreira
+  instanciada duas vezes. Match por segmento cobre também path absoluto, que
+  escapava do prefixo quando não relativizável à raiz do repo.
 - **Hooks passam a falhar FECHADO.** O `command` gravado em
   `.claude/settings.json` ganha o sufixo `|| exit 2`. Os três hooks eram
   registrados como `python "<script>"` — interpretador nu, resolvido pelo PATH

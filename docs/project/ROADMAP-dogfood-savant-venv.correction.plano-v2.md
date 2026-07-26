@@ -236,7 +236,49 @@ sancionar uma segunda"*. É o que o Item 0 faz.
 
 ---
 
-## 6. Observação de método que sobrevive
+## 6. Auditoria dos testes pelo comitê MAR (2026-07-26, pós-entrega)
+
+Depois de entregues as ondas 0 e 1, o comitê MAR foi rodado sobre uma
+pergunta distinta da do parecer anterior: **os testes escritos verificam que
+os problemas foram resolvidos, ou apenas que o código novo funciona?**
+
+Veredicto: **nota 2, REESCREVER**. As três personas convergiram para 2 após
+a rodada de debate (4/2/3 → 2/2/2). Trilha em
+`…\scratchpad\mar\etapa_testes_vs_problemas\`.
+
+Três defeitos de código foram descobertos pela auditoria — nenhum deles
+visível na suíte verde de 721 testes:
+
+| # | Defeito | Estado |
+|---|---|---|
+| **B1** | `is_floor_control_plane_path` case-sensitive e sem match de path absoluto — a cadeia do Item 0 reabre com `.Harness/` no Windows | ✅ **CORRIGIDO** |
+| **B2** | Nenhum teste de instalação asserta o sufixo `\|\| exit 2` no `settings.json` gravado; só o unitário de `hook_command()` | pendente |
+| **B3** | Item 2: preflight rodado com venv ATIVADO resolve `pytest` dentro do venv → PASS, enquanto a Bash tool do agente (sem ativação) não resolve — o cenário exato do dogfood passa | pendente |
+
+**O que B1 ensina, e que vale mais que o fix.** As duas camadas do Item 0
+foram construídas deliberadamente separadas, com a justificativa escrita de
+que "uma camada só reproduziria o erro que criou o furo". Mas ambas chamam o
+**mesmo predicado** — então um defeito no predicado derruba as duas juntas.
+Não eram duas barreiras: eram uma barreira instanciada duas vezes. O Item 0
+reproduziu o furo de composição um andar abaixo daquele que existia para
+reparar. Separação de camadas só vale se as camadas puderem falhar de forma
+independente.
+
+**E a evidência que não protegeu nada.** A "prova de execução real" usada
+para fechar o Item 0 percorreu `.harness/` minúsculo e passou — com o furo
+aberto, na mesma máquina, no mesmo commit. Execução manual é evidência de
+entrega, não guarda de regressão, e não cobre nem o presente quando a
+variante testada é escolhida por quem escreveu o fix.
+
+Erros de método na aferição original, registrados: respondeu-se
+sistematicamente *"o teste falha se o código for revertido?"* quando a
+pergunta era *"se o problema voltar?"*; a segunda pergunta do critério
+("existe caminho pelo qual o problema ainda ocorre sem teste falhar?") nunca
+foi enunciada, só reclassificada como "limite conhecido"; e o argumento
+"fechados os passos 1 e 2, os passos 3 e 4 são inalcançáveis" era inválido —
+o bypass por caixa o refutou na prática.
+
+## 7. Observação de método que sobrevive
 
 O parecer registra uma observação de segunda ordem que a verificação **não**
 resolve: se o fail-open do Item 1 ocorreu na sessão real — e não há evidência
