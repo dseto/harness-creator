@@ -2925,3 +2925,89 @@ def test_control_plane_floor_blocks_the_proven_amplification_chain(tmp_path: Pat
                              "tool_input": {"file_path": ".harness/harness.yaml"}})
     assert out["permissionDecision"] == "deny", out
     assert "plano de controle" in out["permissionDecisionReason"], out
+
+
+# ---------------------------------------------------------------------------
+# Item 5 — mensagens de deny apontam o escape barato
+# ---------------------------------------------------------------------------
+
+def test_file_deny_cites_add_file_with_the_pending_task_id(tmp_path: Path) -> None:
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "ja feita", "files": ["src/a.py"],
+         "verify_cmd": "pytest -q", "passes": True},
+        {"id": "T-07", "desc": "pendente", "files": ["src/b.py"],
+         "verify_cmd": "pytest -q", "passes": False},
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                             "tool_input": {"file_path": "src/novo.py"}})
+    assert out["permissionDecision"] == "deny", out
+    reason = out["permissionDecisionReason"]
+    # O id PENDENTE, não o primeiro da lista: é ele que o agente precisa passar.
+    assert "harness task add-file T-07 src/novo.py" in reason, reason
+
+
+def test_file_deny_still_mentions_replan_but_as_the_last_resort(tmp_path: Path) -> None:
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/a.py"],
+         "verify_cmd": "pytest -q", "passes": False},
+    ])
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                             "tool_input": {"file_path": "src/novo.py"}})
+    reason = out["permissionDecisionReason"]
+    assert reason.index("add-file") < reason.index("/harness-creator:plan"), reason
+
+
+def test_command_deny_names_extra_allowed_commands_not_only_replan(tmp_path: Path) -> None:
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/a.py"],
+         "verify_cmd": "pytest -q", "passes": False},
+    ])
+    _write_profile(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                             "tool_input": {"command": "mypy src"}})
+    assert out["permissionDecision"] == "deny", out
+    reason = out["permissionDecisionReason"]
+    assert "extra_allowed_commands" in reason, reason
+    assert "harness.yaml" in reason, reason
+
+
+def test_protected_branch_deny_points_to_checkout_and_refutes_the_message_theory(
+    tmp_path: Path,
+) -> None:
+    """Item 5, ponto 2. O texto anterior sugeria `harness compile-session`, que
+    não resolve nada quando o problema é estar em `main` — e numa sessão real o
+    agente diagnosticou errado, atribuindo o deny à tokenização da mensagem de
+    commit e gastando ciclos reescrevendo a mensagem. A mensagem agora nomeia a
+    saída (`git checkout -b`) e refuta a hipótese errada explicitamente."""
+    _contract_with_verify(tmp_path)
+    _write_git_head(tmp_path, "ref: refs/heads/main\n")
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                             "tool_input": {"command": "git commit -m x"}})
+    assert out["permissionDecision"] == "deny", out
+    reason = out["permissionDecisionReason"]
+    assert "git checkout -b" in reason, reason
+    assert "MENSAGEM do commit NAO e o problema" in reason, reason
+
+
+def test_commit_message_form_is_irrelevant_off_protected_branch(tmp_path: Path) -> None:
+    """Fixa a refutação como regressão: fora de branch protegida, TODAS as
+    formas de `git commit` são allow. A hipótese "a tokenização da mensagem
+    causa o deny" é falsa, e este teste impede que ela volte."""
+    _contract_with_verify(tmp_path)
+    _write_git_head(tmp_path, "ref: refs/heads/feat/algo\n")
+    script = _script(tmp_path)
+    for command in (
+        "git commit -m x",
+        'git commit -m "mensagem com espacos e acentuacao"',
+        "git commit -F -",
+        "git commit",
+        'git commit -m "linha 1\nlinha 2"',
+    ):
+        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                 "tool_input": {"command": command}})
+        assert out["permissionDecision"] == "allow", (command, out)
+

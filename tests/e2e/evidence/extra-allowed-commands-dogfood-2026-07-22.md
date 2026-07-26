@@ -46,7 +46,7 @@ qualquer comando.
 {
   "hookEventName": "PreToolUse",
   "permissionDecision": "deny",
-  "permissionDecisionReason": "segmento 'algum-cli-nao-declarado --flag' fora da superficie compilada do contrato (verify_cmd/lint/typecheck/build/install/git local) e nao aceito como utilitario read-only (cat/head/tail/wc/grep/rg/ls/echo/find sem redirecionamento de escrita) nem cd intra-repo; replaneje via /harness-creator:plan se precisar de outro comando"
+  "permissionDecisionReason": "segmento 'algum-cli-nao-declarado --flag' fora da superficie compilada do contrato (verify_cmd/lint/typecheck/build/install/git local) e nao aceito como utilitario read-only (cat/head/tail/wc/grep/rg/ls/echo/find sem redirecionamento de escrita) nem cd intra-repo. Escapes, do mais barato ao mais caro: (1) se o comando ja e equivalente a um declarado, use a forma EXATA do verify_cmd/lint do contrato; (2) se o repo precisa deste comando de forma permanente, PECA AO USUARIO para adiciona-lo em governance.extra_allowed_commands do .harness/harness.yaml (terminal dele, fora do Claude Code) e rodar `harness compile-session`; (3) replaneje via /harness-creator:plan so se o ESCOPO da tarefa mudou."
 }
 ```
 

@@ -999,6 +999,25 @@ def _contract_fully_passed(feature_list: Any) -> bool:
     return all(passes_map.values())
 
 
+def _pending_task_id(feature_list: Any) -> str:
+    """Id da primeira feature ainda pendente (`passes` falso) de
+    `feature_list` — o `task_id` que o agente deve passar para
+    `harness task add-file`. `<task_id>` literal quando não há pendente ou o
+    formato não é reconhecível.
+
+    Item 5 do backlog do dogfood `Savant.Backend`: o que separa "existe um
+    comando" de "cole isto" é o id já preenchido. A mensagem de deny é lida
+    por um agente que acabou de ser bloqueado; obrigá-lo a abrir o
+    `feature_list.json` para descobrir o id é o custo que o item existe para
+    remover. Ordem de iteração = ordem de declaração no Plans.md, que é a
+    ordem em que as tarefas são executadas — a primeira pendente é a tarefa
+    corrente na esmagadora maioria dos casos."""
+    for feature_id, passes in _feature_passes_map(feature_list).items():
+        if not passes:
+            return str(feature_id)
+    return "<task_id>"
+
+
 def _transitions_to_true(old_data: Any, new_data: Any) -> list[Any]:
     old_map = _feature_passes_map(old_data)
     new_map = _feature_passes_map(new_data)
@@ -1378,6 +1397,7 @@ def render_boundary_guard(
         inspect.getsource(_parse_iso8601),
         inspect.getsource(_feature_passes_map),
         inspect.getsource(_contract_fully_passed),
+        inspect.getsource(_pending_task_id),
         inspect.getsource(_transitions_to_true),
         inspect.getsource(_read_last_commit_timestamp),
         inspect.getsource(_evidence_freshness_problem),
@@ -1485,11 +1505,31 @@ def _protected_branch_commit_problem(command, cwd):
     if branch is None or branch not in PROTECTED_BRANCHES:
         return None
     return (
-        "branch protegida '" + branch + "' - commit direto proibido, so via "
-        "PR; rode `harness compile-session` para criar/mudar para a branch "
-        "de contrato (contract/<slug>)"
+        "branch protegida '" + branch + "' - commit direto proibido, so via PR. "
+        "A MENSAGEM do commit NAO e o problema: `-m`, `-F -` e mensagem "
+        "multi-linha sao todos allow fora de branch protegida - nao reescreva a "
+        "mensagem, troque de branch. Saida: `git checkout -b <tipo>/<slug>` "
+        "(ex.: feat/minha-mudanca) e commite la; ou rode `harness "
+        "compile-session`, que posiciona em contract/<slug> automaticamente "
+        "quando ha contrato ativo"
     )
 
+
+# Item 5 do backlog do dogfood Savant.Backend: o deny de comando mandava
+# "replaneje via /harness-creator:plan", que e o caminho MAIS CARO e, para
+# comando, nem sequer o certo - replanejar muda files[]/verify_cmd de uma
+# tarefa, nao a allowlist permanente. O escape real e o YAML de governanca, e
+# ele so pode ser editado pelo usuario no terminal proprio (o agente nao
+# escreve em .harness/** - floor do plano de controle). Dizer isso na hora do
+# deny evita o ciclo de tentativa-e-erro que a sessao real gastou.
+_COMMAND_ESCAPE_HINT = (
+    "Escapes, do mais barato ao mais caro: (1) se o comando ja e equivalente a "
+    "um declarado, use a forma EXATA do verify_cmd/lint do contrato; (2) se o "
+    "repo precisa deste comando de forma permanente, PECA AO USUARIO para "
+    "adiciona-lo em governance.extra_allowed_commands do .harness/harness.yaml "
+    "(terminal dele, fora do Claude Code) e rodar `harness compile-session`; "
+    "(3) replaneje via /harness-creator:plan so se o ESCOPO da tarefa mudou."
+)
 
 FEATURE_LIST_PATH = ".harness/feature_list.json"
 PROFILE_PATH = ".harness/repo-profile.json"
@@ -1945,8 +1985,11 @@ def _evaluate_file(path, cwd):
     return "deny", (
         "arquivo fora da superficie do contrato ativo (nenhuma tarefa declara este "
         "path em files[]); artefato temporario de verificacao (screenshot, dump, "
-        "HTML de debug)? salve em .harness/scratch/ ; se o escopo mudou, replaneje "
-        "via /harness-creator:plan"
+        "HTML de debug)? salve em .harness/scratch/ ; se este arquivo PERTENCE ao "
+        "escopo ja aprovado, o escape barato e `harness task add-file "
+        + _pending_task_id(feature_list) + " " + path + "` (um comando, sem "
+        "replanejar - ja liberado no guard); replaneje via /harness-creator:plan "
+        "so se o ESCOPO mudou de verdade"
     )
 
 
@@ -2030,13 +2073,13 @@ def _evaluate_bash(command, cwd):
             "segmento '" + failing[:80] + "' fora da superficie compilada do "
             "contrato (verify_cmd/lint/typecheck/build/install/git local) e "
             "nao aceito como utilitario read-only (cat/head/tail/wc/grep/rg/"
-            "ls/echo/find sem redirecionamento de escrita) nem cd intra-repo; "
-            "replaneje via /harness-creator:plan se precisar de outro comando"
+            "ls/echo/find sem redirecionamento de escrita) nem cd intra-repo. "
+            + _COMMAND_ESCAPE_HINT
         )
     return "deny", (
         "comando fora da superficie compilada do contrato "
-        "(verify_cmd/lint/typecheck/build/install/git local); replaneje via "
-        "/harness-creator:plan se precisar de outro comando"
+        "(verify_cmd/lint/typecheck/build/install/git local). "
+        + _COMMAND_ESCAPE_HINT
     )
 
 
@@ -2148,8 +2191,8 @@ def _evaluate_powershell(command, cwd):
             "(verify_cmd/lint/typecheck/build/install/git local) - PowerShell"
         )
     return "deny", (
-        "comando fora da superficie compilada do contrato (PowerShell); "
-        "replaneje via /harness-creator:plan se precisar de outro comando"
+        "comando fora da superficie compilada do contrato (PowerShell). "
+        + _COMMAND_ESCAPE_HINT
     )
 
 
