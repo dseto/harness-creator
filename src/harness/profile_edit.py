@@ -59,6 +59,38 @@ KNOWN_PACKAGE_MANAGERS: tuple[str, ...] = ("npm", "pnpm", "yarn", "uv", "poetry"
 #: dizendo de onde veio cada coisa (o resto vem de arquivo do repo).
 MANUAL_EVIDENCE = "harness profile set"
 
+#: Chaves cujo valor CHEGA na superfície compilada (`settings.local.json` e
+#: `boundary_guard`) — para elas, `compile-session` é o passo seguinte.
+#: `test_command` NÃO está aqui, e a omissão é deliberada: quem manda na
+#: superfície de comando é o `verify_cmd` do contrato APROVADO, nunca o
+#: profile (`_collect_allowed_bash_commands` lê só verify_cmd + extras +
+#: instalação). Dizer "rode compile-session" depois de ajustar `test_command`
+#: prometeria um efeito que não existe — e mandar o usuário procurar por que
+#: não funcionou é exatamente a fricção que este backlog existe para matar.
+KEYS_REACHING_COMPILED_SURFACE: tuple[str, ...] = (
+    "package_manager", "lint_command", "typecheck_command", "build_command",
+)
+
+#: Onde cada chave que NÃO chega à superfície compilada de fato tem efeito.
+_EFFECT_OUTSIDE_SURFACE: dict[str, str] = {
+    "test_command": (
+        "usado por `harness analyze`/`preflight` e pelos scripts `init.*`; NAO "
+        "entra na superficie de comando do boundary_guard nem no settings.json "
+        "— quem manda la e o verify_cmd do contrato aprovado"
+    ),
+}
+
+
+def next_step_note(key: str) -> str:
+    """Frase de próximo passo HONESTA para `key` — ver
+    `KEYS_REACHING_COMPILED_SURFACE`."""
+    if key in KEYS_REACHING_COMPILED_SURFACE:
+        return (
+            "rode `harness compile-session` para a mudanca chegar ao "
+            "settings.json e ao boundary_guard"
+        )
+    return _EFFECT_OUTSIDE_SURFACE.get(key, "nenhum passo adicional necessario")
+
 
 class ProfileEditError(Exception):
     """Erro de uso de `harness profile set` (chave/valor inválido, profile

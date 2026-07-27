@@ -168,6 +168,42 @@ def test_cli_profile_set_happy_path(
     assert "compile-session" in out["note"]
 
 
+def test_next_step_note_does_not_overpromise_for_test_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Achado do dogfood no MiojoSimulator 3.0: o `test_command` do profile
+    NÃO chega à superfície de comando — `_collect_allowed_bash_commands` lê só
+    `verify_cmd` + extras + instalação. A nota dizia "rode compile-session para
+    a mudança chegar ao boundary_guard" para toda chave, prometendo um efeito
+    que não existe; o usuário compilaria, veria o comando continuar negado, e
+    iria caçar a causa errada — a fricção que este backlog existe para matar.
+
+    Manter `test_command` fora da superfície é a decisão CERTA: quem manda lá é
+    o `verify_cmd` do contrato aprovado. O que estava errado era a frase."""
+    _write_profile(tmp_path)
+
+    code = _run_cli(
+        monkeypatch, "profile", "set", "test_command", "python -m pytest",
+        "--dir", str(tmp_path),
+    )
+    out = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert "compile-session" not in out["note"]
+    assert "boundary_guard" in out["note"]  # diz onde NÃO tem efeito
+
+
+def test_keys_reaching_the_compiled_surface_match_the_readers() -> None:
+    """Trava estrutural: se alguém acrescentar uma chave a
+    `KEYS_REACHING_COMPILED_SURFACE` sem que os leitores da superfície a
+    consumam, a nota volta a mentir. Os leitores são `_EXTRAS_KEYS` de
+    `session_permissions` mais `package_manager`."""
+    from harness.session_permissions import _EXTRAS_KEYS
+    from harness.profile_edit import KEYS_REACHING_COMPILED_SURFACE
+
+    assert set(KEYS_REACHING_COMPILED_SURFACE) == {"package_manager", *_EXTRAS_KEYS}
+
+
 def test_cli_profile_set_refused_exits_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -369,7 +369,7 @@ def main() -> None:
         sys.exit(0)
 
     if args.command == "profile" and args.profile_command == "set":
-        from harness.profile_edit import ProfileEditError, set_profile_value
+        from harness.profile_edit import ProfileEditError, next_step_note, set_profile_value
 
         try:
             profile_path = set_profile_value(Path(args.dir), args.key, args.value)
@@ -381,8 +381,7 @@ def main() -> None:
             "profile": str(profile_path),
             "key": args.key,
             "value": args.value,
-            "note": "rode `harness compile-session` para a mudanca chegar ao "
-                    "settings.json e ao boundary_guard",
+            "note": next_step_note(args.key),
         }, indent=2, ensure_ascii=False))
         sys.exit(0)
 
