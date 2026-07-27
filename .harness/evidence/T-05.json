@@ -1,0 +1,7 @@
+{
+  "feature_id": "T-05",
+  "verify_cmd": "pytest tests/test_compiler.py -q",
+  "recorded_at": "2026-07-23T13:32:01.838149+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:bbddec6f50853f8dd5dcdf9e5c0441ea8ffda64afb45f218af3f70376c32edeb"
+}

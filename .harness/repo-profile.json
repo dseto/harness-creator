@@ -1,0 +1,42 @@
+{
+  "languages": [
+    {
+      "value": "python",
+      "evidence": "pyproject.toml",
+      "confidence": 1.0
+    }
+  ],
+  "package_manager": null,
+  "test_command": {
+    "value": "pytest",
+    "evidence": "pyproject.toml",
+    "confidence": 1.0
+  },
+  "test_glob": {
+    "value": "tests/**/*.py",
+    "evidence": "tests/conftest.py",
+    "confidence": 1.0
+  },
+  "extras": {
+    "lint_command": {
+      "value": "ruff check .",
+      "evidence": "pyproject.toml",
+      "confidence": 1.0
+    },
+    "docs": {
+      "value": [
+        "README.md",
+        "AGENTS.md"
+      ],
+      "evidence": "README.md",
+      "confidence": 1.0
+    }
+  },
+  "unknowns": [
+    "package_manager: nenhum lockfile detectado"
+  ],
+  "analyzed_at": "2026-07-23T20:33:11.960157+00:00",
+  "manifest_snapshot": {
+    "pyproject.toml": "c0f7a367077e69a452dd940e3d11437a8eec5e3f1154d2af003fb31fd276bfe0"
+  }
+}

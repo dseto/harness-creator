@@ -1,0 +1,12 @@
+{
+  "feature_id": "T-03",
+  "desc": "templates gera \"pip install -e .\" em init.sh/init.ps1 quando package_manager=pip",
+  "files": [
+    "src/harness/templates.py",
+    "tests/test_templates.py"
+  ],
+  "verify_cmd": "pytest tests/test_templates.py -q",
+  "recorded_at": "2026-07-23T20:47:36.282681+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:5884ff9612e56ee5a3b52532d8aabf1b76fdc14fed26c05605f75891da812aa0"
+}
