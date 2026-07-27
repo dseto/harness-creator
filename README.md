@@ -13,7 +13,7 @@ Plugin do Claude Code que **cria, avalia e compila** estrutura de harness
 ## Como funciona
 
 ```
-.harness/harness.yaml  ──harness compile──►  .claude/settings.json   (permissions + hooks)
+.harness/harness.yaml  ──harness compile──►  .claude/settings.local.json  (permissions + hooks)
       (sua spec)                              .harness/hooks/*.py    (guards PreToolUse)
                                               AGENTS.md              (bloco gerenciado)
 ```
@@ -113,7 +113,7 @@ orquestradora sequencial única, não usar com múltiplos agentes em paralelo) �
 `harness task add-file <task-id> <path> --dir <alvo> --slug <slug>` (append
 no `files[]` de UMA task existente no `Plans.md` + recompila, sem editar o
 markdown à mão nem reabrir o gate de aprovação — recompila o contrato mas
-não o `permissions.allow` enumerado de `.claude/settings.json`; sem impacto
+não o `permissions.allow` enumerado de `.claude/settings.local.json`; sem impacto
 funcional, o `boundary_guard.py` decide `allow`/`deny` lendo o contrato
 em tempo de execução, não a lista enumerada — detalhe em
 [TUTORIAL.md §B.4](docs/plugin/TUTORIAL.md)) · `harness audit-runtime

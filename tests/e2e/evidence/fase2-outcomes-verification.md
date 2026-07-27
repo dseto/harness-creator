@@ -63,7 +63,7 @@ Veredito: **ATINGIDO**
 Contrato normal: nenhuma regra de `git push`/rede (curl, wget, publish, twine, gh release)/segredos (.env, .pem, id_rsa, credentials) no `permissions.allow` compilado.
 Contrato HOSTIL (files[] declara `.env`; verify_cmd é `git push origin main`), aprovado e compilado com sucesso — e o boundary_guard instalado NEGA os dois mesmo assim, citando 'runtime floor' na razão: o floor é avaliado antes da superfície do contrato, então nem contrato aprovado cobrindo tudo transforma push/segredo em allow efetivo.
 Observação (registrada, não é falha do outcome): com o contrato hostil o settings ecoa [] em `permissions.allow` — a camada que faz o floor valer é o hook `boundary_guard` (deny incondicional, avaliado antes das permissions), não a lista compilada.
-Sem contrato ativo: `compile-session` -> exit 1 (stderr manda rodar `compile-contract` primeiro) e NENHUM `.claude/settings.json` é escrito — não existe política compilada sem contrato aprovado.
+Sem contrato ativo: `compile-session` -> exit 1 (stderr manda rodar `compile-contract` primeiro) e NENHUM `.claude/settings.local.json` é escrito — não existe política compilada sem contrato aprovado.
 Contrato abandonado (feature_list.json removido após a instalação): `git push` e Write em `.env` continuam DENY (floor incondicional, avaliado ANTES da checagem de contrato), enquanto Edit em arquivo comum volta a allow ('sem contrato ativo').
 
 ## Outcome 3 — boundary_guard nega fora da superfície com razão legível e permite dentro do raio

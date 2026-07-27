@@ -149,7 +149,8 @@ Quatro garantias, nesta ordem, sempre:
 O script gerado por `render_boundary_guard()` é standalone (stdlib apenas:
 `json`, `re`, `sys` — nada de `import harness`), porque hooks do Claude
 Code rodam fora do pacote instalado. `install_boundary_guard()` é quem
-escreve esse script em disco e registra o hook em `.claude/settings.json`,
+escreve esse script em disco e registra o hook em
+`.claude/settings.local.json` (machine-local — ver `harness.settings_paths`),
 com merge não-destrutivo via `.harness/compiled-state-session.json` — um
 arquivo PRÓPRIO deste mecanismo, distinto de `.harness/compiled-state.json`
 (que `compiler.py::_write_state` continua reconstruindo do zero a cada
@@ -298,6 +299,7 @@ from pydantic import ValidationError
 from harness.config import HarnessConfig
 from harness.killswitch import DISABLED_CHECK_SRC
 from harness.review import ReviewError, is_test_diff, load_review
+from harness.settings_paths import prepare_managed_settings, write_managed_settings
 
 HOOKS_DIR = ".harness/hooks"
 BOUNDARY_HOOK_FILENAME = "boundary_guard.py"
@@ -2276,8 +2278,9 @@ def install_boundary_guard(target_dir: Path) -> Path:
     script gerado, não no matcher.
 
     Escreve `target_dir/.harness/hooks/boundary_guard.py` e registra o hook
-    em `target_dir/.claude/settings.json` (matcher `"*"`, constante
-    `BOUNDARY_HOOK_MATCHER`). Merge não-destrutivo via
+    em `target_dir/.claude/settings.local.json` (matcher `"*"`, constante
+    `BOUNDARY_HOOK_MATCHER`; o destino é machine-local porque o comando leva
+    path absoluto — ver `harness.settings_paths`). Merge não-destrutivo via
     `target_dir/.harness/compiled-state-session.json`
     (chave própria `boundary_guard_hook_command`, preservando outras chaves
     já presentes — o arquivo é compartilhado com hooks irmãos de sessão).
@@ -2287,7 +2290,8 @@ def install_boundary_guard(target_dir: Path) -> Path:
     para ancorar a resolução de path/contrato na raiz real do repo, em vez do
     `cwd` reportado pela tool call, que pode ter derivado.
 
-    Também remove, de `hooks.PreToolUse`, qualquer entrada legada cujo
+    Também remove, de `hooks.PreToolUse` do arquivo gerenciado, qualquer
+    entrada legada cujo
     `command` referencie o `guard_tests.py` gerado pelo `compiler.py`
     (mecanismo antigo, v0.10.0): o `boundary_guard.py` já cobre a proteção
     de teste (por tarefa do contrato), e manter os dois ativos faria o hook
@@ -2318,26 +2322,16 @@ def install_boundary_guard(target_dir: Path) -> Path:
     if not scratch_gitignore.is_file():
         scratch_gitignore.write_text("*\n!.gitignore\n", encoding="utf-8")
 
-    # Kill-switch: o sentinel `.harness/harness.disabled` é estado operacional
-    # de máquina (machine-local), nunca versionado — garante (idempotente) uma
-    # linha em `.harness/.gitignore` para ele. `.harness/` no geral É versionado
-    # (work/, feature_list.json viajam pra branch), então o ignore precisa ser
-    # explícito por arquivo. Preserva qualquer conteúdo já presente.
-    harness_gitignore = target_dir / HOOKS_DIR.split("/")[0] / ".gitignore"
-    existing = (
-        harness_gitignore.read_text(encoding="utf-8") if harness_gitignore.is_file() else ""
-    )
-    if DISABLE_SENTINEL_BASENAME not in existing.split():
-        harness_gitignore.write_text(
-            (existing.rstrip("\n") + "\n" if existing.strip() else "")
-            + DISABLE_SENTINEL_BASENAME + "\n",
-            encoding="utf-8",
-        )
-
     command = f'python "{script_path}"'
 
-    settings_path = target_dir / ".claude" / "settings.json"
-    settings: dict[str, Any] = _load_json_state(settings_path)
+    # Destino machine-local + `.gitignore` tool-owned (`.harness/` e
+    # `.claude/`) + migração one-shot do alvo já instalado. `.harness/` NÃO é
+    # versionado por inteiro: `work/`, `feature_list.json` e `evidence/` viajam
+    # pra branch, mas `hooks/`, `compiled-state*.json` e o sentinel do
+    # kill-switch carregam path absoluto/estado de sessão desta máquina — por
+    # isso o ignore é explícito por entrada. Ver `harness.settings_paths` para
+    # a política e o critério de decisão.
+    settings_path, settings = prepare_managed_settings(target_dir)
 
     state_path = target_dir / SESSION_STATE_FILE
     state: dict[str, Any] = _load_json_state(state_path)
@@ -2366,10 +2360,7 @@ def install_boundary_guard(target_dir: Path) -> Path:
     }
     hooks["PreToolUse"] = kept_entries + [new_entry]
 
-    settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(
-        json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
+    write_managed_settings(settings_path, settings)
 
     state[BOUNDARY_STATE_KEY] = command
     # Item 6 do backlog de correção do issue #1 (deriva de cwd): grava a raiz

@@ -17,12 +17,14 @@ assumido a partir do formato de `PreToolUse`:
   texto puro no stdout como via mais simples, mas o formato JSON dá controle
   explícito e evita ambiguidade de parsing pelo host, então é o usado aqui).
   `hookEventName` deve ser `"SessionStart"`, não `"PreToolUse"`.
-- O registro em `settings.json` usa `matcher` para filtrar a origem da
+- O registro em settings usa `matcher` para filtrar a origem da
   sessão (`startup`/`resume`/`clear`/`compact`); `"*"` casa qualquer origem —
   usado aqui porque o objetivo (saber onde parou) vale para todo início de
   sessão, não só `startup`.
 
-Merge com `.claude/settings.json`: registra em `hooks.SessionStart` (mesma
+Merge com `.claude/settings.local.json` (machine-local: o comando registrado
+leva path absoluto — ver `harness.settings_paths`): registra em
+`hooks.SessionStart` (mesma
 estrutura de `hooks.PreToolUse` de `compiler.py`, trocando só a chave do
 evento). O estado do que é gerenciado por ESTE módulo fica em
 `.harness/compiled-state-session.json` — MESMO arquivo usado por
@@ -40,11 +42,16 @@ from pathlib import Path
 from typing import Any
 
 from harness.killswitch import DISABLED_CHECK_SRC
+from harness.settings_paths import (
+    MANAGED_SETTINGS_FILE,
+    prepare_managed_settings,
+    write_managed_settings,
+)
 
 HOOKS_DIR = ".harness/hooks"
 HOOK_FILENAME = "session_start.py"
 SESSION_STATE_FILE = ".harness/compiled-state-session.json"
-SETTINGS_FILE = ".claude/settings.json"
+SETTINGS_FILE = MANAGED_SETTINGS_FILE
 STATE_KEY = "session_start_hook_command"
 
 
@@ -202,8 +209,7 @@ def install_session_start(target_dir: Path) -> Path:
     state = _load_json(state_path)
     prev_command = state.get(STATE_KEY)
 
-    settings_path = target_dir / SETTINGS_FILE
-    settings = _load_json(settings_path)
+    settings_path, settings = prepare_managed_settings(target_dir)
 
     hooks = settings.setdefault("hooks", {})
     entries: list[dict[str, Any]] = hooks.get("SessionStart", [])
@@ -221,10 +227,7 @@ def install_session_start(target_dir: Path) -> Path:
     })
     hooks["SessionStart"] = kept_entries
 
-    settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(
-        json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
+    write_managed_settings(settings_path, settings)
 
     # Preserva quaisquer outras chaves já presentes (ex.: escritas por
     # session_permissions.py/boundary_guard.py) — só atualiza a nossa.

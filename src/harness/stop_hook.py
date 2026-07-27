@@ -39,8 +39,9 @@ NÃO assumido a partir de `PreToolUse`/`SessionStart`:
     control; exit code 2 bloquearia (não usado aqui); outros exit codes são
     erro não-bloqueante. Este hook sempre sai com 0.
 
-Merge com `.claude/settings.json`: registra em `hooks.Stop` (mesma técnica
-de merge não-destrutivo de `session_start.py`). O estado do que é
+Merge com `.claude/settings.local.json` (machine-local: o comando registrado
+leva path absoluto — ver `harness.settings_paths`): registra em `hooks.Stop`
+(mesma técnica de merge não-destrutivo de `session_start.py`). O estado do que é
 gerenciado por ESTE módulo fica em `.harness/compiled-state-session.json`
 (mesmo arquivo de `session_start.py`/`session_permissions.py`/
 `boundary_guard.py`), sob chave própria `stop_hook_command`, preservando
@@ -63,12 +64,17 @@ from pathlib import Path
 from typing import Any
 
 from harness.killswitch import DISABLED_CHECK_SRC
+from harness.settings_paths import (
+    MANAGED_SETTINGS_FILE,
+    prepare_managed_settings,
+    write_managed_settings,
+)
 from harness.verify import EVIDENCE_DIR, compute_files_hash
 
 HOOKS_DIR = ".harness/hooks"
 HOOK_FILENAME = "stop_hook.py"
 SESSION_STATE_FILE = ".harness/compiled-state-session.json"
-SETTINGS_FILE = ".claude/settings.json"
+SETTINGS_FILE = MANAGED_SETTINGS_FILE
 STATE_KEY = "stop_hook_command"
 
 
@@ -314,8 +320,7 @@ def install_stop_hook(target_dir: Path) -> Path:
     state = _load_json(state_path)
     prev_command = state.get(STATE_KEY)
 
-    settings_path = target_dir / SETTINGS_FILE
-    settings = _load_json(settings_path)
+    settings_path, settings = prepare_managed_settings(target_dir)
 
     hooks = settings.setdefault("hooks", {})
     entries: list[dict[str, Any]] = hooks.get("Stop", [])
@@ -332,10 +337,7 @@ def install_stop_hook(target_dir: Path) -> Path:
     })
     hooks["Stop"] = kept_entries
 
-    settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(
-        json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
+    write_managed_settings(settings_path, settings)
 
     # Preserva quaisquer outras chaves já presentes (ex.: escritas por
     # session_start.py/session_permissions.py/boundary_guard.py) — só

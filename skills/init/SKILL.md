@@ -58,7 +58,7 @@ verification:
 python -m harness.cli compile --dir <alvo>
 ```
 
-Saída JSON lista settings.json, hooks e AGENTS.md gerados. Se der
+Saída JSON lista settings.local.json, hooks e AGENTS.md gerados. Se der
 `ModuleNotFoundError`, aplique o pré-requisito acima e repita.
 
 ## Passo 4 — Apresentar e avisar
@@ -73,5 +73,5 @@ Saída JSON lista settings.json, hooks e AGENTS.md gerados. Se der
 
 - NUNCA sobrescreva um `.harness/harness.yaml` existente sem confirmar — se já
   existir, mostre o atual e pergunte se quer reconfigurar.
-- Não edite `.claude/settings.json` à mão — o compilador faz merge preservando
+- Não edite `.claude/settings.local.json` à mão — o compilador faz merge preservando
   o que o usuário já tem lá.

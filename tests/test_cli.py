@@ -356,7 +356,7 @@ def test_compile_session_subcommand_success(
     # branch_per_contract default true: compile-session criou e mudou pra
     # branch de contrato antes de instalar qualquer coisa (finding C).
     assert data["branch"] == "contract/exemplo-feature"
-    assert data["settings"].endswith("settings.json")
+    assert data["settings"].endswith("settings.local.json")
     assert data["boundary_guard"].endswith("boundary_guard.py")
     assert data["agents_md"].endswith("AGENTS.md")
     assert data["lifecycle_detail"].endswith("LIFECYCLE.md")
@@ -365,7 +365,7 @@ def test_compile_session_subcommand_success(
     assert any(p.endswith("init.sh") for p in data["templates"])
     assert any(p.endswith("init.ps1") for p in data["templates"])
 
-    assert (tmp_path / ".claude" / "settings.json").is_file()
+    assert (tmp_path / ".claude" / "settings.local.json").is_file()
     assert (tmp_path / ".harness" / "hooks" / "boundary_guard.py").is_file()
     assert (tmp_path / "AGENTS.md").is_file()
     assert (tmp_path / ".harness" / "LIFECYCLE.md").is_file()
@@ -411,7 +411,7 @@ def test_compile_session_dirty_tree_aborts_before_writing(
     assert exc_info.value.code == 1
     err = capsys.readouterr().err
     assert "suja" in err
-    assert not (tmp_path / ".claude" / "settings.json").is_file()
+    assert not (tmp_path / ".claude" / "settings.local.json").is_file()
 
 
 def test_compile_session_branch_per_contract_false_skips_branch(

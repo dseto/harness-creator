@@ -31,7 +31,7 @@ O diferencial deste plugin é que ele **não inventa um executor próprio**: a
 governança compila para os mecanismos **nativos** do Claude Code —
 
 ```
-.harness/harness.yaml  ──harness compile──►  .claude/settings.json   (permissions allow/ask/deny)
+.harness/harness.yaml  ──harness compile──►  .claude/settings.local.json  (permissions allow/ask/deny)
       (sua spec)                              .harness/hooks/*.py    (guards PreToolUse)
                                               AGENTS.md              (instruções gerenciadas)
 ```
@@ -58,19 +58,42 @@ tudo passa. Com harness:
 
 Depois deste tutorial, no seu repositório existe:
 
-| Artefato | O que é |
-|---|---|
-| `.harness/harness.yaml` | A spec de governança — fonte de verdade, versionável |
-| `.claude/settings.json` | Permissions compiladas (allow/ask) que o Claude Code aplica sozinho |
-| `.harness/hooks/*.py` | Guards PreToolUse (disciplina TDD, boundary do contrato) |
-| `AGENTS.md` (bloco gerenciado) | Instruções operacionais que toda sessão lê |
-| `.harness/work/<slug>/spec.md` + `Plans.md` | O contrato de uma demanda: o quê e o como, aprovados por você |
-| `.harness/feature_list.json` | As tarefas do contrato, com estado `passes` protegido por lock |
-| `.harness/evidence/<id>.json` | Prova executável de cada tarefa verificada |
+| Artefato | O que é | Versionar? |
+|---|---|---|
+| `.harness/harness.yaml` | A spec de governança — fonte de verdade | **sim** |
+| `.harness/work/<slug>/spec.md` + `Plans.md` | O contrato de uma demanda: o quê e o como, aprovados por você | **sim** |
+| `.harness/feature_list.json` | As tarefas do contrato, com estado `passes` protegido por lock | **sim** |
+| `.harness/evidence/<id>.json` | Prova executável de cada tarefa verificada | **sim** |
+| `AGENTS.md` (bloco gerenciado) | Instruções operacionais que toda sessão lê | **sim** |
+| `.claude/settings.local.json` | Permissions e hooks compilados que o Claude Code aplica sozinho | não — machine-local |
+| `.harness/hooks/*.py` | Guards PreToolUse (disciplina TDD, boundary do contrato) | não — machine-local |
+| `.harness/compiled-state*.json` | Registro do que a compilação gerencia, para o merge não-destrutivo | não — machine-local |
 
 E o fluxo de trabalho vira: **você aprova o contrato uma vez, o agente
 trabalha sozinho dentro do raio de impacto declarado, e cada "pronto" vem com
 prova**.
+
+#### Por que metade não vai para o git
+
+O comando de hook compilado leva o **caminho absoluto desta máquina** (o
+`cmd.exe` do Windows não expande variável de ambiente nesse ponto). Se esse
+arquivo viajasse no git, um clone em outro caminho carregaria um `PreToolUse`
+apontando para um diretório que não existe: **o repositório pareceria
+governado e nenhum guard rodaria** — falha silenciosa, sem erro visível.
+
+Por isso o harness grava a compilação em `.claude/settings.local.json` (o
+arquivo que o Claude Code já trata como pessoal, com precedência sobre o
+`settings.json` do time) e escreve ele mesmo as regras de ignore em
+`.claude/.gitignore` e `.harness/.gitignore`. O `.gitignore` da raiz do seu
+projeto nunca é tocado.
+
+**Consequência prática: depois de clonar o repositório, rode `harness compile`
+uma vez** (e `harness compile-session` quando houver contrato ativo) para
+gerar a governança na sua máquina. `harness audit` denuncia o repositório que
+ainda carrega compilação antiga no `settings.json` versionado.
+
+A política completa, com o inventário dos 31 artefatos, está em
+`docs/project/AUDIT-footprint-raiz-e-versionamento-2026-07-26.md`, Seção 3.
 
 ### Os ganhos, concretamente
 
@@ -226,14 +249,15 @@ verification:
 
 — e compila. O que aparece no disco:
 
-- **`.claude/settings.json`** — regras `allow`/`ask` de permissions.
+- **`.claude/settings.local.json`** — regras `allow`/`ask` de permissions
+  (machine-local, ignorado pelo git: leva o path absoluto desta máquina).
 - **`.harness/hooks/guard_tests.py`** e **`guard_test_runner.py`** — hooks
   PreToolUse da disciplina TDD.
 - **`AGENTS.md`** — bloco gerenciado com as instruções operacionais.
 
 ## A.5 Reabrir a sessão (obrigatório)
 
-**Feche e reabra o Claude Code nesse projeto.** O `settings.json` só é lido
+**Feche e reabra o Claude Code nesse projeto.** O settings só é lido
 na inicialização — a sessão que rodou o `/init` não aplica as regras nela
 mesma.
 
@@ -246,7 +270,7 @@ claude
 
 ## A.6 Conferir que está tudo consistente
 
-A qualquer momento (e sempre depois de editar `settings.json`/`AGENTS.md` à
+A qualquer momento (e sempre depois de editar `settings.local.json`/`AGENTS.md` à
 mão):
 
 ```
@@ -259,7 +283,7 @@ sugestão de recompilar.
 
 Se você mudar de ideia sobre a política, edite `approval_policy` no
 `.harness/harness.yaml` e rode `/harness-creator:compile` (mostra o diff do
-`settings.json`) — e reabra a sessão de novo.
+`settings.local.json`) — e reabra a sessão de novo.
 
 ### O que já muda no dia a dia, mesmo sem contrato
 
@@ -510,7 +534,7 @@ Faz append no `files[]` da tarefa e recompila — não reabre o gate de
 aprovação nem toca em `approved_by`/`approved_at`.
 
 > **Nota:** `task add-file` recompila o contrato (`feature_list.json`), mas
-> não regenera o `permissions.allow` enumerado do `.claude/settings.json`
+> não regenera o `permissions.allow` enumerado do `.claude/settings.local.json`
 > (isso é trabalho do `compile-session`) — a lista enumerada fica
 > desatualizada até a próxima recompilação de sessão. Isso não abre brecha
 > nem bloqueia o path novo: o `boundary_guard.py` (hook `PreToolUse`,
@@ -519,7 +543,7 @@ aprovação nem toca em `approved_by`/`approved_at`.
 > execução**, a cada tool call — uma decisão explícita de hook sempre
 > tem precedência sobre `permissions.allow` (nunca é só consultado como
 > fallback). Rode `harness compile-session` de novo só se quiser o
-> `settings.json` enumerado espelhando o estado atual do contrato (ex.:
+> `settings.local.json` enumerado espelhando o estado atual do contrato (ex.:
 > para inspeção humana) — não é necessário para o path novo ser editável.
 
 O hook **Stop** reforça o ritual: se ao encerrar houver uma feature com
@@ -593,7 +617,8 @@ próxima feature pronta respeitando `depends[]`.
 
 | Sintoma | Causa | Correção |
 |---|---|---|
-| Regras não estão sendo aplicadas | Sessão aberta antes do compile | Feche e reabra o Claude Code — `settings.json` só é lido na inicialização |
+| Regras não estão sendo aplicadas | Sessão aberta antes do compile | Feche e reabra o Claude Code — o settings só é lido na inicialização |
+| Clone novo sem governança | A compilação é machine-local e não viaja no git | Rode `harness compile` (e `harness compile-session` se houver contrato ativo) |
 | `compile-contract` falha com erro de aprovação | `approved_by`/`approved_at` vazios no frontmatter do `spec.md` | Revisar e preencher — é intencional, o gate é você |
 | `harness analyze` não detecta Python | Projeto só tem `requirements.txt` | Detecção exige `pyproject.toml` ou `setup.py` — adicione um `pyproject.toml` mínimo |
 | Edição em `feature_list.json` negada | Tentativa de `passes: true` sem evidência fresca | Rode `harness verify <id>` primeiro — é o feature-lock funcionando |

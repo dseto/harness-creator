@@ -55,12 +55,15 @@ A skill pergunta (com defaults sugeridos a partir do seu projeto):
 
 Ao final ela escreve `.harness/harness.yaml`, compila, e mostra o que foi
 gerado:
-- `.claude/settings.json` — regras de permissão (`allow`/`ask`)
+- `.claude/settings.local.json` — regras de permissão (`allow`/`ask`).
+  Machine-local: leva o path absoluto desta máquina no comando do hook, por
+  isso nasce ignorado (`.claude/.gitignore`) e um clone precisa rodar
+  `harness compile` antes da primeira sessão
 - `.harness/hooks/guard_tests.py` e `guard_test_runner.py`
 - bloco gerenciado em `AGENTS.md`
 
 **Importante: feche e reabra a sessão do Claude Code nesse projeto.**
-`settings.json` só é lido na inicialização — a sessão que rodou o `/init` não
+o settings só é lido na inicialização — a sessão que rodou o `/init` não
 aplica as regras nela mesma.
 
 ## 3. Fazer uma alteração no projeto (o fluxo do dia a dia)
@@ -111,7 +114,7 @@ rodar mais solto.
 
 (ou edite `.harness/harness.yaml` primeiro, se quiser trocar `approval_policy`,
 `test_command`, `test_glob` ou `enforce_tdd`, e então rode o compile). Mostra
-o diff do `settings.json` — o que entrou/saiu. **Reabra a sessão** de novo
+o diff do `settings.local.json` — o que entrou/saiu. **Reabra a sessão** de novo
 para valer.
 
 ## 5. Trabalhar por contrato
@@ -319,7 +322,7 @@ regressão.
 /harness-creator:audit
 ```
 
-Score 0–100. Rode depois de qualquer edição manual em `settings.json`,
+Score 0–100. Rode depois de qualquer edição manual em `settings.local.json`,
 `AGENTS.md` ou nos hooks — ele detecta *drift* (alguém editou à mão e
 divergiu do que o `harness.yaml` geraria) e sugere recompilar.
 
@@ -357,7 +360,7 @@ registre um marketplace local apontando pro diretório do plugin.
    }
    ```
 3. Reinicie o Claude Code (CLI ou app desktop) para carregar o marketplace
-   novo — mudança em `settings.json` não é recarregada em sessão já aberta.
+   novo — mudança no settings não é recarregada em sessão já aberta.
 
 (Confira a sintaxe atual — `enabledPlugins`/`extraKnownMarketplaces` — no
 schema de settings da sua versão; o formato já mudou uma vez antes e pode
@@ -369,7 +372,7 @@ mudar de novo entre releases.)
 instalar plugin (1x)
         │
         ▼
-/harness-creator:init  no repo-alvo  ──► gera harness.yaml + settings.json + hooks + AGENTS.md
+/harness-creator:init  no repo-alvo  ──► gera harness.yaml + settings.local.json + hooks + AGENTS.md
         │
         ▼
 reabrir sessão do Claude Code nesse repo

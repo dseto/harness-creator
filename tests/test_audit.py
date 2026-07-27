@@ -79,7 +79,7 @@ def test_hook_drift_detected_after_manual_edit(tmp_path: Path) -> None:
 def test_settings_drift_detected_when_rule_removed(tmp_path: Path) -> None:
     _bootstrap(tmp_path)
     compile_project(tmp_path)
-    settings_path = tmp_path / ".claude" / "settings.json"
+    settings_path = tmp_path / ".claude" / "settings.local.json"
     settings = json.loads(settings_path.read_text(encoding="utf-8"))
     settings["permissions"]["ask"].remove("Bash")
     settings_path.write_text(json.dumps(settings), encoding="utf-8")

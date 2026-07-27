@@ -8,7 +8,7 @@
 O produto atual é um **plugin do Claude Code** que cria/avalia/compila
 estrutura de harness. A execução fica com o próprio Claude Code:
 
-- **`src/harness/compiler.py`** — `.harness/harness.yaml` → `.claude/settings.json`
+- **`src/harness/compiler.py`** — `.harness/harness.yaml` → `.claude/settings.local.json`
   (permissions + hooks PreToolUse), `.harness/hooks/*.py` (guards standalone,
   só stdlib, com o regex do test_glob embutido) e bloco gerenciado no
   `AGENTS.md` do projeto-alvo. Fontes de verdade reusadas, não duplicadas:
@@ -18,6 +18,6 @@ estrutura de harness. A execução fica com o próprio Claude Code:
 - **Skills** — `/harness-creator:init|audit|compile`.
 - **Budget de tokens** — o Claude Code não expõe usage a hooks; compila para
   orientação no AGENTS.md, explicitamente advisory.
-- **Merge não-destrutivo** — settings.json: entradas gerenciadas registradas
+- **Merge não-destrutivo** — settings.local.json: entradas gerenciadas registradas
   em `.harness/compiled-state.json`; recompilar troca só o que é do harness,
   preservando regras/hooks manuais do usuário.

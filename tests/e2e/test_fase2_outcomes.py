@@ -14,7 +14,7 @@ E guard_test_runner), abandono de contrato após instalação.
 Outcomes verificados (extraídos da seção "Fase 2" do ROADMAP.md, linhas
 ~130-206):
 
-    1. `compile-session` produz `.claude/settings.json` com `permissions.allow`
+    1. `compile-session` produz `.claude/settings.local.json` com `permissions.allow`
        cobrindo EXATAMENTE a superfície enumerada do contrato ativo (Edit/Write
        dos `files[]`, `Bash(verify_cmd)`, lint/typecheck/build do profile,
        comando de instalação do package_manager, git local do ritual) — nunca
@@ -341,7 +341,9 @@ def _setup_project(root: Path, plans_text: str = PLANS_TWO_TASKS,
 
 
 def _load_settings(root: Path) -> dict:
-    return json.loads((root / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    return json.loads(
+        (root / ".claude" / "settings.local.json").read_text(encoding="utf-8")
+    )
 
 
 def _boundary_script(root: Path) -> Path:
@@ -382,7 +384,7 @@ def test_outcome1_permissions_exactly_enumerated_surface(tmp_path: Path) -> None
         # (b) regra manual sobrevive ao merge e recompilar não duplica.
         settings = _load_settings(project)
         settings["permissions"]["allow"].insert(0, "Bash(echo regra-manual)")
-        (project / ".claude" / "settings.json").write_text(
+        (project / ".claude" / "settings.local.json").write_text(
             json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
         proc = _run_cli(["compile-session", "--dir", str(project)], cwd=project)
@@ -492,12 +494,12 @@ def test_outcome2_runtime_floor_never_becomes_allow(tmp_path: Path) -> None:
             f"compile-session sem contrato deveria falhar: exit={proc.returncode}"
         )
         assert "compile-contract" in proc.stderr, proc.stderr
-        assert not (bare / ".claude" / "settings.json").exists(), (
-            "compile-session sem contrato escreveu settings.json — política sem contrato"
+        assert not (bare / ".claude" / "settings.local.json").exists(), (
+            "compile-session sem contrato escreveu settings — política sem contrato"
         )
         proof.append(
             "Sem contrato ativo: `compile-session` -> exit 1 (stderr manda rodar "
-            "`compile-contract` primeiro) e NENHUM `.claude/settings.json` é "
+            "`compile-contract` primeiro) e NENHUM `.claude/settings.local.json` é "
             "escrito — não existe política compilada sem contrato aprovado."
         )
 

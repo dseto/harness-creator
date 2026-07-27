@@ -740,7 +740,9 @@ def test_outcome4_stop_hook_detects_unverified_in_progress(tmp_path: Path) -> No
         assert installed.read_text(encoding="utf-8") == render_stop_hook(), (
             "arquivo instalado difere de render_stop_hook()"
         )
-        settings = json.loads((cs / ".claude" / "settings.json").read_text(encoding="utf-8"))
+        settings = json.loads(
+            (cs / ".claude" / "settings.local.json").read_text(encoding="utf-8")
+        )
         stop_entries = settings["hooks"]["Stop"]
         assert len(stop_entries) == 1, stop_entries
         assert "matcher" not in stop_entries[0], (
@@ -749,7 +751,9 @@ def test_outcome4_stop_hook_detects_unverified_in_progress(tmp_path: Path) -> No
         assert "stop_hook.py" in stop_entries[0]["hooks"][0]["command"]
         proc = _run_cli(["compile-session", "--dir", str(cs)], cwd=cs)
         assert proc.returncode == 0, proc.stderr
-        settings2 = json.loads((cs / ".claude" / "settings.json").read_text(encoding="utf-8"))
+        settings2 = json.loads(
+            (cs / ".claude" / "settings.local.json").read_text(encoding="utf-8")
+        )
         assert len(settings2["hooks"]["Stop"]) == 1, settings2["hooks"]["Stop"]
         proof.append(
             "`compile-session` (CLI real) instala o hook: chave `stop_hook` no "

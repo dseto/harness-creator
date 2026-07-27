@@ -4,7 +4,50 @@
 
 Correções achadas durante o dogfood do próprio harness-creator (contrato
 `hook-reasons-progress-sync` e achados A/B/C do backlog de fricção de
-dogfood 2026-07-22).
+dogfood 2026-07-22), mais os 4 itens **P0** do laudo de footprint
+`docs/project/AUDIT-footprint-raiz-e-versionamento-2026-07-26.md`.
+
+### Corrigido (P0 — fronteira machine-local do output compilado)
+- **O output compilado deixa de nascer em arquivo versionável.** Os cinco
+  escritores de settings (`compiler.py`, `boundary_guard.py`,
+  `session_start.py`, `stop_hook.py`, `session_permissions.py`) passam a
+  gravar em `.claude/settings.local.json` através de um ponto único novo
+  (`harness.settings_paths.prepare_managed_settings`), em vez de mesclarem no
+  `.claude/settings.json` que os projetos-alvo commitam. Motivo (F1 do
+  laudo): o comando do hook leva **path absoluto** da máquina que compilou —
+  no `aegis_rpa_suite` o arquivo commitado carregava
+  `python "C:\Projetos\aegis_rpa_suite\.harness\hooks\boundary_guard.py"` e
+  63 regras de `permissions.allow`, incluindo `Edit(...)` sobre arquivos de
+  **outro projeto**. Em qualquer clone (outro path, outro OS) esse
+  `PreToolUse` não resolve: **o repositório parece governado e nenhum guard
+  roda** — falha silenciosa, não erro visível.
+- **As regras de ignore passam a vir do produto** (F2), em arquivos
+  tool-owned e sem encostar no `.gitignore` da raiz do alvo:
+  `.harness/.gitignore` deixa de conter só `harness.disabled` e passa a cobrir
+  `compiled-state.json`, `compiled-state-session.json` e `hooks/`; o novo
+  `.claude/.gitignore` cobre `settings.local.json`. Antes, o dogfood só
+  *parecia* limpo porque o `.gitignore` **global** da máquina do usuário
+  cobria esse nome — nada que o projeto-alvo herdasse.
+- **`harness audit` passa a auditar o arquivo machine-local.** Sem isso o
+  audit ficaria cego: procuraria permissions e hooks num `settings.json` que
+  o harness não escreve mais e acusaria `missing_settings` num projeto
+  corretamente compilado. Os slugs `missing_settings`/`invalid_settings`
+  continuam estáveis.
+
+**Sem migração do `settings.json`:** o produto é pré-produção e a instalação
+é sempre feita do zero, então nada precisa ser transportado do arquivo do
+time. O `.claude/settings.json` deixou simplesmente de ser lido e escrito
+pelo harness. Um alvo instalado numa versão anterior se resolve apagando
+`.harness/` e `.claude/settings.json` e rodando `harness compile` de novo.
+
+**Trade-off assumido e documentado:** as permissions deixam de viajar no
+clone — um repositório recém-clonado precisa de `harness compile` (e
+`harness compile-session`, se houver contrato ativo) antes da primeira
+sessão. Na prática isso já era verdade: o path absoluto nunca sobrevivia a um
+clone; a diferença é que agora o produto é honesto sobre isso em vez de
+manter a aparência de governança. `TUTORIAL.md`, `GUIDE.md`, `README.md`,
+`ARCHITECTURE.md` e as skills `init`/`compile`/`audit`/`plan` foram
+atualizados, e o TUTORIAL ganhou coluna "versionar?" na tabela de artefatos.
 
 ### Adicionado
 - **Kill-switch externo do harness (`harness disable | enable | status`).**

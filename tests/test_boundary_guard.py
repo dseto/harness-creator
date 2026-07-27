@@ -642,11 +642,13 @@ def test_other_tool_allows_by_default(tmp_path: Path) -> None:
     assert out["permissionDecision"] == "allow"
 
 
-# ---------------- install_boundary_guard: settings.json + estado ----------------
+# ------------- install_boundary_guard: settings.local.json + estado -------------
 
 def test_install_registers_hook_in_settings(tmp_path: Path) -> None:
     script = install_boundary_guard(tmp_path)
-    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads(
+        (tmp_path / ".claude" / "settings.local.json").read_text(encoding="utf-8")
+    )
     entries = settings["hooks"]["PreToolUse"]
     matching = [e for e in entries if e.get("matcher") == BOUNDARY_HOOK_MATCHER]
     assert len(matching) == 1
@@ -656,7 +658,9 @@ def test_install_registers_hook_in_settings(tmp_path: Path) -> None:
 def test_install_is_idempotent(tmp_path: Path) -> None:
     install_boundary_guard(tmp_path)
     install_boundary_guard(tmp_path)
-    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads(
+        (tmp_path / ".claude" / "settings.local.json").read_text(encoding="utf-8")
+    )
     entries = settings["hooks"]["PreToolUse"]
     matching = [e for e in entries if e.get("matcher") == BOUNDARY_HOOK_MATCHER]
     assert len(matching) == 1
@@ -665,7 +669,7 @@ def test_install_is_idempotent(tmp_path: Path) -> None:
 def test_install_preserves_unrelated_settings_and_hooks(tmp_path: Path) -> None:
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir()
-    (claude_dir / "settings.json").write_text(json.dumps({
+    (claude_dir / "settings.local.json").write_text(json.dumps({
         "model": "opus",
         "permissions": {"allow": ["Bash(npm run *)"]},
         "hooks": {"PreToolUse": [
@@ -676,7 +680,7 @@ def test_install_preserves_unrelated_settings_and_hooks(tmp_path: Path) -> None:
 
     install_boundary_guard(tmp_path)
 
-    settings = json.loads((claude_dir / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads((claude_dir / "settings.local.json").read_text(encoding="utf-8"))
     assert settings["model"] == "opus"
     assert "Bash(npm run *)" in settings["permissions"]["allow"]
     user_hooks = [e for e in settings["hooks"]["PreToolUse"] if "meu-hook.sh" in json.dumps(e)]
@@ -688,7 +692,7 @@ def test_install_preserves_unrelated_settings_and_hooks(tmp_path: Path) -> None:
 def test_install_removes_legacy_guard_tests_hook(tmp_path: Path) -> None:
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir()
-    (claude_dir / "settings.json").write_text(json.dumps({
+    (claude_dir / "settings.local.json").write_text(json.dumps({
         "hooks": {"PreToolUse": [
             {"matcher": "Write|Edit",
              "hooks": [{"type": "command", "command": 'python ".harness/hooks/guard_tests.py"'}]},
@@ -697,7 +701,7 @@ def test_install_removes_legacy_guard_tests_hook(tmp_path: Path) -> None:
 
     install_boundary_guard(tmp_path)
 
-    settings = json.loads((claude_dir / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads((claude_dir / "settings.local.json").read_text(encoding="utf-8"))
     legacy = [e for e in settings["hooks"]["PreToolUse"] if "guard_tests.py" in json.dumps(e)]
     assert legacy == []
     new_entries = [e for e in settings["hooks"]["PreToolUse"] if e.get("matcher") == BOUNDARY_HOOK_MATCHER]
@@ -2730,3 +2734,22 @@ def test_install_creates_harness_gitignore_for_sentinel(tmp_path: Path) -> None:
     gitignore = tmp_path / ".harness" / ".gitignore"
     assert gitignore.is_file()
     assert "harness.disabled" in gitignore.read_text(encoding="utf-8")
+
+
+def test_install_ignores_every_machine_local_artifact(tmp_path: Path) -> None:
+    """Itens 2 e 3 do P0: o estado de máquina (`compiled-state*.json`,
+    `hooks/`, `settings.local.json`) nasce ignorado por regra que o PRODUTO
+    escreve em arquivo tool-owned. Antes disso, o dogfood só parecia limpo
+    porque o gitignore GLOBAL da máquina do usuário cobria o settings local —
+    nada que o alvo herdasse."""
+    _script(tmp_path)
+
+    harness_lines = (tmp_path / ".harness" / ".gitignore").read_text(encoding="utf-8").split()
+    for entry in ("compiled-state.json", "compiled-state-session.json", "hooks/"):
+        assert entry in harness_lines
+
+    claude_lines = (tmp_path / ".claude" / ".gitignore").read_text(encoding="utf-8").split()
+    assert "settings.local.json" in claude_lines
+
+    # A raiz do usuário continua intocada — decisão de design preservada.
+    assert not (tmp_path / ".gitignore").exists()

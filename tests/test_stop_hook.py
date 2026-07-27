@@ -262,7 +262,9 @@ def test_install_writes_hook_file(tmp_path: Path) -> None:
 
 def test_install_registers_hook_under_stop_event_without_matcher(tmp_path: Path) -> None:
     install_stop_hook(tmp_path)
-    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads(
+        (tmp_path / ".claude" / "settings.local.json").read_text(encoding="utf-8")
+    )
     assert "Stop" in settings["hooks"]
     assert "PreToolUse" not in settings["hooks"]
     entry = settings["hooks"]["Stop"][0]
@@ -274,7 +276,9 @@ def test_install_is_idempotent_no_duplicate_entries(tmp_path: Path) -> None:
     install_stop_hook(tmp_path)
     install_stop_hook(tmp_path)
 
-    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads(
+        (tmp_path / ".claude" / "settings.local.json").read_text(encoding="utf-8")
+    )
     assert len(settings["hooks"]["Stop"]) == 1
 
 
@@ -307,7 +311,7 @@ def test_install_preserves_sibling_state_keys(tmp_path: Path) -> None:
 def test_install_preserves_manual_settings_and_other_hook_events(tmp_path: Path) -> None:
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir(parents=True, exist_ok=True)
-    (claude_dir / "settings.json").write_text(json.dumps({
+    (claude_dir / "settings.local.json").write_text(json.dumps({
         "permissions": {"allow": ["Bash(git status)"]},
         "hooks": {
             "SessionStart": [{"matcher": "*", "hooks": [{"type": "command", "command": "python session_start.py"}]}],
@@ -316,7 +320,7 @@ def test_install_preserves_manual_settings_and_other_hook_events(tmp_path: Path)
 
     install_stop_hook(tmp_path)
 
-    settings = json.loads((claude_dir / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads((claude_dir / "settings.local.json").read_text(encoding="utf-8"))
     assert settings["permissions"]["allow"] == ["Bash(git status)"]
     assert len(settings["hooks"]["SessionStart"]) == 1
     assert "Stop" in settings["hooks"]
