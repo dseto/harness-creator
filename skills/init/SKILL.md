@@ -46,6 +46,17 @@ governance:
   budget:
     max_tokens_per_task: 500000      # orientação (advisory), não enforcement
     max_tool_calls_per_task: 120
+
+  # Comandos permanentes deste repo, além do que já sai do verify_cmd/lint/
+  # build/instalação. O guard lê esta lista A CADA tool call: acrescentar uma
+  # linha aqui vale na chamada seguinte, sem recompilar. Casa por PREFIXO —
+  # `alembic upgrade` libera `alembic upgrade head`, `--sql`, etc.
+  # Deixe COMENTADO se não houver nenhum ainda: quando o agente esbarrar num
+  # comando de que precisa, o próprio deny devolve estas duas linhas prontas
+  # para colar, com o comando já preenchido.
+  # extra_allowed_commands:
+  #   - <binario> <subcomando>
+
 verification:
   enforce_tdd: <resposta>
   test_command: "<resposta>"

@@ -672,7 +672,12 @@ def test_outcome3_boundary_guard_denies_outside_allows_inside(tmp_path: Path) ->
         assert deny_cmd["permissionDecision"] == "deny", deny_cmd
         reason_cmd = deny_cmd["permissionDecisionReason"]
         assert "fora da superficie compilada do contrato" in reason_cmd, reason_cmd
-        assert "replaneje" in reason_cmd, reason_cmd
+        assert "replaneje" in reason_cmd.lower(), reason_cmd
+        # Postura C do Item 9: a razão precisa trazer o bloco YAML PRONTO, com o
+        # comando preenchido — sem CLI de allow-command, editar o arquivo é o
+        # caminho, e ele só se sustenta se for trivial.
+        assert "extra_allowed_commands:" in reason_cmd, reason_cmd
+        assert "- python scripts/deploy.py" in reason_cmd, reason_cmd
         proof.append(
             "Bash `python scripts/deploy.py --prod` (fora de verify/lint/typecheck/"
             f"build/install/git-local) -> deny com razão: `{reason_cmd}`"

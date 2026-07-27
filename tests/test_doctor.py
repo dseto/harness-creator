@@ -111,6 +111,42 @@ def test_plugin_install_of_other_plugin_is_ignored(tmp_path: Path) -> None:
 
 
 # ---------------- interpretador dos hooks ----------------
+def test_doctor_flags_an_allowlist_the_hook_cannot_read(tmp_path: Path) -> None:
+    """Postura C do Item 9: liberar comando é editar o YAML à mão. Uma entrada
+    em sintaxe que o parser mínimo do hook não entende vira deny SILENCIOSO — e
+    derruba a lista inteira junto. O `compile-session` avisa, mas o Item 3 o
+    tornou desnecessário justamente para esse fluxo: quem só edita o YAML nunca
+    veria o aviso. O `doctor` é o comando que a pessoa roda quando desconfia."""
+    from harness.doctor import run_doctor
+
+    harness_yaml = tmp_path / ".harness" / "harness.yaml"
+    harness_yaml.parent.mkdir(parents=True, exist_ok=True)
+    harness_yaml.write_text(
+        "governance:\n  extra_allowed_commands:\n    - &ancora alembic upgrade\n",
+        encoding="utf-8",
+    )
+
+    report = run_doctor(tmp_path)
+
+    assert any("extra_allowed_commands" in issue for issue in report.issues), report.issues
+    assert report.ok is False
+
+
+def test_doctor_silent_when_the_allowlist_parses(tmp_path: Path) -> None:
+    from harness.doctor import run_doctor
+
+    harness_yaml = tmp_path / ".harness" / "harness.yaml"
+    harness_yaml.parent.mkdir(parents=True, exist_ok=True)
+    harness_yaml.write_text(
+        "governance:\n  extra_allowed_commands:\n    - alembic upgrade\n",
+        encoding="utf-8",
+    )
+
+    report = run_doctor(tmp_path)
+
+    assert not any("extra_allowed_commands" in issue for issue in report.issues), report.issues
+
+
 # Item 1 do backlog do dogfood venv-Windows: hook com interpretador
 # irresolúvel não roda, e a tool call PASSA sem gate. É estado silencioso em
 # runtime — o `doctor` é o único lugar onde ele fica visível.

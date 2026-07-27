@@ -236,20 +236,43 @@ rede antes de rodar, e rede sempre pede aprovação) e prefixo de diretório que
 não seja de venv — `./scripts/deploy.sh` não vira `deploy.sh`, senão qualquer
 script homônimo casaria a allowlist alheia.
 
-**2. Comando novo e permanente: edite o YAML, e pronto.** O guard lê
-`governance.extra_allowed_commands` do `.harness/harness.yaml` **a cada tool
-call** — a mudança vale na tool call seguinte, sem `compile-session`. Só o
-usuário edita esse arquivo (o agente não escreve em `.harness/**`; é floor).
+**2. Comando novo e permanente: cole duas linhas no YAML.** Você não precisa
+decorar nada — **a própria mensagem de deny já vem com o bloco pronto**, com o
+comando preenchido. O agente só repassa. Se ele foi barrado em
+`alembic upgrade head`, a razão do deny traz:
 
-> O parser que o hook usa para isso é mínimo e stdlib-only: entende lista de
-> bloco (`- item`) e de fluxo (`[a, b]`), com ou sem aspas, e ignora
-> comentário. Qualquer outra sintaxe YAML faz a lista degradar para **vazia** —
-> fecha, nunca abre. Para você não descobrir isso por tentativa e erro,
-> `harness compile-session` compara a leitura completa com a do hook e **avisa**
-> quando divergem. Se o aviso aparecer, reescreva a entrada numa das duas
-> formas. Uma ressalva honesta: o `settings.json` continua compilado, então um
-> comando adicionado sem recompilar passa no guard mas ainda pode gerar um
-> prompt de permissão do Claude Code — atrito, não bloqueio.
+```yaml
+  extra_allowed_commands:
+    - alembic upgrade
+```
+
+Abra `.harness/harness.yaml` **no seu terminal** (fora do Claude Code — o agente
+não escreve em `.harness/**`; é floor) e cole essas duas linhas dentro do bloco
+`governance:` que já está lá. Se a chave já existir, acrescente só a linha do
+`-`. **Vale na tool call seguinte**, sem recompilar nada.
+
+Repare que o bloco **não** repete `governance:` — colar a chave duas vezes
+quebra a leitura. E a lista casa por **prefixo**: `alembic upgrade` libera
+`alembic upgrade head`, `--sql`, `+1` e o resto dos argumentos, então uma
+entrada costuma bastar por ferramenta.
+
+> Duas notas honestas. O parser que o hook usa para ler essa lista é mínimo e
+> stdlib-only: entende lista de bloco (`- item`) e de fluxo (`[a, b]`), com ou
+> sem aspas, e ignora comentário; qualquer outra sintaxe YAML faz a lista
+> degradar para **vazia** — fecha, nunca abre. Se você escrever à mão e escapar
+> disso, tanto `harness compile-session` quanto `harness doctor` acusam.
+> Segunda: o `settings.json` continua compilado, então um comando adicionado sem
+> recompilar passa no guard mas ainda pode gerar um prompt de permissão do
+> Claude Code — atrito, não bloqueio; um `harness compile-session` na próxima
+> parada natural silencia.
+
+**Por que não existe um `harness allow-command`.** Foi avaliado e descartado:
+com as formas de invocação já reconhecidas como equivalentes e a leitura em
+runtime do YAML, a demanda restante é de uma entrada por ferramenta, uma vez —
+pouco para justificar um subcomando permanente. O que importa aqui é que o
+escape seja de dez segundos, e é por isso que o deny já vem com o bloco pronto:
+um escape difícil não deixa o harness mais seguro, empurra para o kill-switch,
+que desliga tudo.
 
 **3. O profile inferido errou: `harness profile set`.** O `analyze` só infere,
 e às vezes o ambiente contradiz o repositório — no caso real, o proxy derrubou

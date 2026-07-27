@@ -22,7 +22,7 @@ backlog; `U10` = seção "Decisão pendente"; `U11` = seção "Sequenciamento".
 | **2** | 3, 4 | branch `feat/ondas-2-5` | ✅ entregue |
 | **3** | 6, 8, contagem na CLI | idem | ✅ entregue |
 | **4** | 7 | idem | ✅ entregue |
-| **5** | decidir B vs C | — | **gate instrumentado, decisão pendente** |
+| **5** | decidir B vs C | — | ✅ **DECIDIDA: postura C** (2026-07-27) |
 
 Suíte: **840 testes** verdes (790 antes da linha), `ruff check src tests`
 limpo. (Falha pré-existente e não relacionada em
@@ -58,7 +58,67 @@ Escopo estendido além do texto dos itens, com razão registrada:
   alimenta a superfície de comando compilada, então dar o comando ao agente
   reabriria a rota de auto-ampliação que o Item 0 fechou.
 
-### Onda 5 — o gate, agora executável
+### Onda 5 — DECIDIDA: postura C, sem gate de medição
+
+**Decisão do dono do repo, 2026-07-27: postura C.** Não existe e não vai existir
+uma CLI `harness allow-command`. Liberar um comando novo e permanente é editar
+`governance.extra_allowed_commands` do `.harness/harness.yaml`, no terminal do
+usuário. **O Item 9 está encerrado em definitivo** — A já estava rejeitada (§2),
+B foi descartada aqui.
+
+A decisão veio **antes** do gate de medição, e isso é coerente e não atalho: as
+ondas 2–4 atacaram a demanda por três lados independentes antes de a escolha ser
+feita. O Item 4 mostrou que boa parte do que parecia "comando novo" era o mesmo
+binário em outra grafia; o Item 3 tirou o `compile-session` do caminho, e editar
+o YAML passou a valer na tool call seguinte; o Item 6 tirou os ajustes de
+ambiente do YAML. O que sobrou para B decidir era pequeno demais para justificar
+um subcomando novo — superfície que o produto carrega, documenta e precisa
+manter fora de `_HARNESS_SUBCOMMANDS` para sempre.
+
+**A condição que o dono do repo anexou à decisão, e que é o que a torna
+sustentável:** *"desde que o usuário seja orientado de forma simples, clara e
+fácil do que precisa incluir no yaml"*. O enquadramento que ele deu vale citar,
+porque é o critério de projeto do produto inteiro:
+
+> um dos objetivos do harness é reduzir ao máximo a fricção, pois a ideia é
+> deixar o Claude executando de forma autônoma por horas sem human in the loop,
+> mas de forma segura. O harness deve barrar o mínimo.
+
+Isso reposiciona o custo de um deny: não é só um incômodo, é o que empurra para
+o kill-switch — e o kill-switch é desproteção **total**. Um escape difícil não
+torna o produto mais seguro; torna menos.
+
+O que a condição exigiu, entregue junto com a decisão:
+
+1. **A razão de deny devolve o bloco YAML pronto para colar**, com o comando já
+   preenchido na forma canônica. `command_escape_hint()` deriva a entrada de
+   `suggested_allowlist_entry()`, que normaliza a invocação
+   (`.venv/Scripts/alembic.exe upgrade head` → `alembic upgrade`) e corta em
+   **binário + subcomando** — a linha inteira obrigaria uma entrada nova a cada
+   variação de argumento, e só o binário liberaria demais.
+2. **O bloco não repete `governance:`.** A instrução mais óbvia seria a que
+   quebra: todo `harness.yaml` já tem essa chave, e colá-la de novo cria
+   duplicata — que o parser mínimo do hook trata degradando a lista **inteira**
+   para vazia. Coberto por teste dedicado.
+3. **`harness doctor` passa a acusar allowlist ilegível pelo hook.** O
+   `compile-session` já avisava, mas o Item 3 o tornou desnecessário justamente
+   para este fluxo — quem só edita o YAML nunca veria o aviso.
+4. **O `init` deixa a chave comentada no `harness.yaml`**, com a forma à vista.
+
+Um teste fecha o ciclo de ponta a ponta: pega a entrada que a mensagem sugeriu,
+escreve no YAML exatamente como ela manda, e confirma que o comando passa a ser
+allow. Sem ele, a sugestão poderia estar sintaticamente certa e semanticamente
+inútil — que é exatamente o modo de falha que o segundo parser do Item 3 criou.
+
+**A contagem de ciclos (`harness.metrics`) fica**, mas muda de função: deixa de
+ser gate de decisão e passa a ser sinal de operação. Nota registrada para quem
+for usá-la: ela conta `disable`/`enable`, que é o workaround ANTIGO — depois do
+Item 3 ninguém precisa desligar o harness para editar o YAML, então zero ali
+significa "o kill-switch parou de ser usado", não "não há fricção". Quem quiser
+medir a demanda residual precisa contar **deny por superfície de comando**, no
+próprio hook, que é onde a janela é a certa.
+
+### O gate de medição, como estava desenhado (histórico)
 
 O que faltava para decidir B vs C não era desenho, era **dado**: quantos ciclos
 uma sessão real ainda gasta depois das ondas 2–4. Esse número passou a ser

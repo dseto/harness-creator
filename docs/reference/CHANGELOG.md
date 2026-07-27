@@ -9,6 +9,38 @@ footprint `docs/project/AUDIT-footprint-raiz-e-versionamento-2026-07-26.md`,
 mais as **ondas 2 a 4** do plano v2 do dogfood
 venv-Windows (`docs/project/ROADMAP-dogfood-venv-windows.correction.plano-v2.md`).
 
+### Decidido — onda 5: postura C, e o escape de comando vira trivial
+
+Decisão do dono do repo (2026-07-27): **não haverá `harness allow-command`**.
+Liberar um comando novo e permanente é editar `governance.extra_allowed_commands`
+do `.harness/harness.yaml`, no terminal do usuário. O Item 9 do backlog está
+encerrado — a postura A já estava rejeitada, a B foi descartada aqui.
+
+A decisão veio com uma condição: o usuário tem que ser orientado de forma
+simples e clara sobre o que incluir no YAML. O enquadramento é o critério de
+projeto do produto — *o harness existe para o agente rodar horas sem humano no
+meio, com segurança, e deve barrar o mínimo*. Isso reposiciona o custo de um
+deny: não é incômodo, é o que empurra para o kill-switch, e o kill-switch é
+desproteção total. O que entrou junto com a decisão:
+
+- **A razão de deny devolve o bloco YAML pronto para colar**, com o comando já
+  preenchido. A entrada é derivada na forma canônica
+  (`.venv/Scripts/alembic.exe upgrade head` → `alembic upgrade`) e cortada em
+  **binário + subcomando**: a linha inteira obrigaria uma entrada nova a cada
+  variação de argumento, e só o binário liberaria demais.
+- **O bloco não repete `governance:`** — a instrução mais óbvia seria a que
+  quebra. Todo `harness.yaml` já tem essa chave, e duplicá-la faz o parser
+  mínimo do hook degradar a lista **inteira** para vazia.
+- **`harness doctor` passa a acusar allowlist que o hook não consegue ler.** O
+  `compile-session` já avisava, mas o Item 3 o tornou desnecessário justamente
+  para esse fluxo: quem só edita o YAML nunca veria o aviso.
+- **O `init` deixa a chave comentada no `harness.yaml` gerado**, com a forma à
+  vista.
+
+Um teste fecha o ciclo: pega a entrada que o deny sugeriu, escreve no YAML como
+ele manda, e confirma que o comando passa a ser allow — sem isso a sugestão
+poderia estar sintaticamente certa e semanticamente inútil.
+
 ### Adicionado (ondas 2–4 do plano v2 — a fricção do venv Windows)
 
 Uma sessão real gastou ~13 ciclos de `disable` → editar → `compile-session` →

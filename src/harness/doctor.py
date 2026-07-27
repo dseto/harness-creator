@@ -49,6 +49,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from harness import __version__ as _PIP_VERSION
+from harness.boundary_guard import extra_allowed_commands_grammar_problem
 from harness.compiler import HARNESS_YAML, STATE_FILE
 from harness.hook_launcher import fail_closed_problem, interpreter_problem
 from harness.settings_paths import MANAGED_SETTINGS_FILE, managed_settings_path
@@ -269,6 +270,19 @@ def run_doctor(
     for hook in hooks:
         if hook["problem"]:
             issues.append(f"hook `{hook['event']}`: {hook['problem']}")
+
+    # --- allowlist que o hook nao consegue ler ---
+    # Postura C do Item 9: liberar um comando novo e editar o YAML a mao, entao
+    # uma entrada em sintaxe que o parser minimo do hook nao entende vira deny
+    # SILENCIOSO — e a lista inteira degrada para vazia junto. O
+    # `compile-session` ja avisa, mas o Item 3 tornou o `compile-session`
+    # desnecessario justamente para esse fluxo: quem so edita o YAML nunca
+    # veria o aviso. O `doctor` e o comando que a pessoa roda quando desconfia
+    # de alguma coisa, entao e aqui que a checagem precisa existir tambem.
+    if governed:
+        grammar_problem = extra_allowed_commands_grammar_problem(target_dir)
+        if grammar_problem:
+            issues.append(grammar_problem)
 
     if compiled_version is None:
         notes.append(
