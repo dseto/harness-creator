@@ -1,0 +1,7 @@
+{
+  "feature_id": "T-06",
+  "verify_cmd": "pytest tests -q",
+  "recorded_at": "2026-07-23T13:54:15.553001+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:a4b8450c26a7edabfef7dbd97fddb3ebbceae928dffbc9df613c2d242f6ecaa9"
+}

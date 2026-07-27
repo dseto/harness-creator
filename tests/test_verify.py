@@ -13,10 +13,12 @@ from unittest.mock import patch
 import pytest
 
 from harness.verify import (
+    UNSCOPED_EVIDENCE_DIR,
     VerifyError,
     VerifyFailedError,
     compute_files_hash,
     detect_file_lock_hint,
+    evidence_path,
     mark_feature_passed,
     run_verify,
 )
@@ -27,9 +29,11 @@ def _write(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def _write_feature_list(tmp_path: Path, features: list[dict]) -> None:
+def _write_feature_list(
+    tmp_path: Path, features: list[dict], contract: str = "exemplo-feature"
+) -> None:
     payload = {
-        "contract": "exemplo-feature",
+        "contract": contract,
         "compiled_at": "2026-07-16T12:00:00+00:00",
         "features": features,
     }
@@ -69,7 +73,9 @@ def test_run_verify_success_writes_evidence_with_correct_schema(tmp_path: Path) 
 
     evidence_path = run_verify(tmp_path, "T-01")
 
-    assert evidence_path == tmp_path / ".harness" / "evidence" / "T-01.json"
+    assert evidence_path == (
+        tmp_path / ".harness" / "evidence" / "exemplo-feature" / "T-01.json"
+    )
     assert evidence_path.is_file()
 
     data = json.loads(evidence_path.read_text(encoding="utf-8"))
@@ -80,13 +86,17 @@ def test_run_verify_success_writes_evidence_with_correct_schema(tmp_path: Path) 
     assert data["exit_code"] == 0
     assert "recorded_at" in data
     assert data["files_hash"] == compute_files_hash(["src/x.py"], tmp_path)
+    # `contract` é a identidade da prova: sem ele, a evidência de um contrato
+    # anterior (todo contrato tem um T-01) destravaria passes:true aqui.
+    assert data["contract"] == "exemplo-feature"
     assert set(data.keys()) == {
-        "feature_id", "desc", "files", "verify_cmd", "recorded_at", "exit_code", "files_hash",
+        "feature_id", "contract", "desc", "files", "verify_cmd", "recorded_at",
+        "exit_code", "files_hash",
     }
 
 
 def test_run_verify_success_syncs_claude_progress_row_to_done(tmp_path: Path) -> None:
-    """US-2: run_verify verde reescreve a linha da feature no claude-progress.md
+    """US-2: run_verify verde reescreve a linha da feature no .harness/progress.md
     para 'done' — sem passo manual."""
     _write(tmp_path / "src" / "x.py", "print('hi')\n")
     _write_feature_list(
@@ -95,7 +105,7 @@ def test_run_verify_success_syncs_claude_progress_row_to_done(tmp_path: Path) ->
           "verify_cmd": _true_cmd(), "depends": [], "passes": False}],
     )
     _write(
-        tmp_path / "claude-progress.md",
+        tmp_path / ".harness/progress.md",
         "# Claude Progress\n\n## Features\n\n"
         "| id | desc | status |\n| --- | --- | --- |\n"
         "| T-01 | Criar x | pending |\n\n## Última atualização\n\n_(vazio)_\n",
@@ -103,13 +113,13 @@ def test_run_verify_success_syncs_claude_progress_row_to_done(tmp_path: Path) ->
 
     run_verify(tmp_path, "T-01")
 
-    progress = (tmp_path / "claude-progress.md").read_text(encoding="utf-8")
+    progress = (tmp_path / ".harness/progress.md").read_text(encoding="utf-8")
     row = next(ln for ln in progress.splitlines() if ln.startswith("| T-01 "))
     assert row.split("|")[3].strip() == "done", progress
 
 
 def test_run_verify_success_without_progress_file_does_not_raise(tmp_path: Path) -> None:
-    """US-2: ausência do claude-progress.md nunca faz run_verify falhar —
+    """US-2: ausência do .harness/progress.md nunca faz run_verify falhar —
     evidência continua gravada."""
     _write(tmp_path / "src" / "x.py", "print('hi')\n")
     _write_feature_list(
@@ -121,7 +131,7 @@ def test_run_verify_success_without_progress_file_does_not_raise(tmp_path: Path)
     evidence_path = run_verify(tmp_path, "T-01")
 
     assert evidence_path.is_file()
-    assert not (tmp_path / "claude-progress.md").exists()
+    assert not (tmp_path / ".harness/progress.md").exists()
 
 
 def test_run_verify_failure_does_not_write_evidence_and_propagates_exit_code(tmp_path: Path) -> None:
@@ -697,3 +707,50 @@ def test_run_verify_failure_still_carries_buffered_output_with_stream(
 
     assert "MSB3027" in exc_info.value.stdout
     assert exc_info.value.file_lock_hint is not None
+
+
+# ---------------------------------------------------------------------------
+# Evidência escopada por contrato (achado de teste isento)
+# ---------------------------------------------------------------------------
+
+def test_verify_of_a_new_contract_does_not_destroy_the_previous_proof(
+    tmp_path: Path,
+) -> None:
+    """A evidência morava em `.harness/evidence/<id>.json`, sem o contrato em
+    lugar nenhum. Como TODO contrato começa em `T-01`, compilar um contrato
+    novo e rodar `harness verify T-01` sobrescrevia em silêncio a prova do
+    contrato anterior — sem aviso e sem backup."""
+    _write_feature_list(
+        tmp_path,
+        [{"id": "T-01", "desc": "Feature do contrato A", "files": ["src/x.py"],
+          "verify_cmd": _true_cmd(), "depends": [], "passes": False}],
+        contract="contrato-a",
+    )
+    first = run_verify(tmp_path, "T-01")
+
+    # Contrato novo, mesmo id de tarefa — o cenário exato da colisão.
+    _write_feature_list(
+        tmp_path,
+        [{"id": "T-01", "desc": "Feature do contrato B", "files": ["src/x.py"],
+          "verify_cmd": _true_cmd(), "depends": [], "passes": False}],
+        contract="contrato-b",
+    )
+    second = run_verify(tmp_path, "T-01")
+
+    assert first != second
+    assert first.is_file(), "a prova do contrato anterior foi destruída"
+    assert json.loads(first.read_text(encoding="utf-8"))["desc"] == "Feature do contrato A"
+    assert json.loads(second.read_text(encoding="utf-8"))["desc"] == "Feature do contrato B"
+    assert first.parent.name == "contrato-a"
+    assert second.parent.name == "contrato-b"
+
+
+def test_evidence_path_falls_back_when_the_contract_is_absent(tmp_path: Path) -> None:
+    """`feature_list.json` sem `contract` (compilado por versão antiga, ou
+    fixture) não pode explodir nem gravar na raiz de `evidence/` — vai para um
+    subdiretório de nome inválido como slug, que nunca colide com contrato
+    real."""
+    assert evidence_path(tmp_path, "", "T-01").parent.name == UNSCOPED_EVIDENCE_DIR
+    assert evidence_path(tmp_path, None, "T-01").parent.name == UNSCOPED_EVIDENCE_DIR
+    assert evidence_path(tmp_path, "   ", "T-01").parent.name == UNSCOPED_EVIDENCE_DIR
+    assert evidence_path(tmp_path, "meu-contrato", "T-01").parent.name == "meu-contrato"

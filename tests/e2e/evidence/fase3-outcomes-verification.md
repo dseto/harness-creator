@@ -11,6 +11,7 @@ Veredito: **ATINGIDO**
 ```json
 {
   "feature_id": "T-OK",
+  "contract": "fase3-outcomes",
   "desc": "Feature T-OK",
   "files": [
     "src/app.py"
@@ -37,7 +38,7 @@ Chave `stop_conditions` ausente -> `[]`; chave nula -> `[]` (opcional no contrat
 
 Veredito: **ATINGIDO**
 
-Transição `passes: false -> true` via Edit SEM evidência em disco: deny citando T-01 e mandando rodar `harness verify` primeiro — nas DUAS cópias da lógica (hook standalone via subprocess E `evaluate_feature_list_edit` importável). Razão do hook: `feature-lock: transicao para passes:true sem evidencia fresca - T-01: sem evidência (.harness/evidence/T-01.json não existe) - rode harness verify <id> primeiro`
+Transição `passes: false -> true` via Edit SEM evidência em disco: deny citando T-01 e mandando rodar `harness verify` primeiro — nas DUAS cópias da lógica (hook standalone via subprocess E `evaluate_feature_list_edit` importável). Razão do hook: `feature-lock: transicao para passes:true sem evidencia fresca - T-01: sem evidência (.harness/evidence/fase3-outcomes/T-01.json não existe) - rode harness verify <id> primeiro`
 Evidência com `recorded_at` de 2020 (mais velha que o último commit, backdated para 2026-01-01): deny nas duas cópias, razão citando 'evidencia mais antiga que o ultimo commit'.
 Mesma edição com evidência fresca (recorded_at = agora, mais nova que o último commit): ALLOW nas duas cópias, razão confirmando a evidência fresca de T-01 — o agente só marca done depois do `harness verify` real. Razão do hook: `feature-lock: transicao para passes:true com evidencia fresca confirmada para T-01`
 Edição do feature_list.json que NÃO transiciona nenhuma feature (só muda desc): a versão importável delega (`None`) e o hook standalone cai no floor do plano de controle -> deny. Desde o Item 0 do plano v2 esse deny é INCONDICIONAL (`.harness/**` fora de work/scratch), e não mais dependente da superfície do contrato — o feature-lock não abriu uma porta nova para edições arbitrárias do arquivo, e declarar o path em `files[]` deixou de ser um contorno.
@@ -47,7 +48,7 @@ Edição do feature_list.json que NÃO transiciona nenhuma feature (só muda des
 Veredito: **ATINGIDO**
 
 Working tree limpa: `is_feature_in_progress` False e o hook Stop standalone não imprime NADA (encerramento sem fricção quando não há trabalho pendente).
-Diff não commitado tocando `src/app.py` (files[] de T-01), sem evidência: `is_feature_in_progress`/`needs_verification` True para T-01 (e False para T-02, intocada); o hook standalone devolve `additionalContext` citando SÓ T-01 e mandando rodar `harness verify`. Contexto: `Feature(s) em progresso sem verificacao atualizada: T-01. Rode `harness verify <id>` antes de encerrar a sessao para gravar a evidencia em .harness/evidence/<id>.json.`
+Diff não commitado tocando `src/app.py` (files[] de T-01), sem evidência: `is_feature_in_progress`/`needs_verification` True para T-01 (e False para T-02, intocada); o hook standalone devolve `additionalContext` citando SÓ T-01 e mandando rodar `harness verify`. Contexto: `Feature(s) em progresso sem verificacao atualizada: T-01. Rode `harness verify <id>` antes de encerrar a sessao para gravar a evidencia em .harness/evidence/<contrato>/<id>.json.`
 Evidência gravada com o files_hash ATUAL: `needs_verification` False e o hook volta a silenciar — evidência atualizada encerra a cobrança.
 Arquivo modificado DEPOIS da evidência (files_hash gravado != hash atual): `needs_verification` volta a True e o hook flagra T-01 de novo — evidência desatualizada não vale como prova.
 `passes: true` nunca é 'em progresso' (mesmo com diff pendente); feature sem files[] nunca é 'em progresso' (sem pathspec não há como detectar trabalho — evita diff do repo inteiro).
@@ -61,5 +62,5 @@ Veredito: **ATINGIDO**
 Duas features com diff não commitado: `is_feature_in_progress` (stop_hook, chamada direta) flagra ['T-01', 'T-02']; `audit_runtime` emite UM finding `multiple_features_in_progress` critical citando exatamente esses ids — os dois lugares que decidem 'em progresso' concordam. Mensagem: `Mais de uma feature 'em progresso' simultaneamente: T-01, T-02.`
 `git checkout -- src/b.py`: stop_hook deixa de flagrar T-02 e o finding `multiple_features_in_progress` some do audit — exatamente 1 feature em progresso é estado legal.
 `passes: true` sem evidência -> critical `missing_evidence` citando T-02; evidência com `exit_code: 1` -> critical `evidence_exit_code_nonzero`; evidência válida com `exit_code: 0` -> zero findings, score 100.
-CLI `harness audit-runtime`: exit 0 com score 100 no estado sadio; apagando a evidência de T-02 e o claude-progress.md -> exit 1 com score 45 (<60) e findings JSON parseáveis (['missing_evidence', 'missing_progress_file']).
+CLI `harness audit-runtime`: exit 0 com score 100 no estado sadio; apagando a evidência de T-02 e o .harness/progress.md -> exit 1 com score 45 (<60) e findings JSON parseáveis (['missing_evidence', 'missing_progress_file']).
 

@@ -5,7 +5,7 @@ Fecha o passo 11 do lifecycle (Fase 2/3): uma feature só é considerada
 de verdade e saiu com exit code 0. Este módulo NÃO decide bloqueio de
 edição sobre `feature_list.json` (outro escopo) nem ordena por `depends[]`
 (idem) — apenas executa o comando de UMA feature e, em caso de sucesso,
-grava a prova em `.harness/evidence/<feature_id>.json`.
+grava a prova em `.harness/evidence/<contrato>/<feature_id>.json`.
 
 `mark_feature_passed` é a exceção opt-in a essa regra: só roda quando o
 `cli.py` chama com `--mark-passed` (e só depois de `run_verify` já ter tido
@@ -24,6 +24,7 @@ formato — não mudar sem atualizar consumidores):
 
     {
       "feature_id": "T-01",
+      "contract": "meu-contrato",
       "verify_cmd": "pytest tests/test_x.py -q",
       "recorded_at": "2026-07-16T12:00:00+00:00",
       "exit_code": 0,
@@ -57,6 +58,34 @@ from harness.templates import update_progress_status
 
 EVIDENCE_DIR = ".harness/evidence"
 _VERIFY_TIMEOUT_SECONDS = 600
+
+#: Subdiretório usado quando o `feature_list.json` não declara `contract`
+#: (contrato compilado por versão antiga, ou fixture de teste). Nome inválido
+#: como slug de contrato de propósito: nunca colide com um contrato real.
+UNSCOPED_EVIDENCE_DIR = "_sem-contrato"
+
+
+def evidence_path(target_dir: Path, contract: Any, feature_id: str) -> Path:
+    """`.harness/evidence/<contrato>/<feature_id>.json`.
+
+    A evidência morava em `.harness/evidence/<feature_id>.json`, sem o
+    contrato em lugar nenhum — nem no caminho, nem no schema. Como TODO
+    contrato começa em `T-01`, a colisão era por construção: compilar um
+    contrato novo e rodar `harness verify T-01` **sobrescrevia em silêncio a
+    prova do contrato anterior**, sem aviso e sem backup. Prova executável é a
+    garantia central do produto; ela não pode ser destruída por um contrato
+    que nem sabe da existência do outro.
+
+    O caminho escopado resolve a destruição. A identidade — impedir que a
+    evidência de um contrato destrave `passes:true` em outro — é o campo
+    `contract` gravado dentro do JSON e conferido por quem lê
+    (`boundary_guard`, `runtime_audit`, `stop_hook`). Antes, o que segurava
+    isso era só o frescor contra o último commit: defesa TEMPORAL, que depende
+    de existir um commit entre os dois contratos.
+    """
+    slug = str(contract or "").strip() or UNSCOPED_EVIDENCE_DIR
+    return Path(target_dir) / EVIDENCE_DIR / slug / f"{feature_id}.json"
+
 
 # Item 7 do backlog issue #1 — detecção-only de "arquivo em uso" (sem
 # auto-kill). Padrão casa as duas mensagens de erro do MSBuild (.NET) que
@@ -307,7 +336,9 @@ def compute_files_hash(files: list[str], target_dir: Path) -> str:
     return f"sha256:{digest.hexdigest()}"
 
 
-def _load_feature(target_dir: Path, feature_id: str) -> dict[str, Any]:
+def _load_feature(target_dir: Path, feature_id: str) -> tuple[dict[str, Any], str]:
+    """`(feature, contrato)`. O contrato sai junto porque a evidência é
+    escopada por ele — ver `evidence_path`."""
     feature_list_path = target_dir / FEATURE_LIST_FILE
     if not feature_list_path.is_file():
         raise VerifyError(f"{feature_list_path}: feature_list.json não encontrado")
@@ -317,9 +348,10 @@ def _load_feature(target_dir: Path, feature_id: str) -> dict[str, Any]:
     except json.JSONDecodeError as exc:
         raise VerifyError(f"{feature_list_path}: JSON inválido — {exc}") from exc
 
+    contract = str(data.get("contract") or "")
     for feature in data.get("features", []):
         if feature.get("id") == feature_id:
-            return feature
+            return feature, contract
 
     raise VerifyError(f"feature '{feature_id}' não encontrada em {feature_list_path}")
 
@@ -339,7 +371,7 @@ def run_verify(
     Retorna o Path do arquivo de evidência gravado em caso de sucesso.
 
     Efeito aditivo (US-2): em caso de sucesso, além de gravar a evidência,
-    sincroniza a linha da feature no `claude-progress.md` para `done` via
+    sincroniza a linha da feature no `.harness/progress.md` para `done` via
     `templates.update_progress_status` — no-op silencioso se o arquivo não
     existir, então nunca faz a verificação falhar por causa disso.
 
@@ -350,7 +382,7 @@ def run_verify(
     `_run_verify_cmd` para o porquê de NÃO ser default.
     """
     target_dir = target_dir.resolve()
-    feature = _load_feature(target_dir, feature_id)
+    feature, contract = _load_feature(target_dir, feature_id)
     verify_cmd = feature["verify_cmd"]
     files = feature.get("files", [])
 
@@ -387,6 +419,10 @@ def run_verify(
 
     evidence = {
         "feature_id": feature_id,
+        # Identidade do contrato dentro da própria prova: o caminho escopado
+        # impede a destruição, este campo impede o empréstimo (evidência de um
+        # contrato destravando passes:true em outro).
+        "contract": contract,
         "desc": feature.get("desc", ""),
         "files": files,
         "verify_cmd": verify_cmd,
@@ -395,18 +431,18 @@ def run_verify(
         "files_hash": compute_files_hash(files, target_dir),
     }
 
-    evidence_path = target_dir / EVIDENCE_DIR / f"{feature_id}.json"
-    evidence_path.parent.mkdir(parents=True, exist_ok=True)
-    evidence_path.write_text(
+    path = evidence_path(target_dir, contract, feature_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
         json.dumps(evidence, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
 
     # US-2: sincroniza o rastro legível com a prova recém-gravada — elimina o
-    # passo manual 12 do lifecycle. No-op silencioso se claude-progress.md não
+    # passo manual 12 do lifecycle. No-op silencioso se .harness/progress.md não
     # existir (nunca faz run_verify falhar por causa disso).
     update_progress_status(target_dir, feature_id, "done")
 
-    return evidence_path
+    return path
 
 
 def mark_feature_passed(target_dir: Path, feature_id: str) -> Path:

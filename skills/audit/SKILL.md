@@ -1,7 +1,7 @@
 ---
 name: audit
-description: Avalia a estrutura de harness de um projeto — score 0-100 e findings (yaml inválido, hooks ausentes, drift entre harness.yaml e settings.json, política arriscada) com oferta de correção.
-when_to_use: Quando o usuário quer avaliar/verificar/auditar a governança de harness do projeto, suspeita que settings.json divergiu do harness.yaml, ou depois de um /harness-creator:init.
+description: Avalia a estrutura de harness de um projeto — score 0-100 e findings (yaml inválido, hooks ausentes, drift entre harness.yaml e settings.local.json, política arriscada) com oferta de correção.
+when_to_use: Quando o usuário quer avaliar/verificar/auditar a governança de harness do projeto, suspeita que settings.local.json divergiu do harness.yaml, ou depois de um /harness-creator:init.
 argument-hint: "[diretório-alvo, default: raiz do projeto atual]"
 disable-model-invocation: false
 ---

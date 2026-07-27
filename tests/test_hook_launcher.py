@@ -242,7 +242,7 @@ def _installed_command(tmp_path: Path, module: str, func: str, event: str) -> st
 
     getattr(importlib.import_module(module), func)(tmp_path)
     settings = json.loads(
-        (tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8")
+        (tmp_path / ".claude" / "settings.local.json").read_text(encoding="utf-8")
     )
     return settings["hooks"][event][0]["hooks"][0]["command"]
 

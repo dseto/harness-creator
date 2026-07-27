@@ -25,6 +25,7 @@ from harness.compiler import (
     render,
 )
 from harness.patterns import _glob_to_regex
+from harness.settings_paths import MANAGED_SETTINGS_FILE, managed_settings_path
 
 
 @dataclass
@@ -102,12 +103,16 @@ def audit_project(target_dir: Path) -> AuditReport:
                 "Rode `harness compile` (hooks não devem ser editados à mão).",
             ))
 
-    # --- 3. settings.json coerente (permissions + hooks registrados) ---
-    settings_path = target_dir / ".claude" / "settings.json"
+    # --- 3. settings gerenciado coerente (permissions + hooks registrados) ---
+    # O arquivo auditado é o MACHINE-LOCAL (`.claude/settings.local.json`): é
+    # onde o compile grava, porque o comando do hook leva path absoluto desta
+    # máquina. O `settings.json` do time é auditado logo abaixo, e só para
+    # denunciar resíduo de instalação pré-migração.
+    settings_path = managed_settings_path(target_dir)
     if not settings_path.is_file():
         findings.append(Finding(
             "critical", "missing_settings",
-            ".claude/settings.json ausente — nenhuma permission/hook ativo.",
+            f"{MANAGED_SETTINGS_FILE} ausente — nenhuma permission/hook ativo.",
             "Rode `harness compile`.",
         ))
     else:
@@ -117,7 +122,7 @@ def audit_project(target_dir: Path) -> AuditReport:
             settings = None
             findings.append(Finding(
                 "critical", "invalid_settings",
-                ".claude/settings.json não é JSON válido.",
+                f"{MANAGED_SETTINGS_FILE} não é JSON válido.",
                 "Corrija o arquivo ou apague e rode `harness compile`.",
             ))
         if settings is not None:
@@ -141,7 +146,7 @@ def audit_project(target_dir: Path) -> AuditReport:
                 if script not in registered:
                     findings.append(Finding(
                         "critical", "hook_not_registered",
-                        f"Hook não registrado no settings.json: {script}",
+                        f"Hook não registrado em {MANAGED_SETTINGS_FILE}: {script}",
                         "Rode `harness compile`.",
                     ))
 

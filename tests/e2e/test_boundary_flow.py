@@ -14,7 +14,7 @@ Cobre:
        `enforce_tdd: false`) registra o hook `guard_tests.py`; a recompilação
        via `compile-session --dir` remove essa entrada (o `boundary_guard.py`
        já cobre a proteção de teste por-tarefa) e sobra só a entrada nova.
-    4. `compile-session --dir` -> `.claude/settings.json` com a superfície
+    4. `compile-session --dir` -> `.claude/settings.local.json` com a superfície
        `allow` derivada do contrato (nunca `git push`) e `boundary_guard.py`
        registrado em `hooks.PreToolUse`.
     5. Invocação DIRETA do `boundary_guard.py` gerado via subprocess: allow
@@ -144,7 +144,7 @@ def test_boundary_flow_end_to_end(tmp_path: Path) -> None:
     legacy_compile_proc = _run_cli(["compile", "--dir", str(project)], cwd=project)
     assert legacy_compile_proc.returncode == 0, legacy_compile_proc.stderr
 
-    settings_path = project / ".claude" / "settings.json"
+    settings_path = project / ".claude" / "settings.local.json"
     settings = json.loads(settings_path.read_text(encoding="utf-8"))
     pre_tool_use_after_legacy = json.dumps(settings["hooks"]["PreToolUse"])
     assert "guard_tests.py" in pre_tool_use_after_legacy

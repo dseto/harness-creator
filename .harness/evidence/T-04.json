@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-04",
+  "desc": "Rodar suite completa para confirmar ausencia de regressao",
+  "files": [
+    "src/harness/boundary_guard.py",
+    "src/harness/session_permissions.py",
+    "src/harness/templates.py"
+  ],
+  "verify_cmd": "pytest -q",
+  "recorded_at": "2026-07-23T20:50:37.656166+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:1601060fc98daaf691d264d93b851c046805cdd768da0f82a3ed388c7a43cf10"
+}

@@ -31,7 +31,7 @@ O diferencial deste plugin é que ele **não inventa um executor próprio**: a
 governança compila para os mecanismos **nativos** do Claude Code —
 
 ```
-.harness/harness.yaml  ──harness compile──►  .claude/settings.json   (permissions allow/ask/deny)
+.harness/harness.yaml  ──harness compile──►  .claude/settings.local.json  (permissions allow/ask/deny)
       (sua spec)                              .harness/hooks/*.py    (guards PreToolUse)
                                               AGENTS.md              (instruções gerenciadas)
 ```
@@ -58,19 +58,104 @@ tudo passa. Com harness:
 
 Depois deste tutorial, no seu repositório existe:
 
-| Artefato | O que é |
-|---|---|
-| `.harness/harness.yaml` | A spec de governança — fonte de verdade, versionável |
-| `.claude/settings.json` | Permissions compiladas (allow/ask) que o Claude Code aplica sozinho |
-| `.harness/hooks/*.py` | Guards PreToolUse (disciplina TDD, boundary do contrato) |
-| `AGENTS.md` (bloco gerenciado) | Instruções operacionais que toda sessão lê |
-| `.harness/work/<slug>/spec.md` + `Plans.md` | O contrato de uma demanda: o quê e o como, aprovados por você |
-| `.harness/feature_list.json` | As tarefas do contrato, com estado `passes` protegido por lock |
-| `.harness/evidence/<id>.json` | Prova executável de cada tarefa verificada |
+O essencial, em oito linhas:
+
+| Artefato | O que é | Versionar? |
+|---|---|---|
+| `.harness/harness.yaml` | A spec de governança — fonte de verdade | **sim** |
+| `.harness/work/<slug>/spec.md` + `Plans.md` | O contrato de uma demanda: o quê e o como, aprovados por você | **sim** |
+| `.harness/feature_list.json` | As tarefas do contrato, com estado `passes` protegido por lock | **sim** |
+| `.harness/evidence/<contrato>/<id>.json` | Prova executável de cada tarefa verificada | **sim** |
+| `AGENTS.md` (bloco gerenciado) | Instruções operacionais que toda sessão lê | **sim** |
+| `.claude/settings.local.json` | Permissions e hooks compilados que o Claude Code aplica sozinho | não — machine-local |
+| `.harness/hooks/*.py` | Guards PreToolUse (disciplina TDD, boundary do contrato) | não — machine-local |
+| `.harness/compiled-state*.json` | Registro do que a compilação gerencia, para o merge não-destrutivo | não — machine-local |
 
 E o fluxo de trabalho vira: **você aprova o contrato uma vez, o agente
 trabalha sozinho dentro do raio de impacto declarado, e cada "pronto" vem com
 prova**.
+
+**Na raiz do seu projeto entra um único arquivo: `AGENTS.md`.** Todo o resto
+mora em `.harness/` ou `.claude/`. É deliberado — `AGENTS.md` é convenção que
+agentes externos leem da raiz, e `.claude/` é exigência do Claude Code;
+nenhum outro artefato tem motivo para disputar espaço com o seu código.
+
+#### Por que metade não vai para o git
+
+O comando de hook compilado leva o **caminho absoluto desta máquina** (o
+`cmd.exe` do Windows não expande variável de ambiente nesse ponto). Se esse
+arquivo viajasse no git, um clone em outro caminho carregaria um `PreToolUse`
+apontando para um diretório que não existe: **o repositório pareceria
+governado e nenhum guard rodaria** — falha silenciosa, sem erro visível.
+
+Por isso o harness grava a compilação em `.claude/settings.local.json` (o
+arquivo que o Claude Code já trata como pessoal, com precedência sobre o
+`settings.json` do time) e escreve ele mesmo as regras de ignore em
+`.claude/.gitignore` e `.harness/.gitignore`. O `.gitignore` da raiz do seu
+projeto nunca é tocado.
+
+**Consequência prática: depois de clonar o repositório, rode `harness compile`
+uma vez** (e `harness compile-session` quando houver contrato ativo) para
+gerar a governança na sua máquina. Quem cobra isso é o `harness doctor` (ver
+A.6): ele acusa o repositório que tem `harness.yaml` versionado e nenhum
+`settings.local.json`, e também o repositório que mudou de lugar no disco
+(comando de hook apontando para um caminho que não existe mais).
+
+#### Inventário completo — os 32 artefatos
+
+A regra que decide cada linha é única, e vale para artefato futuro também:
+**especificação, contrato e prova são versionados; saída de compilação que
+carrega dado de máquina é machine-local e regenerada por `compile`.** A
+íntegra da política — incluindo o critério de decisão e os trade-offs
+aceitos — é a **Seção 3** de
+`docs/project/AUDIT-footprint-raiz-e-versionamento-2026-07-26.md`, que é a
+fonte canônica: quando esta tabela e aquela seção divergirem, a seção vence.
+
+| # | Caminho | O que é | Gerado/regenerado por | Versionar? |
+|---|---|---|---|---|
+| 1 | `.harness/` | Container de tudo que é do harness | qualquer comando | n/a |
+| 2 | `.harness/harness.yaml` | A spec de governança, escrita na entrevista do `init` | nunca — é a **entrada** de `compile` | **sim** |
+| 3 | `.harness/hooks/` | Container dos guards | `compile` / `compile-session` | não |
+| 4 | `.harness/hooks/guard_tests.py` | Guard PreToolUse: disciplina de teste | `harness compile` | não |
+| 5 | `.harness/hooks/guard_test_runner.py` | Guard do runner de teste (só com `enforce_tdd`) | `harness compile` | não |
+| 6 | `.harness/hooks/boundary_guard.py` | Guard do raio de impacto + runtime floor | `harness compile-session` | não |
+| 7 | `.harness/hooks/session_start.py` | Hook que injeta o estado da sessão anterior | `harness compile-session` | não |
+| 8 | `.harness/hooks/stop_hook.py` | Hook de fim de sessão | `harness compile-session` | não |
+| 9 | `.harness/compiled-state.json` | Registro do que `compile` gerencia (merge não-destrutivo) | `harness compile` | não — estado de máquina |
+| 10 | `.harness/compiled-state-session.json` | Idem, para os hooks de sessão | `harness compile-session` | não — estado de máquina |
+| 11 | `.harness/.gitignore` | As regras de ignore do que é machine-local | `compile` / `compile-session` | **sim** — é a própria regra |
+| 12 | `.harness/scratch/` | Área de artefato temporário de verificação | `compile` e `compile-session` | não |
+| 13 | `.harness/scratch/.gitignore` | Auto-ignora o conteúdo do scratch (`*` + `!.gitignore`) | `compile` e `compile-session` | **sim** |
+| 14 | `.harness/repo-profile.json` | Perfil detectado do repo (linguagem, package manager, test command) | `harness analyze` | **sim** |
+| 15 | `.harness/work/` | Container dos contratos | skill `plan` | n/a |
+| 16 | `.harness/work/<slug>/spec.md` | O contrato: escopo, critérios, o que fica de fora | nunca — autorado e aprovado por você | **sim** |
+| 17 | `.harness/work/<slug>/Plans.md` | As tarefas do contrato, uma por seção `## [T-xx]` | nunca (só patch cirúrgico de `harness task`) | **sim** |
+| 18 | `.harness/feature_list.json` | As tarefas compiladas, com `passes` protegido por feature-lock | `harness compile-contract` | **sim** |
+| 19 | `.harness/evidence/<contrato>/<id>.json` | Prova de execução: contrato, comando, exit code, hash dos arquivos, timestamp — escopada por contrato porque todo contrato tem um `T-01` | `harness verify` | **sim** |
+| 20 | `.harness/review/<id>.json` | Estado da revisão produtor-revisor (Fase 4) | `harness review` | **sim** |
+| 21 | `.harness/LIFECYCLE.md` | Detalhe dos 17 passos do lifecycle | `harness compile-session` | **sim** |
+| 22 | `.harness/TEAM.md` | Detalhe do time de agentes | `harness team generate` | **sim** |
+| 23 | `.harness/team/manifest.json` | Papéis, gates e política de revisão do time | `harness team generate` | **sim** |
+| 24 | `.harness/harness.disabled` | Sentinela do kill-switch | `harness disable` / `enable` | não — estado de máquina |
+| 25 | `.harness/progress.md` | Bookkeeping da sessão: o que foi feito, o que quebrou, onde parou | `compile-session` só se ausente ou se o contrato divergiu — **nunca sobrescreve progresso** | **sim** |
+| 26 | `.harness/init.sh` | Bootstrap: instala deps + health check, derivado do profile | `compile-session` — **exceto** se você editou o arquivo (some o marcador, o harness preserva) | **sim** |
+| 27 | `.harness/init.ps1` | Idem, para PowerShell | idem | **sim** |
+| 28 | `.claude/settings.local.json` | Permissions + hooks compilados que o Claude Code aplica | `compile` e `compile-session` | não — **carrega path absoluto desta máquina** |
+| 29 | `.claude/.gitignore` | Ignora o `settings.local.json` | `compile` / `compile-session` | **sim** |
+| 30 | `.claude/agents/<role>.md` | Definição de um agente do time | `harness team generate` | **sim** |
+| 31 | `.claude/skills/<role>/SKILL.md` | Skill de um papel do time | `harness team generate` | **sim** |
+| 32 | **`AGENTS.md`** (raiz) | Híbrido: três blocos gerenciados + a sua prosa, que nunca é tocada | `compile` (bloco de governança), `compile-session` (lifecycle), `team generate` (time) | **sim** |
+
+Duas leituras que a tabela costuma surpreender:
+
+- **`harness compile` não gera tudo.** Ele regenera cinco coisas: os dois
+  `guard_*.py`, as fatias gerenciadas do `settings.local.json`, o bloco de
+  governança do `AGENTS.md` e o `compiled-state.json`. Todo o resto pertence a
+  `compile-session`, `compile-contract`, `analyze`, `verify`, `review`,
+  `team generate` ou `disable`.
+- **O harness nunca toca no `.gitignore` da raiz do seu projeto**, nem cria ou
+  edita `CLAUDE.md` (só lê). As regras de ignore que ele precisa ficam nos
+  arquivos que ele mesmo é dono: `.harness/.gitignore` e `.claude/.gitignore`.
 
 ### Os ganhos, concretamente
 
@@ -89,10 +174,13 @@ prova**.
    arquivos versionados. `git diff` do `.harness/` mostra exatamente o que
    foi autorizado e quando.
 5. **Piso de segurança inegociável.** Com ou sem contrato, o runtime floor
-   nunca libera: leitura de segredos (`.env`, `.pem`, `id_rsa`,
-   `*credentials*`), rede não planejada (`curl`, `wget`), publicação
-   (`npm publish`, `pip upload`, `twine upload`, `gh release`) e `git push`
-   sempre ficam fora da superfície automática.
+   nunca libera: **escrita** em arquivo de segredo (`.env`, `.pem`, `id_rsa`,
+   `*credentials*`), inclusive por redirecionamento (`>`, `>>`, `tee`); rede
+   não planejada (`curl`, `wget`); publicação (`npm publish`, `pip upload`,
+   `twine upload`, `gh release`); e `git push` — sempre fora da superfície
+   automática. **Leitura** de segredo não é bloqueada (ler `.env.example` é
+   rotina): o guard libera e anexa um aviso à razão, porque o conteúdo entra
+   no contexto da sessão.
 6. **Generaliza entre stacks.** O mesmo pipeline foi provado em dogfood real
    contra uma API C#/.NET e uma API Python/FastAPI (projeto-exemplo) — só
    muda o `test_command` e o `test_glob`.
@@ -112,9 +200,9 @@ Isso instala a biblioteca e o CLI `harness`. Confira:
 
 ```powershell
 harness --help
-# deve listar: preflight, compile, audit, analyze, compile-contract,
-#              compile-session, verify, task, audit-runtime, team, review,
-#              supervise, audit-team
+# deve listar 17 subcomandos: compile, audit, audit-runtime, analyze,
+#   preflight, compile-contract, task, compile-session, verify, team,
+#   review, supervise, audit-team, disable, enable, status, doctor
 ```
 
 ## A.2 Abrir o Claude Code com o plugin, dentro do projeto-alvo
@@ -226,14 +314,15 @@ verification:
 
 — e compila. O que aparece no disco:
 
-- **`.claude/settings.json`** — regras `allow`/`ask` de permissions.
+- **`.claude/settings.local.json`** — regras `allow`/`ask` de permissions
+  (machine-local, ignorado pelo git: leva o path absoluto desta máquina).
 - **`.harness/hooks/guard_tests.py`** e **`guard_test_runner.py`** — hooks
   PreToolUse da disciplina TDD.
 - **`AGENTS.md`** — bloco gerenciado com as instruções operacionais.
 
 ## A.5 Reabrir a sessão (obrigatório)
 
-**Feche e reabra o Claude Code nesse projeto.** O `settings.json` só é lido
+**Feche e reabra o Claude Code nesse projeto.** O settings só é lido
 na inicialização — a sessão que rodou o `/init` não aplica as regras nela
 mesma.
 
@@ -246,7 +335,7 @@ claude
 
 ## A.6 Conferir que está tudo consistente
 
-A qualquer momento (e sempre depois de editar `settings.json`/`AGENTS.md` à
+A qualquer momento (e sempre depois de editar `settings.local.json`/`AGENTS.md` à
 mão):
 
 ```
@@ -257,9 +346,22 @@ Devolve um score 0–100 e findings — em particular **drift** (alguém editou 
 artefato compilado à mão e ele divergiu do que o `harness.yaml` geraria) com
 sugestão de recompilar.
 
+O `audit` olha o conteúdo dos artefatos. Para a saúde da *instalação* —
+divergência de versão entre pip, `.harness/` compilado e cache de plugin do
+Claude Code, e os dois casos de compilação ausente descritos acima (clone
+novo, repositório movido de lugar) — o comando é:
+
+```bash
+harness doctor --dir .
+```
+
+Sai com código 0 quando está tudo consistente e 1 com a lista de issues e o
+comando exato de correção. Vale rodar depois de todo `pip install --upgrade`,
+`claude plugin update` ou `git clone`.
+
 Se você mudar de ideia sobre a política, edite `approval_policy` no
 `.harness/harness.yaml` e rode `/harness-creator:compile` (mostra o diff do
-`settings.json`) — e reabra a sessão de novo.
+`settings.local.json`) — e reabra a sessão de novo.
 
 ### O que já muda no dia a dia, mesmo sem contrato
 
@@ -396,6 +498,28 @@ harness compile-contract --dir . --slug leaderboard-limit
 harness compile-session --dir .
 ```
 
+**Antes de qualquer coisa, dois efeitos que este comando tem sobre o seu git —
+e que nenhum outro comando do harness tem:**
+
+- **Ele exige a working tree limpa.** Com arquivo modificado ou staged, ele
+  aborta com exit 1 sem escrever nada: `erro: working tree suja (tracked
+  modificado/staged) — commit ou stash antes de compilar a sessão`. Commite
+  ou dê stash primeiro.
+- **Ele cria e troca para a branch `contract/<slug>`** (`git switch -c`).
+  Cada contrato ganha a própria branch, e é por isso que a árvore precisa
+  estar limpa: criar a branch com sujeira misturaria trabalho de outro
+  contexto. Se você não quer esse comportamento, desligue com
+  `governance.branch_per_contract: false` no `.harness/harness.yaml`.
+
+> **Depois de reinstalar o harness do zero, a ordem importa.** A reinstalação
+> necessariamente suja a árvore (apaga artefatos antigos, reescreve o bloco do
+> `AGENTS.md`, regrava o `repo-profile.json`), e `.harness/LIFECYCLE.md` e
+> `.harness/feature_list.json` são versionados mas **não** são regenerados por
+> `harness compile` — quem os gera é `compile-session` e `compile-contract`.
+> Sem commitar antes, você fica num estado que não destrava sozinho. A ordem
+> que funciona: `analyze` → `compile` → **commit** → `compile-contract` →
+> `compile-session`.
+
 Isso pega o contrato aprovado e compila a **sessão autônoma**:
 
 - **Permissions enumeradas** — `allow` para exatamente: `Edit`/`Write` nos
@@ -477,13 +601,13 @@ harness verify T-01 --dir .
 Isso executa o `verify_cmd` **real** da tarefa, no diretório do projeto.
 Duas saídas possíveis:
 
-- **Passou (exit 0)** → grava `.harness/evidence/T-01.json` (timestamp,
+- **Passou (exit 0)** → grava `.harness/evidence/<contrato>/T-01.json` (timestamp,
   comando, hash). Essa evidência é o que destrava marcar `passes: true` no
   `feature_list.json`.
 - **Falhou** → nenhuma evidência. O agente diagnostica, corrige e roda de
   novo — **sem envolver você** — até passar ou bater na stop condition do
   spec (N falhas seguidas), caso em que ele para, registra o estado no
-  `claude-progress.md` e devolve com diagnóstico.
+  `.harness/progress.md` e devolve com diagnóstico.
 
 `harness verify` **não** marca `passes:true` sozinho por padrão (evita corrida
 se múltiplos agentes escrevem o mesmo `feature_list.json` em paralelo). Numa
@@ -510,7 +634,7 @@ Faz append no `files[]` da tarefa e recompila — não reabre o gate de
 aprovação nem toca em `approved_by`/`approved_at`.
 
 > **Nota:** `task add-file` recompila o contrato (`feature_list.json`), mas
-> não regenera o `permissions.allow` enumerado do `.claude/settings.json`
+> não regenera o `permissions.allow` enumerado do `.claude/settings.local.json`
 > (isso é trabalho do `compile-session`) — a lista enumerada fica
 > desatualizada até a próxima recompilação de sessão. Isso não abre brecha
 > nem bloqueia o path novo: o `boundary_guard.py` (hook `PreToolUse`,
@@ -519,7 +643,7 @@ aprovação nem toca em `approved_by`/`approved_at`.
 > execução**, a cada tool call — uma decisão explícita de hook sempre
 > tem precedência sobre `permissions.allow` (nunca é só consultado como
 > fallback). Rode `harness compile-session` de novo só se quiser o
-> `settings.json` enumerado espelhando o estado atual do contrato (ex.:
+> `settings.local.json` enumerado espelhando o estado atual do contrato (ex.:
 > para inspeção humana) — não é necessário para o path novo ser editável.
 
 O hook **Stop** reforça o ritual: se ao encerrar houver uma feature com
@@ -593,7 +717,8 @@ próxima feature pronta respeitando `depends[]`.
 
 | Sintoma | Causa | Correção |
 |---|---|---|
-| Regras não estão sendo aplicadas | Sessão aberta antes do compile | Feche e reabra o Claude Code — `settings.json` só é lido na inicialização |
+| Regras não estão sendo aplicadas | Sessão aberta antes do compile | Feche e reabra o Claude Code — o settings só é lido na inicialização |
+| Clone novo sem governança | A compilação é machine-local e não viaja no git | Rode `harness compile` (e `harness compile-session` se houver contrato ativo) |
 | `compile-contract` falha com erro de aprovação | `approved_by`/`approved_at` vazios no frontmatter do `spec.md` | Revisar e preencher — é intencional, o gate é você |
 | `harness analyze` não detecta Python | Projeto só tem `requirements.txt` | Detecção exige `pyproject.toml` ou `setup.py` — adicione um `pyproject.toml` mínimo |
 | Edição em `feature_list.json` negada | Tentativa de `passes: true` sem evidência fresca | Rode `harness verify <id>` primeiro — é o feature-lock funcionando |

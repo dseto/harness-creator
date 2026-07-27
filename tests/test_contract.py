@@ -609,6 +609,127 @@ def test_compile_contract_dry_run_verify_with_floor_verify_cmd_never_runs_it(
 
 
 # ---------------------------------------------------------------------------
+# approved_at tem que ser ISO 8601 (achado de teste isento)
+# ---------------------------------------------------------------------------
+
+_SPEC_TEMPLATE = """---
+slug: exemplo-feature
+approved_by: alice
+approved_at: {value}
+---
+
+# Spec
+"""
+
+
+@pytest.mark.parametrize("value", ["banana", "amanha", "15/07/2026", "sim"])
+def test_compile_contract_rejects_non_iso8601_approved_at(
+    tmp_path: Path, value: str
+) -> None:
+    """O gate era só "não-vazio", e `approved_at: banana` compilava com exit 0
+    — um contrato indistinguível de um aprovado de verdade. Este é o único
+    ponto de controle humano do pipeline; o campo é a trilha de auditoria de
+    QUANDO a aprovação aconteceu, não texto livre."""
+    _write_contract(tmp_path, "exemplo-feature", _SPEC_TEMPLATE.format(value=value), BASIC_PLANS)
+
+    with pytest.raises(ContractNotApprovedError) as exc_info:
+        compile_contract(tmp_path, "exemplo-feature")
+
+    assert "ISO 8601" in str(exc_info.value)
+    assert not (tmp_path / ".harness" / "feature_list.json").exists()
+
+
+def test_impossible_date_in_frontmatter_is_contract_error_not_traceback(
+    tmp_path: Path,
+) -> None:
+    """PyYAML resolve `2026-07-15` para `datetime.date` e levanta `ValueError`
+    CRU quando os componentes não formam data real — `approved_at: 2026-13-45`
+    saía como traceback. Typo do usuário tem que virar erro de contrato."""
+    _write_contract(
+        tmp_path, "exemplo-feature", _SPEC_TEMPLATE.format(value="2026-13-45"), BASIC_PLANS
+    )
+
+    with pytest.raises(ContractError) as exc_info:
+        compile_contract(tmp_path, "exemplo-feature")
+
+    assert "data/hora" in str(exc_info.value)
+    assert not (tmp_path / ".harness" / "feature_list.json").exists()
+
+
+@pytest.mark.parametrize("value", [
+    "2026-07-15T10:00:00Z",           # forma do template, com sufixo Z
+    "2026-07-15T10:00:00+00:00",      # forma que verify.py grava
+    "2026-07-15T10:00:00",            # sem timezone
+    "2026-07-15",                     # data sozinha, como um humano escreve
+])
+def test_compile_contract_accepts_the_iso8601_forms_the_product_uses(
+    tmp_path: Path, value: str
+) -> None:
+    _write_contract(tmp_path, "exemplo-feature", _SPEC_TEMPLATE.format(value=value), BASIC_PLANS)
+
+    out_path = compile_contract(tmp_path, "exemplo-feature")
+
+    assert out_path.is_file()
+
+
+# ---------------------------------------------------------------------------
+# files[] confinado à raiz do repositório (achado de teste isento)
+# ---------------------------------------------------------------------------
+
+_ESCAPING_PATHS = [
+    "C:/Windows/System32/config/SAM",
+    r"C:\Windows\System32\config\SAM",
+    "/etc/passwd",
+    "../../../fora.py",
+    "src/../../fora.py",
+    "",
+    "   ",
+]
+
+
+@pytest.mark.parametrize("path", _ESCAPING_PATHS)
+def test_add_task_file_refuses_paths_outside_the_repo(tmp_path: Path, path: str) -> None:
+    """`files[]` vira regra `Edit(<path>)` no settings e `allow` do guard. E
+    `task add-file` NÃO reabre o gate de aprovação (documentado e desejado) —
+    então aceitar path absoluto era escalada para escrita em arquivo arbitrário
+    do sistema a partir de um contrato já aprovado."""
+    _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, BASIC_PLANS)
+    plans_path = tmp_path / ".harness" / "work" / "exemplo-feature" / "Plans.md"
+    before = plans_path.read_text(encoding="utf-8")
+
+    with pytest.raises(ContractError):
+        add_task_file(tmp_path, "exemplo-feature", "T-01", path)
+
+    assert plans_path.read_text(encoding="utf-8") == before, "recusou mas escreveu"
+
+
+@pytest.mark.parametrize("path", _ESCAPING_PATHS[:-2])
+def test_compile_contract_refuses_escaping_path_written_by_hand(
+    tmp_path: Path, path: str
+) -> None:
+    """Backstop: o `Plans.md` é autorado à mão e pode chegar com path absoluto
+    sem passar por `add_task_file`."""
+    plans = f"## [T-01] tarefa\n- files: `{path}`\n- verify: `echo ok`\n"
+    _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, plans)
+
+    with pytest.raises(ContractError):
+        compile_contract(tmp_path, "exemplo-feature")
+
+    assert not (tmp_path / ".harness" / "feature_list.json").exists()
+
+
+def test_add_task_file_still_accepts_normal_relative_paths(tmp_path: Path) -> None:
+    """O outro lado: path relativo comum, inclusive subindo e voltando dentro
+    do repo, continua funcionando."""
+    _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, BASIC_PLANS)
+
+    assert add_task_file(tmp_path, "exemplo-feature", "T-01", "frontend/src/app/x.ts") is True
+    assert add_task_file(tmp_path, "exemplo-feature", "T-01", "docs/../src/y.py") is True
+
+    plans = (tmp_path / ".harness" / "work" / "exemplo-feature" / "Plans.md").read_text(
+        encoding="utf-8"
+    )
+    assert "frontend/src/app/x.ts" in plans
 # Item 0 do plano v2 da correção do dogfood Savant.Backend — `add_task_file` é
 # a PORTA DE ENTRADA de uma cadeia de auto-ampliação de superfície de comando.
 # Sem esta recusa: declarar `.harness/harness.yaml` numa tarefa tornava o

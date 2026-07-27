@@ -1,19 +1,31 @@
-"""Testes do templates (Fase 2): `claude-progress.md` inicial e `init.sh`/
-`init.ps1` gerados a partir do `repo-profile.json` compilado."""
+"""Testes do templates (Fase 2): `.harness/progress.md` inicial e
+`.harness/init.sh`/`.harness/init.ps1` gerados a partir do `repo-profile.json`
+compilado."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 from harness.templates import (
-    CLAUDE_PROGRESS_FILE,
     INIT_PS1_FILE,
     INIT_SH_FILE,
+    MANAGED_MARKER,
+    PROGRESS_FILE,
     install_templates,
+    is_managed_init_script,
+    manual_init_scripts,
     render_init_scripts,
     render_progress_template,
     update_progress_status,
 )
+
+
+def _write(path: Path, text: str) -> Path:
+    """Grava criando o diretório pai — os três artefatos moram em `.harness/`,
+    que nem sempre existe no `tmp_path` do teste."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return path
 
 
 _FEATURE_LIST = {
@@ -67,13 +79,11 @@ def test_render_progress_template_empty_features() -> None:
 # ---------------------------------------------------------------------------
 
 def test_update_progress_status_flips_matching_row_to_done(tmp_path: Path) -> None:
-    (tmp_path / CLAUDE_PROGRESS_FILE).write_text(
-        render_progress_template(_FEATURE_LIST), encoding="utf-8"
-    )
+    _write(tmp_path / PROGRESS_FILE, render_progress_template(_FEATURE_LIST))
 
     update_progress_status(tmp_path, "T-02", "done")
 
-    content = (tmp_path / CLAUDE_PROGRESS_FILE).read_text(encoding="utf-8")
+    content = (tmp_path / PROGRESS_FILE).read_text(encoding="utf-8")
     lines = [ln for ln in content.splitlines() if ln.startswith("| T-")]
     row_by_id = {ln.split("|")[1].strip(): ln for ln in lines}
     assert row_by_id["T-02"].split("|")[3].strip() == "done"
@@ -82,14 +92,12 @@ def test_update_progress_status_flips_matching_row_to_done(tmp_path: Path) -> No
 
 
 def test_update_progress_status_is_idempotent(tmp_path: Path) -> None:
-    (tmp_path / CLAUDE_PROGRESS_FILE).write_text(
-        render_progress_template(_FEATURE_LIST), encoding="utf-8"
-    )
+    _write(tmp_path / PROGRESS_FILE, render_progress_template(_FEATURE_LIST))
 
     update_progress_status(tmp_path, "T-01", "done")
-    once = (tmp_path / CLAUDE_PROGRESS_FILE).read_text(encoding="utf-8")
+    once = (tmp_path / PROGRESS_FILE).read_text(encoding="utf-8")
     update_progress_status(tmp_path, "T-01", "done")
-    twice = (tmp_path / CLAUDE_PROGRESS_FILE).read_text(encoding="utf-8")
+    twice = (tmp_path / PROGRESS_FILE).read_text(encoding="utf-8")
 
     assert once == twice
     assert once.count("done") == 1
@@ -98,26 +106,26 @@ def test_update_progress_status_is_idempotent(tmp_path: Path) -> None:
 def test_update_progress_status_noop_when_file_absent(tmp_path: Path) -> None:
     # não levanta e não cria o arquivo
     update_progress_status(tmp_path, "T-01", "done")
-    assert not (tmp_path / CLAUDE_PROGRESS_FILE).exists()
+    assert not (tmp_path / PROGRESS_FILE).exists()
 
 
 def test_update_progress_status_noop_when_id_absent(tmp_path: Path) -> None:
     original = render_progress_template(_FEATURE_LIST)
-    (tmp_path / CLAUDE_PROGRESS_FILE).write_text(original, encoding="utf-8")
+    _write(tmp_path / PROGRESS_FILE, original)
 
     update_progress_status(tmp_path, "T-99", "done")
 
-    assert (tmp_path / CLAUDE_PROGRESS_FILE).read_text(encoding="utf-8") == original
+    assert (tmp_path / PROGRESS_FILE).read_text(encoding="utf-8") == original
 
 
 def test_update_progress_status_preserves_ultima_atualizacao_section(tmp_path: Path) -> None:
     content = render_progress_template(_FEATURE_LIST)
     content += "\nNota livre do agente: quebrou X, ver Y.\n"
-    (tmp_path / CLAUDE_PROGRESS_FILE).write_text(content, encoding="utf-8")
+    _write(tmp_path / PROGRESS_FILE, content)
 
     update_progress_status(tmp_path, "T-01", "done")
 
-    after = (tmp_path / CLAUDE_PROGRESS_FILE).read_text(encoding="utf-8")
+    after = (tmp_path / PROGRESS_FILE).read_text(encoding="utf-8")
     assert "## Última atualização" in after
     assert "Nota livre do agente: quebrou X, ver Y." in after
 
@@ -138,9 +146,25 @@ def test_render_init_scripts_npm_generates_npm_ci_in_both_scripts() -> None:
     assert "npm ci" in init_ps1
     assert "npm test" in init_sh
     assert "npm test" in init_ps1
-    assert init_sh.startswith("#!/usr/bin/env bash")
+    assert init_sh.startswith("#!/usr/bin/env bash\n" + MANAGED_MARKER + "\n")
     assert "set -e" in init_sh
-    assert init_ps1.startswith("$ErrorActionPreference = 'Stop'")
+    assert init_ps1.startswith(MANAGED_MARKER + "\n$ErrorActionPreference = 'Stop'")
+
+
+def test_generated_init_scripts_are_pure_ascii() -> None:
+    """O `.ps1` gerado é lido pelo PowerShell 5.1, que corrompe UTF-8
+    multi-byte: acento e travessão chegam ilegíveis no terminal do usuário.
+    Vale para TODO o conteúdo gerado, não só o marcador — o comentário de
+    "nenhum package manager detectado" trazia um travessão."""
+    assert MANAGED_MARKER.isascii()
+    for profile in (
+        {"package_manager": None, "test_command": None},
+        _NPM_PROFILE,
+        {"package_manager": {"value": "uv"}, "test_command": {"value": "pytest -q"}},
+    ):
+        init_sh, init_ps1 = render_init_scripts(profile)
+        assert init_sh.isascii(), init_sh
+        assert init_ps1.isascii(), init_ps1
 
 
 def test_render_init_scripts_missing_package_manager_key_generates_comment() -> None:
@@ -200,7 +224,7 @@ def test_install_templates_creates_three_files_in_empty_dir(tmp_path: Path) -> N
 
     written = install_templates(tmp_path, _FEATURE_LIST, profile)
 
-    progress_path = tmp_path / CLAUDE_PROGRESS_FILE
+    progress_path = tmp_path / PROGRESS_FILE
     init_sh_path = tmp_path / INIT_SH_FILE
     init_ps1_path = tmp_path / INIT_PS1_FILE
 
@@ -214,7 +238,7 @@ def test_install_templates_creates_three_files_in_empty_dir(tmp_path: Path) -> N
 def test_install_templates_preserves_existing_progress_but_regenerates_init(
     tmp_path: Path,
 ) -> None:
-    progress_path = tmp_path / CLAUDE_PROGRESS_FILE
+    progress_path = tmp_path / PROGRESS_FILE
     progress_path.parent.mkdir(parents=True, exist_ok=True)
     custom_content = "# Progresso customizado pelo agente\n\nJá fiz T-01.\n"
     progress_path.write_text(custom_content, encoding="utf-8")
@@ -225,7 +249,7 @@ def test_install_templates_preserves_existing_progress_but_regenerates_init(
     }
     written_first = install_templates(tmp_path, _FEATURE_LIST, npm_profile)
 
-    # claude-progress.md já existia -> não entra na lista de escritos, e o
+    # .harness/progress.md já existia -> não entra na lista de escritos, e o
     # conteúdo customizado é preservado.
     assert progress_path not in written_first
     assert progress_path.read_text(encoding="utf-8") == custom_content
@@ -248,7 +272,7 @@ def test_install_templates_preserves_existing_progress_but_regenerates_init(
 def test_install_templates_regenerates_progress_when_contract_diverges(
     tmp_path: Path,
 ) -> None:
-    """Achado A (dogfood 2026-07-22): `claude-progress.md` gerado por um
+    """Achado A (dogfood 2026-07-22): `.harness/progress.md` gerado por um
     contrato ANTIGO (`compilar-x`) não pode sobreviver a uma recompilação
     para um contrato NOVO (`exemplo-feature`) — senão o agente lê o header
     e a tabela de features de um contrato que não é mais o ativo."""
@@ -258,8 +282,8 @@ def test_install_templates_regenerates_progress_when_contract_diverges(
             {"id": "OLD-01", "desc": "Feature do contrato antigo", "passes": False},
         ],
     }
-    progress_path = tmp_path / CLAUDE_PROGRESS_FILE
-    progress_path.write_text(render_progress_template(old_feature_list), encoding="utf-8")
+    progress_path = tmp_path / PROGRESS_FILE
+    _write(progress_path, render_progress_template(old_feature_list))
 
     profile = {"package_manager": None, "test_command": None}
     written = install_templates(tmp_path, _FEATURE_LIST, profile)
@@ -276,10 +300,10 @@ def test_install_templates_regenerate_preserves_ultima_atualizacao_notes(
     tmp_path: Path,
 ) -> None:
     old_feature_list = {"contract": "compilar-x", "features": []}
-    progress_path = tmp_path / CLAUDE_PROGRESS_FILE
+    progress_path = tmp_path / PROGRESS_FILE
     old_content = render_progress_template(old_feature_list)
     old_content += "Nota livre do agente: quebrou X, ver Y.\n"
-    progress_path.write_text(old_content, encoding="utf-8")
+    _write(progress_path, old_content)
 
     profile = {"package_manager": None, "test_command": None}
     install_templates(tmp_path, _FEATURE_LIST, profile)
@@ -292,12 +316,79 @@ def test_install_templates_regenerate_preserves_ultima_atualizacao_notes(
 def test_install_templates_same_contract_does_not_regenerate_progress(
     tmp_path: Path,
 ) -> None:
-    progress_path = tmp_path / CLAUDE_PROGRESS_FILE
+    progress_path = tmp_path / PROGRESS_FILE
     original = render_progress_template(_FEATURE_LIST)
-    progress_path.write_text(original, encoding="utf-8")
+    _write(progress_path, original)
 
     profile = {"package_manager": None, "test_command": None}
     written = install_templates(tmp_path, _FEATURE_LIST, profile)
 
     assert progress_path not in written
     assert progress_path.read_text(encoding="utf-8") == original
+
+
+# ---------------------------------------------------------------------------
+# guarda de colisão em init.* (item 5 do laudo de footprint)
+# ---------------------------------------------------------------------------
+
+_NPM_PROFILE = {
+    "package_manager": {"value": "npm", "evidence": "package-lock.json", "confidence": 1.0},
+    "test_command": None,
+}
+
+
+def test_install_templates_never_touches_the_project_root(tmp_path: Path) -> None:
+    """Item 6: o alvo não recebe mais `claude-progress.md`/`init.*` na raiz —
+    nenhum dos três é lido por ferramenta externa, e `init.sh` na raiz colide
+    com o bootstrap do próprio projeto."""
+    install_templates(tmp_path, _FEATURE_LIST, _NPM_PROFILE)
+
+    assert sorted(p.name for p in tmp_path.iterdir()) == [".harness"]
+    assert (tmp_path / ".harness" / "progress.md").is_file()
+    assert (tmp_path / ".harness" / "init.sh").is_file()
+    assert (tmp_path / ".harness" / "init.ps1").is_file()
+
+
+def test_install_templates_preserves_hand_edited_init_scripts(tmp_path: Path) -> None:
+    """Item 5: um `init.*` SEM o marcador foi escrito por gente — regenerar
+    por cima apaga trabalho sem aviso. O arquivo fica intacto e sai da lista de
+    escritos; `manual_init_scripts` é quem denuncia os dois."""
+    meu_script = "#!/usr/bin/env bash\n./bootstrap-do-projeto.sh\n"
+    init_sh = _write(tmp_path / INIT_SH_FILE, meu_script)
+    init_ps1 = _write(tmp_path / INIT_PS1_FILE, "./bootstrap-do-projeto.ps1\n")
+
+    written = install_templates(tmp_path, _FEATURE_LIST, _NPM_PROFILE)
+
+    assert init_sh.read_text(encoding="utf-8") == meu_script
+    assert "npm ci" not in init_ps1.read_text(encoding="utf-8")
+    assert init_sh not in written and init_ps1 not in written
+    assert set(manual_init_scripts(tmp_path)) == {init_sh, init_ps1}
+
+
+def test_install_templates_regenerates_its_own_init_scripts(tmp_path: Path) -> None:
+    """O outro lado da guarda: script COM marcador continua determinístico —
+    trocar o profile regenera o conteúdo, e nada aparece como preservado."""
+    install_templates(tmp_path, _FEATURE_LIST, _NPM_PROFILE)
+
+    pnpm_profile = {
+        "package_manager": {"value": "pnpm", "evidence": "pnpm-lock.yaml", "confidence": 1.0},
+        "test_command": None,
+    }
+    written = install_templates(tmp_path, _FEATURE_LIST, pnpm_profile)
+
+    init_sh = tmp_path / INIT_SH_FILE
+    assert "pnpm install --frozen-lockfile" in init_sh.read_text(encoding="utf-8")
+    assert init_sh in written
+    assert manual_init_scripts(tmp_path) == []
+
+
+def test_is_managed_init_script_treats_absent_as_managed(tmp_path: Path) -> None:
+    """Ausente = nada do usuário a proteger, e o caminho normal é criar. Só a
+    presença de conteúdo SEM o marcador bloqueia a regeneração."""
+    assert is_managed_init_script(tmp_path / INIT_SH_FILE) is True
+
+    hand_written = _write(tmp_path / INIT_SH_FILE, "echo oi\n")
+    assert is_managed_init_script(hand_written) is False
+
+    generated = _write(tmp_path / INIT_SH_FILE, render_init_scripts(_NPM_PROFILE)[0])
+    assert is_managed_init_script(generated) is True

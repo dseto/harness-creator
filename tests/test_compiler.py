@@ -90,6 +90,58 @@ def test_compile_writes_all_artifacts(tmp_path: Path) -> None:
     assert AGENTS_BEGIN in agents and AGENTS_END in agents
 
 
+def test_compile_never_writes_machine_paths_into_the_versioned_settings(tmp_path: Path) -> None:
+    """P0 do laudo de footprint: o comando de hook leva path absoluto desta
+    máquina. Se cair no `settings.json` que o time versiona, um clone em outro
+    path carrega um PreToolUse que não resolve — repo parece governado e
+    nenhum guard roda. Destino tem que ser o arquivo machine-local, já
+    ignorado por um `.gitignore` que o próprio produto escreve."""
+    _write_yaml(tmp_path, BASIC_YAML)
+    result = compile_project(tmp_path)
+
+    assert result.settings_path == tmp_path / ".claude" / "settings.local.json"
+    assert not (tmp_path / ".claude" / "settings.json").exists()
+
+    claude_ignore = (tmp_path / ".claude" / ".gitignore").read_text(encoding="utf-8")
+    assert "settings.local.json" in claude_ignore.split()
+    harness_ignore = (tmp_path / ".harness" / ".gitignore").read_text(encoding="utf-8")
+    assert "hooks/" in harness_ignore.split()
+    assert "compiled-state.json" in harness_ignore.split()
+
+
+def test_compile_creates_the_scratch_surface_it_tells_the_agent_to_use(
+    tmp_path: Path,
+) -> None:
+    """D3 do teste isento: o bloco gerenciado que `compile` escreve no
+    `AGENTS.md` manda salvar artefato temporário em `.harness/scratch/` — mas a
+    pasta só nascia no `compile-session`. Entre um comando e outro a instrução
+    apontava para um diretório inexistente."""
+    _write_yaml(tmp_path, BASIC_YAML)
+    result = compile_project(tmp_path)
+
+    scratch = tmp_path / ".harness" / "scratch"
+    assert scratch.is_dir()
+    # Auto-ignorada: o git status fica limpo mesmo com screenshot esquecido lá,
+    # sem encostar no .gitignore da raiz do usuário.
+    assert (scratch / ".gitignore").read_text(encoding="utf-8") == "*\n!.gitignore\n"
+
+    agents = result.agents_path.read_text(encoding="utf-8")
+    assert ".harness/scratch/" in agents
+
+
+def test_compile_preserves_a_customized_scratch_gitignore(tmp_path: Path) -> None:
+    """O `.gitignore` do scratch pode ter sido customizado — recompilar não
+    pode sobrescrever."""
+    _write_yaml(tmp_path, BASIC_YAML)
+    scratch = tmp_path / ".harness" / "scratch"
+    scratch.mkdir(parents=True)
+    (scratch / ".gitignore").write_text("*\n!.gitignore\n!manter.png\n", encoding="utf-8")
+
+    compile_project(tmp_path)
+
+    assert "!manter.png" in (scratch / ".gitignore").read_text(encoding="utf-8")
+
+
 def test_compile_stamps_plugin_version_in_state_file(tmp_path: Path) -> None:
     _write_yaml(tmp_path, BASIC_YAML)
     compile_project(tmp_path)
@@ -102,7 +154,7 @@ def test_merge_preserves_user_settings_and_is_idempotent(tmp_path: Path) -> None
     _write_yaml(tmp_path, BASIC_YAML)
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir()
-    (claude_dir / "settings.json").write_text(json.dumps({
+    (claude_dir / "settings.local.json").write_text(json.dumps({
         "model": "opus",
         "permissions": {"allow": ["Bash(npm run *)"], "deny": ["Read(.env)"]},
         "hooks": {"PreToolUse": [
@@ -113,7 +165,7 @@ def test_merge_preserves_user_settings_and_is_idempotent(tmp_path: Path) -> None
     compile_project(tmp_path)
     compile_project(tmp_path)  # segunda rodada: idempotente, sem duplicar
 
-    settings = json.loads((claude_dir / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads((claude_dir / "settings.local.json").read_text(encoding="utf-8"))
     assert settings["model"] == "opus"                                  # chave alheia intacta
     assert "Bash(npm run *)" in settings["permissions"]["allow"]        # regra do usuário intacta
     assert "Read(.env)" in settings["permissions"]["deny"]
@@ -132,7 +184,9 @@ def test_recompile_after_policy_change_swaps_rules(tmp_path: Path) -> None:
     _write_yaml(tmp_path, BASIC_YAML.replace("balanced", "auto"))
     compile_project(tmp_path)
 
-    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads(
+        (tmp_path / ".claude" / "settings.local.json").read_text(encoding="utf-8")
+    )
     assert "Bash" in settings["permissions"]["allow"]   # auto libera execute
     assert "Bash" not in settings["permissions"]["ask"] # regra antiga removida
 
@@ -298,3 +352,40 @@ def test_guard_test_runner_hook_noop_when_sentinel_present(tmp_path: Path) -> No
     (tmp_path / ".harness" / "harness.disabled").write_text("{}", encoding="utf-8")
     out = _run_hook(script, {"tool_name": "Bash", "tool_input": {"command": "pytest -x"}})
     assert out["permissionDecision"] == "allow"
+
+
+# ---------------------------------------------------------------------------
+# harness.yaml vazio / malformado (achados de teste isento)
+# ---------------------------------------------------------------------------
+
+def test_empty_harness_yaml_refuses_instead_of_compiling_python_defaults(
+    tmp_path: Path,
+) -> None:
+    """Vazio caía em `{}` e compilava os defaults do schema — que são Python
+    (`pytest`, `tests/**/*.py`). Num repo Angular/.NET isso protege um
+    diretório inexistente e DEIXA DE proteger os testes reais: governança
+    degradada em silêncio, com exit 0."""
+    _write_yaml(tmp_path, "")
+
+    with pytest.raises(ValueError, match="vazio"):
+        compile_project(tmp_path)
+
+    assert not (tmp_path / ".claude" / "settings.local.json").exists()
+    assert not (tmp_path / "AGENTS.md").exists()
+
+
+def test_malformed_harness_yaml_is_a_clean_error_not_a_traceback(tmp_path: Path) -> None:
+    """Era o único caminho de erro do CLI inteiro que vazava stack do PyYAML."""
+    _write_yaml(tmp_path, "isto: nao\n  e: [yaml valido\n")
+
+    with pytest.raises(ValueError, match="YAML inválido"):
+        compile_project(tmp_path)
+
+    assert not (tmp_path / ".claude" / "settings.local.json").exists()
+
+
+def test_non_mapping_harness_yaml_is_refused(tmp_path: Path) -> None:
+    _write_yaml(tmp_path, "- isto\n- e uma lista\n")
+
+    with pytest.raises(ValueError, match="mapeamento"):
+        compile_project(tmp_path)

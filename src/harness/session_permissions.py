@@ -2,7 +2,7 @@
 
 Fase 2 do roadmap ("Execução Autônoma no Raio de Impacto" — ver docs/project/ROADMAP.md):
 a aprovação do contrato (`.harness/feature_list.json`, produzido por
-`contract.py`) recompila `.claude/settings.json` com `allow` para a
+`contract.py`) recompila `.claude/settings.local.json` com `allow` para a
 **superfície completa que o lifecycle usa — enumerada, nunca genérica**.
 Qualquer passo do ciclo que caísse no prompt default do Claude Code
 quebraria o zero-prompts na prática; por isso a lista é derivada
@@ -31,7 +31,9 @@ publish/pip upload/twine upload/gh release) e arquivo de segredo (`.env`,
 `harness.boundary_guard` (`is_floor_bash_command`/`is_floor_secret_path`),
 importados de lá para as duas camadas nunca divergirem.
 
-Merge com `.claude/settings.json`: este módulo espelha o padrão não-
+Merge com `.claude/settings.local.json` (machine-local: a superfície enumera
+arquivos do contrato ativo desta máquina — ver `harness.settings_paths`):
+este módulo espelha o padrão não-
 destrutivo de `compiler.py::_merge_settings`, mas em trilha própria — só
 mexe no bucket `permissions.allow` (nunca em `ask`/`deny`) e registra o que
 gerenciou em `.harness/compiled-state-session.json`, sob a chave
@@ -74,11 +76,16 @@ from harness.boundary_guard import (
     is_floor_secret_path,
     load_extra_allowed_commands,
 )
+from harness.settings_paths import (
+    MANAGED_SETTINGS_FILE,
+    prepare_managed_settings,
+    write_managed_settings,
+)
 
 FEATURE_LIST_FILE = ".harness/feature_list.json"
 REPO_PROFILE_FILE = ".harness/repo-profile.json"
 SESSION_STATE_FILE = ".harness/compiled-state-session.json"
-SETTINGS_FILE = ".claude/settings.json"
+SETTINGS_FILE = MANAGED_SETTINGS_FILE
 
 # Runtime floor local do ritual de handoff (passos 5/15 do lifecycle) — fixo,
 # nunca derivado do contrato/profile. `git push` fica de fora por omissão.
@@ -235,7 +242,7 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 
 def compile_session_permissions(target_dir: Path) -> Path:
-    """Lê contrato + profile do `target_dir` e mescla `allow` em `.claude/settings.json`.
+    """Lê contrato + profile do `target_dir` e mescla `allow` em `.claude/settings.local.json`.
 
     Levanta `FileNotFoundError` se `.harness/feature_list.json` não existir
     (pede para rodar `compile-contract` primeiro). A ausência de
@@ -262,8 +269,7 @@ def compile_session_permissions(target_dir: Path) -> Path:
     state = _load_json(state_path) if state_path.is_file() else {}
     prev_allow: set[str] = set(state.get("managed_session_permissions", []))
 
-    settings_path = target_dir / SETTINGS_FILE
-    settings: dict[str, Any] = _load_json(settings_path) if settings_path.is_file() else {}
+    settings_path, settings = prepare_managed_settings(target_dir)
 
     # --- merge não-destrutivo: remove só o que ERA gerenciado por esta
     # trilha, preserva regras manuais/de outros mecanismos, injeta o novo ---
@@ -272,10 +278,7 @@ def compile_session_permissions(target_dir: Path) -> Path:
     kept = [rule for rule in existing_allow if rule not in prev_allow]
     permissions["allow"] = kept + [rule for rule in new_allow if rule not in kept]
 
-    settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(
-        json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
+    write_managed_settings(settings_path, settings)
 
     # Preserva quaisquer outras chaves já presentes (ex.: escritas por
     # boundary_guard.py/session_start.py) — só atualiza a nossa.

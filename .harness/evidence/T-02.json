@@ -1,0 +1,12 @@
+{
+  "feature_id": "T-02",
+  "desc": "session_permissions gera Bash(pip install -e .) no allow[] quando package_manager=pip",
+  "files": [
+    "src/harness/session_permissions.py",
+    "tests/test_session_permissions.py"
+  ],
+  "verify_cmd": "pytest tests/test_session_permissions.py -q",
+  "recorded_at": "2026-07-23T20:47:34.618880+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:18685cdeab6c431b24aac5c1bc708735e96a074a9dc4746ffa676945fcee9d9e"
+}

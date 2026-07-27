@@ -137,11 +137,11 @@ python -m harness.cli compile-session --dir <alvo>
 ```
 
 Isso compila, em sequência, os 5 artefatos da Fase 2 a partir do contrato
-recém-aprovado e do `repo-profile.json` (se já existir): `.claude/settings.json`
+recém-aprovado e do `repo-profile.json` (se já existir): `.claude/settings.local.json`
 com a superfície `allow` ENUMERADA do contrato, `boundary_guard.py` ativo
 como hook `PreToolUse` único de Edit/Write/Bash, `AGENTS.md` com o Agent
 Session Lifecycle de 17 passos (mais o detalhe em `.harness/LIFECYCLE.md`),
-`claude-progress.md`/`init.sh`/`init.ps1` gerados a partir do profile, e o
+`.harness/progress.md`/`.harness/init.sh`/`.harness/init.ps1` gerados a partir do profile, e o
 hook `SessionStart` registrado (injeta o estado da sessão anterior no
 início da próxima sessão).
 

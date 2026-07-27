@@ -250,13 +250,13 @@ def test_compile_preserves_manual_user_rule(tmp_path: Path) -> None:
     _write_feature_list(tmp_path, FEATURE_LIST)
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir()
-    (claude_dir / "settings.json").write_text(json.dumps({
+    (claude_dir / "settings.local.json").write_text(json.dumps({
         "permissions": {"allow": ["Bash(npm run something-manual)"], "ask": ["Bash"]},
     }), encoding="utf-8")
 
     compile_session_permissions(tmp_path)
 
-    settings = json.loads((claude_dir / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads((claude_dir / "settings.local.json").read_text(encoding="utf-8"))
     assert "Bash(npm run something-manual)" in settings["permissions"]["allow"]
     assert settings["permissions"]["ask"] == ["Bash"]  # bucket ask intocado
 
@@ -265,7 +265,7 @@ def test_recompile_after_feature_removed_drops_its_permission_keeps_manual(tmp_p
     _write_feature_list(tmp_path, FEATURE_LIST)
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir()
-    (claude_dir / "settings.json").write_text(json.dumps({
+    (claude_dir / "settings.local.json").write_text(json.dumps({
         "permissions": {"allow": ["Bash(npm run something-manual)"]},
     }), encoding="utf-8")
 
@@ -279,7 +279,7 @@ def test_recompile_after_feature_removed_drops_its_permission_keeps_manual(tmp_p
     _write_feature_list(tmp_path, reduced)
     compile_session_permissions(tmp_path)
 
-    settings = json.loads((claude_dir / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads((claude_dir / "settings.local.json").read_text(encoding="utf-8"))
     allow = settings["permissions"]["allow"]
     assert "Edit(src/harness/compiler.py)" not in allow
     assert "Write(src/harness/compiler.py)" not in allow
@@ -307,7 +307,9 @@ def test_compile_is_idempotent_no_duplicates(tmp_path: Path) -> None:
     compile_session_permissions(tmp_path)
     compile_session_permissions(tmp_path)
 
-    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads(
+        (tmp_path / ".claude" / "settings.local.json").read_text(encoding="utf-8")
+    )
     allow = settings["permissions"]["allow"]
     assert allow.count("Bash(git status)") == 1
     assert allow.count("Edit(src/harness/config.py)") == 1

@@ -1,6 +1,6 @@
 """Testes do runtime_audit: mecanismo DISTINTO de audit.py — schema + frescor +
 invariantes dos artefatos runtime-mutáveis (feature_list.json, evidence/*.json,
-claude-progress.md). Nunca diff byte-exato."""
+.harness/progress.md). Nunca diff byte-exato."""
 
 from __future__ import annotations
 
@@ -53,9 +53,11 @@ def _write_evidence(
     exit_code: int = 0,
     feature_id_field: str | None = None,
     extra_fields_missing: bool = False,
+    contract: str = "exemplo-feature",
 ) -> None:
     evidence = {
         "feature_id": feature_id_field if feature_id_field is not None else feature_id,
+        "contract": contract,
         "verify_cmd": "pytest -q",
         "recorded_at": "2026-07-16T12:00:00+00:00",
         "exit_code": exit_code,
@@ -64,7 +66,7 @@ def _write_evidence(
     if extra_fields_missing:
         del evidence["files_hash"]
     _write(
-        tmp_path / ".harness" / "evidence" / f"{feature_id}.json",
+        tmp_path / ".harness" / "evidence" / contract / f"{feature_id}.json",
         json.dumps(evidence, indent=2, ensure_ascii=False) + "\n",
     )
 
@@ -114,14 +116,14 @@ def test_missing_progress_file_is_warning(tmp_path: Path) -> None:
 
 def test_progress_file_present_no_finding(tmp_path: Path) -> None:
     _write_feature_list(tmp_path, [_feature(passes=False)])
-    _write(tmp_path / "claude-progress.md", "# Progresso\n")
+    _write(tmp_path / ".harness/progress.md", "# Progresso\n")
     report = audit_runtime(tmp_path)
     assert "missing_progress_file" not in _codes(report)
 
 
 def test_passes_true_without_evidence_is_critical(tmp_path: Path) -> None:
     _write_feature_list(tmp_path, [_feature(passes=True)])
-    _write(tmp_path / "claude-progress.md", "# Progresso\n")
+    _write(tmp_path / ".harness/progress.md", "# Progresso\n")
     report = audit_runtime(tmp_path)
     assert "missing_evidence" in _codes(report)
     assert any(f.severity == "critical" and "T-01" in f.message for f in report.findings)
@@ -129,15 +131,16 @@ def test_passes_true_without_evidence_is_critical(tmp_path: Path) -> None:
 
 def test_passes_true_with_invalid_evidence_json_is_critical(tmp_path: Path) -> None:
     _write_feature_list(tmp_path, [_feature(passes=True)])
-    _write(tmp_path / "claude-progress.md", "# Progresso\n")
-    _write(tmp_path / ".harness" / "evidence" / "T-01.json", "{ not valid json")
+    _write(tmp_path / ".harness/progress.md", "# Progresso\n")
+    _write(tmp_path / ".harness" / "evidence" / "exemplo-feature" / "T-01.json",
+           "{ not valid json")
     report = audit_runtime(tmp_path)
     assert "invalid_evidence_json" in _codes(report)
 
 
 def test_evidence_missing_required_fields_is_critical(tmp_path: Path) -> None:
     _write_feature_list(tmp_path, [_feature(passes=True)])
-    _write(tmp_path / "claude-progress.md", "# Progresso\n")
+    _write(tmp_path / ".harness/progress.md", "# Progresso\n")
     _write_evidence(tmp_path, "T-01", extra_fields_missing=True)
     report = audit_runtime(tmp_path)
     assert "invalid_evidence_schema" in _codes(report)
@@ -145,7 +148,7 @@ def test_evidence_missing_required_fields_is_critical(tmp_path: Path) -> None:
 
 def test_evidence_feature_id_mismatch_is_critical(tmp_path: Path) -> None:
     _write_feature_list(tmp_path, [_feature(passes=True)])
-    _write(tmp_path / "claude-progress.md", "# Progresso\n")
+    _write(tmp_path / ".harness/progress.md", "# Progresso\n")
     _write_evidence(tmp_path, "T-01", feature_id_field="T-99")
     report = audit_runtime(tmp_path)
     assert "evidence_feature_id_mismatch" in _codes(report)
@@ -153,7 +156,7 @@ def test_evidence_feature_id_mismatch_is_critical(tmp_path: Path) -> None:
 
 def test_evidence_exit_code_nonzero_is_critical(tmp_path: Path) -> None:
     _write_feature_list(tmp_path, [_feature(passes=True)])
-    _write(tmp_path / "claude-progress.md", "# Progresso\n")
+    _write(tmp_path / ".harness/progress.md", "# Progresso\n")
     _write_evidence(tmp_path, "T-01", exit_code=1)
     report = audit_runtime(tmp_path)
     assert "evidence_exit_code_nonzero" in _codes(report)
@@ -161,7 +164,7 @@ def test_evidence_exit_code_nonzero_is_critical(tmp_path: Path) -> None:
 
 def test_passes_true_with_valid_evidence_no_finding(tmp_path: Path) -> None:
     _write_feature_list(tmp_path, [_feature(passes=True)])
-    _write(tmp_path / "claude-progress.md", "# Progresso\n")
+    _write(tmp_path / ".harness/progress.md", "# Progresso\n")
     _write_evidence(tmp_path, "T-01", exit_code=0)
     report = audit_runtime(tmp_path)
     codes = _codes(report)
@@ -188,7 +191,7 @@ def test_multiple_features_in_progress_is_critical(tmp_path: Path) -> None:
             _feature("T-02", files=["src/b.py"], passes=False),
         ],
     )
-    _write(tmp_path / "claude-progress.md", "# Progresso\n")
+    _write(tmp_path / ".harness/progress.md", "# Progresso\n")
 
     report = audit_runtime(tmp_path)
     assert "multiple_features_in_progress" in _codes(report)
@@ -209,7 +212,7 @@ def test_single_feature_in_progress_no_finding(tmp_path: Path) -> None:
             _feature("T-02", files=["src/b.py"], passes=False),
         ],
     )
-    _write(tmp_path / "claude-progress.md", "# Progresso\n")
+    _write(tmp_path / ".harness/progress.md", "# Progresso\n")
 
     report = audit_runtime(tmp_path)
     assert "multiple_features_in_progress" not in _codes(report)
@@ -220,9 +223,36 @@ def test_healthy_project_scores_high_with_zero_critical(tmp_path: Path) -> None:
     _init_git_repo(tmp_path)
 
     _write_feature_list(tmp_path, [_feature("T-01", files=["src/a.py"], passes=True)])
-    _write(tmp_path / "claude-progress.md", "# Progresso\n\nTudo certo.\n")
+    _write(tmp_path / ".harness/progress.md", "# Progresso\n\nTudo certo.\n")
     _write_evidence(tmp_path, "T-01", exit_code=0)
 
     report = audit_runtime(tmp_path)
     assert not any(f.severity == "critical" for f in report.findings)
     assert report.score >= 85
+
+
+def test_evidence_from_another_contract_is_critical(tmp_path: Path) -> None:
+    """Espelha o feature-lock do boundary_guard: prova de outro contrato não
+    vale. O caminho escopado separa os arquivos; este check pega o caso do
+    arquivo copiado/movido à mão para a pasta do contrato ativo."""
+    _write_feature_list(tmp_path, [_feature(passes=True)])
+    _write(tmp_path / ".harness/progress.md", "# Progresso\n")
+    evidence = {
+        "feature_id": "T-01",
+        "contract": "contrato-antigo",
+        "verify_cmd": "pytest -q",
+        "recorded_at": "2026-07-16T12:00:00+00:00",
+        "exit_code": 0,
+        "files_hash": "sha256:deadbeef",
+    }
+    _write(
+        tmp_path / ".harness" / "evidence" / "exemplo-feature" / "T-01.json",
+        json.dumps(evidence, indent=2, ensure_ascii=False) + "\n",
+    )
+
+    report = audit_runtime(tmp_path)
+
+    assert "evidence_contract_mismatch" in _codes(report)
+    finding = next(f for f in report.findings if f.code == "evidence_contract_mismatch")
+    assert finding.severity == "critical"
+    assert "contrato-antigo" in finding.message

@@ -2,6 +2,231 @@
 
 ## Não lançado
 
+Correções achadas durante o dogfood do próprio harness-creator (contrato
+`hook-reasons-progress-sync` e achados A/B/C do backlog de fricção de
+dogfood 2026-07-22), mais o backlog **inteiro** (P0, P1 e P2) do laudo de
+footprint `docs/project/AUDIT-footprint-raiz-e-versionamento-2026-07-26.md`.
+
+### Corrigido (achados da 3ª rodada de teste isento)
+
+- **`files[]` fica confinado à raiz do repositório.** `harness task add-file
+  T-01 'C:/Windows/System32/config/SAM'` era aceito com exit 0, entrava no
+  `Plans.md` e no `feature_list.json`, virava `Edit(C:/Windows/System32/...)`
+  no `settings.local.json` e o `boundary_guard` respondia **allow** —
+  *"arquivo declarado em files[] de uma tarefa do contrato ativo"*. Como
+  `task add-file` **não reabre o gate de aprovação** (comportamento
+  documentado e desejado), isso era um caminho de escalada para escrita em
+  arquivo arbitrário do sistema a partir de um contrato já aprovado. Agora
+  `require_repo_relative_path` recusa path absoluto (letra de unidade, barra
+  inicial, UNC), traversal que escapa da raiz (`../../..`) e entrada vazia —
+  validando na entrada (`add_task_file`) e como backstop na leitura
+  (`parse_plans`, porque o `Plans.md` é autorado à mão). O confinamento é
+  sintático: não toca o disco, vale igual em Windows e POSIX.
+- **`harness.yaml` vazio deixa de compilar defaults de outra linguagem.**
+  Arquivo vazio caía em `{}` e compilava os defaults do schema — que são
+  Python (`pytest`, `tests/**/*.py`). Num repo Angular/.NET isso protegia um
+  diretório inexistente e **deixava de proteger os testes reais**: governança
+  degradada em silêncio, com exit 0. Agora recusa apontando a skill `init`.
+  Topo do YAML que não seja mapeamento também é recusado.
+- **`harness.yaml` malformado deixa de vazar traceback.** Era o único caminho
+  de erro do CLI inteiro que imprimia stack do PyYAML.
+- **A documentação para de prometer bloqueio de leitura de segredo.** GUIDE e
+  TUTORIAL diziam que o runtime floor nunca libera *"leitura de segredos
+  (`.env`, `.pem`, `id_rsa`, `*credentials*`)"*. O floor é de **escrita** —
+  `Read .env` e `cat .env` sempre foram liberados. Decisão do usuário: manter
+  a leitura liberada (ler `.env.example` é rotina) e corrigir o texto; o guard
+  passa a anexar um **aviso** à razão da decisão quando o alvo tem nome de
+  arquivo de segredo, porque o conteúdo entra no contexto da sessão.
+- **A documentação para de prometer que o `verify_cmd` é "validado contra o
+  profile".** Ele é conferido contra o runtime floor (rede/push nunca
+  executam, mesmo vindo de contrato compilado), mas não é cruzado com o
+  `repo-profile.json`. A validação em si ficou no backlog.
+
+Os demais achados das três rodadas estão em
+`docs/project/BACKLOG-testes-isentos-2026-07-27.md`, por decisão do usuário —
+incluindo o P0 de arquitetura (o agente pode autorar, autoaprovar e ativar um
+contrato próprio, porque `.harness/work/**` é gravável por design e
+`compile-contract` está na superfície liberada).
+
+### Corrigido (achados da 2ª rodada de teste isento)
+
+- **A evidência passa a ser escopada por contrato.** Era
+  `.harness/evidence/<id>.json`, sem o contrato em lugar nenhum — nem no
+  caminho, nem no schema. Como TODO contrato começa em `T-01`, a colisão era
+  por construção: compilar um contrato novo e rodar `harness verify T-01`
+  **sobrescrevia em silêncio a prova do contrato anterior**, sem aviso e sem
+  backup (reproduzido num alvo real). Agora o caminho é
+  `.harness/evidence/<contrato>/<id>.json` e o JSON carrega o campo
+  `contract`. Os dois resolvem problemas diferentes: o **caminho** impede a
+  destruição, o **campo** impede o empréstimo — evidência de um contrato
+  destravando `passes:true` em outro. Antes, o que segurava o empréstimo era
+  só o frescor contra o último commit: defesa TEMPORAL, que depende de existir
+  um commit entre os dois contratos. Conferem a identidade o feature-lock do
+  `boundary_guard` (inclusive no hook standalone gerado), o `runtime_audit`
+  (novo finding `evidence_contract_mismatch`) e o `stop_hook`.
+- **`harness audit` sai 1 quando há finding `critical`.** O gate era
+  `score >= 60`, e UM critical custa exatamente 40 pontos — score 60, exit 0.
+  A própria `skills/audit/SKILL.md` promete "Exit code 1 = estrutura
+  comprometida (algum finding crítico)", então um repositório sem harness
+  nenhum passava por qualquer gate de CI que olhasse o exit code. Vale para
+  `audit`, `audit-runtime` e `audit-team`, com o piso de score preservado para
+  acúmulo de findings menores.
+- **O gate de aprovação valida `approved_at` como ISO 8601.** `approved_at:
+  banana` compilava com exit 0 e produzia um contrato indistinguível de um
+  aprovado de verdade. Este é o único ponto de controle humano do pipeline e o
+  campo é a trilha de auditoria de QUANDO a aprovação aconteceu — não texto
+  livre. Aceita as formas que o produto já usa (`...Z`, `+00:00`, sem
+  timezone, data sozinha).
+- **Data impossível no frontmatter vira erro de contrato, não traceback.** O
+  PyYAML resolve `2026-07-15` para `datetime.date` e levanta `ValueError` CRU
+  (não `YAMLError`) quando os componentes não formam data real, então
+  `approved_at: 2026-13-45` saía como stack trace. Typo do usuário é erro de
+  contrato.
+- **`compile-session` documentado.** `grep -c branch docs/plugin/*.md` dava
+  **0** nos três arquivos, enquanto o comando faz `git switch -c
+  contract/<slug>` antes de instalar qualquer artefato e exige working tree
+  limpa. TUTORIAL (B.2) e GUIDE (§6) passam a abrir com os dois efeitos, o
+  flag para desligar (`governance.branch_per_contract`) e a ordem que funciona
+  depois de uma reinstalação do zero (`analyze` → `compile` → **commit** →
+  `compile-contract` → `compile-session`) — sem ela o repositório fica num
+  estado que não destrava sozinho, porque `LIFECYCLE.md` e `feature_list.json`
+  são versionados mas não são regenerados por `harness compile`.
+
+### Corrigido (achados da 1ª rodada de teste isento no `elegant-heisenberg`)
+
+- **`--dir` que não existe deixa de virar escrita.** `harness analyze --dir
+  <caminho errado>` criava a árvore inteira e gravava um `repo-profile.json`
+  vazio com exit 0 — um erro de digitação materializava um projeto fantasma, e
+  no caso real observado (path mutilado pelo Git Bash) a escrita caiu **dentro
+  da raiz do repo-alvo**, exatamente o que o produto promete nunca fazer.
+  `harness audit` tinha a variante silenciosa: score 60 e "rode
+  `/harness-creator:init`" sobre um caminho inexistente, um laudo plausível
+  sobre nada. Agora existe uma guarda única em `cli.py`, aplicada logo após o
+  `parse_args` e válida para os 18 subcomandos que aceitam `--dir`: caminho
+  inexistente sai com código **2** (mesma convenção do argparse para erro de
+  uso, distinta do `1` que os subcomandos reservam para "rodou e o resultado é
+  ruim") sem escrever nada. Validar comando a comando era o que deixava
+  `compile` certo e `analyze`/`audit` errados.
+- **`.harness/scratch/` passa a nascer no `compile`.** O bloco gerenciado que
+  `harness compile` escreve no `AGENTS.md` manda salvar artefato temporário de
+  verificação em `.harness/scratch/`, mas a pasta só era criada pelo
+  `compile-session`: entre um comando e outro, a instrução gerenciada apontava
+  para um diretório inexistente. A criação virou
+  `settings_paths.ensure_scratch_surface`, chamada de dentro de
+  `prepare_managed_settings` — o mesmo ponto único por onde os cinco
+  escritores de settings passam, de modo que `compile` e `compile-session` não
+  podem mais divergir. `.gitignore` customizado no scratch continua preservado.
+- `docs/plugin/TUTORIAL.md` (A.1) listava 13 subcomandos em `harness --help`;
+  são 17 — faltavam `disable`, `enable`, `status` e `doctor`.
+
+### Alterado — BREAKING (P1 — a raiz do projeto-alvo tem um arquivo só)
+
+- **`claude-progress.md`, `init.sh` e `init.ps1` saem da raiz** e passam a ser
+  `.harness/progress.md`, `.harness/init.sh` e `.harness/init.ps1` (item 6 do
+  laudo, F3). Nenhum dos três é lido por ferramenta externa — só o próprio
+  harness os consome —, então ocupar a raiz do repositório do usuário nunca
+  teve justificativa; `init.sh` em particular é um dos nomes de mais alta
+  colisão com script de bootstrap pré-existente. Depois desta mudança, o único
+  artefato que o harness deposita na raiz é `AGENTS.md` (convenção que agentes
+  externos leem de lá). **Não há leitura retrocompatível do caminho antigo**:
+  o produto é pré-produção e a instalação é sempre feita do zero — um alvo em
+  versão anterior se resolve apagando `.harness/` e `.claude/settings.json` e
+  recompilando. Acompanharam a mudança os leitores `session_start.py`,
+  `runtime_audit.py`, `verify.py`, `lifecycle.py` e o `boundary_guard`.
+- **`_is_progress_file_path` continua com match EXATO e não-recursivo**, agora
+  sobre `.harness/progress.md`. A regra existe por causa do issue 3 do dogfood
+  do `aegis_rpa_suite` (o guard negava escrita no arquivo que o próprio
+  lifecycle manda manter) e tem teste dedicado: `progress.md` em subdiretório
+  — inclusive dentro de `.harness/` — **não** casa, senão qualquer arquivo com
+  esse nome viraria buraco na superfície de escrita.
+- **`init.*` editado à mão nunca mais é sobrescrito** (item 5 do laudo, F3).
+  Todo script gerado carrega `MANAGED_MARKER` no topo; `install_templates`
+  preserva o arquivo que não tem esse marcador em vez de regenerá-lo, e
+  `harness compile-session` reporta o que preservou (chave
+  `templates_preserved` no JSON de saída, mais aviso em `stderr`) — preservar
+  em silêncio deixaria um `init.*` divergindo do profile sem sinal nenhum.
+- **O conteúdo gerado de `init.*` virou ASCII puro.** O comentário "nenhum
+  package manager detectado" trazia um travessão UTF-8 que o PowerShell 5.1
+  entrega corrompido no terminal do usuário. Coberto por teste que valida
+  `isascii()` sobre os dois scripts em três profiles.
+
+### Adicionado (P2 — `harness doctor` cobre a compilação ausente)
+
+- `harness doctor` passa a acusar duas situações que antes só existiam como
+  prosa no `TUTORIAL.md` (item 10 do laudo): **(a) clone sem compile** —
+  `.harness/harness.yaml` versionado presente e `.claude/settings.local.json`
+  ausente, ou seja, repositório que *parece* governado e não tem hook nenhum
+  rodando; **(b) repositório movido de lugar** — comando de hook apontando
+  para um script `.py` que não existe mais, consequência direta do path
+  absoluto embutido na compilação. O check varre qualquer evento de hook
+  (`PreToolUse`, `SessionStart`, `Stop`, ...), então hook novo entra na
+  cobertura sem alteração. Gatear em `harness.yaml` é o que evita cobrar
+  `harness compile` de um diretório que não usa o harness.
+
+### Alterado (P2 — o produto passa a demonstrar a própria política)
+
+- **`.gitignore` do repositório realinhado à Seção 3 do laudo** (item 8, F5).
+  A regra antiga (`.harness/*` + `!.harness/harness.yaml`) tinha dois
+  defeitos: jogava fora spec/Plans/evidência — que a política manda versionar
+  — e ignorava o próprio `.harness/.gitignore`, ou seja, o repo ignorava o
+  arquivo que carrega as regras. Agora o `.gitignore` da raiz não menciona
+  `.harness/` nem `.claude/`, e quem aplica a política são os `.gitignore`
+  tool-owned que o produto gera. `init.sh`/`init.ps1` saíram do índice
+  (`git rm --cached` — regra de ignore sozinha não desrastreia arquivo já
+  commitado) e `claude-progress.md` foi movido para `.harness/progress.md`.
+- **Política canônica com fonte única** (item 7, F4). `AGENTS.md` ganhou a
+  seção "O que entra no git", que aponta para a Seção 3 do laudo em vez de
+  reescrevê-la; `TUTORIAL.md` e `GUIDE.md` idem. Reescrever a política com
+  palavras próprias em cada documento foi a origem da divergência que o F4
+  registrou.
+- **Documentação de artefatos completa** (item 9). O `TUTORIAL.md` passou a
+  trazer o inventário dos **32** artefatos (era 8), com quem gera cada um e
+  se versiona, mais as duas leituras que costumam surpreender: `harness
+  compile` regenera só 5 coisas, e o harness nunca toca no `.gitignore` da
+  raiz nem no `CLAUDE.md`. A árvore do `README.md` estava defasada (dizia 3
+  skills e "514+ testes"; são 6 e 685) e não citava `.harness/` nem `docs/`.
+
+### Corrigido (P0 — fronteira machine-local do output compilado)
+- **O output compilado deixa de nascer em arquivo versionável.** Os cinco
+  escritores de settings (`compiler.py`, `boundary_guard.py`,
+  `session_start.py`, `stop_hook.py`, `session_permissions.py`) passam a
+  gravar em `.claude/settings.local.json` através de um ponto único novo
+  (`harness.settings_paths.prepare_managed_settings`), em vez de mesclarem no
+  `.claude/settings.json` que os projetos-alvo commitam. Motivo (F1 do
+  laudo): o comando do hook leva **path absoluto** da máquina que compilou —
+  no `aegis_rpa_suite` o arquivo commitado carregava
+  `python "C:\Projetos\aegis_rpa_suite\.harness\hooks\boundary_guard.py"` e
+  63 regras de `permissions.allow`, incluindo `Edit(...)` sobre arquivos de
+  **outro projeto**. Em qualquer clone (outro path, outro OS) esse
+  `PreToolUse` não resolve: **o repositório parece governado e nenhum guard
+  roda** — falha silenciosa, não erro visível.
+- **As regras de ignore passam a vir do produto** (F2), em arquivos
+  tool-owned e sem encostar no `.gitignore` da raiz do alvo:
+  `.harness/.gitignore` deixa de conter só `harness.disabled` e passa a cobrir
+  `compiled-state.json`, `compiled-state-session.json` e `hooks/`; o novo
+  `.claude/.gitignore` cobre `settings.local.json`. Antes, o dogfood só
+  *parecia* limpo porque o `.gitignore` **global** da máquina do usuário
+  cobria esse nome — nada que o projeto-alvo herdasse.
+- **`harness audit` passa a auditar o arquivo machine-local.** Sem isso o
+  audit ficaria cego: procuraria permissions e hooks num `settings.json` que
+  o harness não escreve mais e acusaria `missing_settings` num projeto
+  corretamente compilado. Os slugs `missing_settings`/`invalid_settings`
+  continuam estáveis.
+
+**Sem migração do `settings.json`:** o produto é pré-produção e a instalação
+é sempre feita do zero, então nada precisa ser transportado do arquivo do
+time. O `.claude/settings.json` deixou simplesmente de ser lido e escrito
+pelo harness. Um alvo instalado numa versão anterior se resolve apagando
+`.harness/` e `.claude/settings.json` e rodando `harness compile` de novo.
+
+**Trade-off assumido e documentado:** as permissions deixam de viajar no
+clone — um repositório recém-clonado precisa de `harness compile` (e
+`harness compile-session`, se houver contrato ativo) antes da primeira
+sessão. Na prática isso já era verdade: o path absoluto nunca sobrevivia a um
+clone; a diferença é que agora o produto é honesto sobre isso em vez de
+manter a aparência de governança. `TUTORIAL.md`, `GUIDE.md`, `README.md`,
+`ARCHITECTURE.md` e as skills `init`/`compile`/`audit`/`plan` foram
+atualizados, e o TUTORIAL ganhou coluna "versionar?" na tabela de artefatos.
 Correção da fricção do dogfood real em `Savant.Backend.APP-15167` (API Python
 com venv, Windows, atrás de proxy corporativo), que acumulou ~13 ciclos
 `disable`/`compile-session`/`enable` e terminou com o harness desativado.

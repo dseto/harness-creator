@@ -16,6 +16,7 @@ from harness.boundary_guard import (
     REPO_ROOT_STATE_KEY,
     SESSION_STATE_FILE,
     install_boundary_guard,
+    is_floor_control_plane_path,
 )
 
 
@@ -74,11 +75,26 @@ def _init_git_repo_with_commit(target: Path, commit_iso_date: str) -> None:
                     check=True, env=env)
 
 
-def _write_evidence(target: Path, feature_id: str, recorded_at: str, **overrides) -> None:
-    path = target / ".harness" / "evidence" / f"{feature_id}.json"
+def _write_evidence(
+    target: Path,
+    feature_id: str,
+    recorded_at: str,
+    contract: str = "test",
+    dir_contract: str | None = None,
+    **overrides,
+) -> None:
+    """Evidência escopada: `.harness/evidence/<contrato>/<id>.json`, com o campo
+    `contract` DENTRO do JSON. `"test"` é o contrato dos fixtures deste arquivo
+    (ver `_feature_list_json`).
+
+    `dir_contract` desacopla o diretório do campo — é como se reproduz o
+    arquivo copiado à mão para a pasta do contrato ativo, que é o caso em que
+    o caminho sozinho não protege."""
+    path = target / ".harness" / "evidence" / (dir_contract or contract) / f"{feature_id}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     data = {
         "feature_id": feature_id,
+        "contract": contract,
         "verify_cmd": "pytest -q",
         "recorded_at": recorded_at,
         "exit_code": 0,
@@ -643,11 +659,13 @@ def test_other_tool_allows_by_default(tmp_path: Path) -> None:
     assert out["permissionDecision"] == "allow"
 
 
-# ---------------- install_boundary_guard: settings.json + estado ----------------
+# ------------- install_boundary_guard: settings.local.json + estado -------------
 
 def test_install_registers_hook_in_settings(tmp_path: Path) -> None:
     script = install_boundary_guard(tmp_path)
-    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads(
+        (tmp_path / ".claude" / "settings.local.json").read_text(encoding="utf-8")
+    )
     entries = settings["hooks"]["PreToolUse"]
     matching = [e for e in entries if e.get("matcher") == BOUNDARY_HOOK_MATCHER]
     assert len(matching) == 1
@@ -657,7 +675,9 @@ def test_install_registers_hook_in_settings(tmp_path: Path) -> None:
 def test_install_is_idempotent(tmp_path: Path) -> None:
     install_boundary_guard(tmp_path)
     install_boundary_guard(tmp_path)
-    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads(
+        (tmp_path / ".claude" / "settings.local.json").read_text(encoding="utf-8")
+    )
     entries = settings["hooks"]["PreToolUse"]
     matching = [e for e in entries if e.get("matcher") == BOUNDARY_HOOK_MATCHER]
     assert len(matching) == 1
@@ -670,7 +690,7 @@ def test_install_bakes_absolute_interpreter_not_bare_python(tmp_path: Path) -> N
     bloqueio de push (só exit 2 bloqueia; qualquer outro não-zero é erro
     não-bloqueante para o Claude Code)."""
     install_boundary_guard(tmp_path)
-    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads((tmp_path / ".claude" / "settings.local.json").read_text(encoding="utf-8"))
     command = settings["hooks"]["PreToolUse"][-1]["hooks"][0]["command"]
     assert sys.executable in command
     assert not command.startswith("python ")
@@ -682,7 +702,7 @@ def test_install_replaces_legacy_command_format_without_duplicating(tmp_path: Pa
     sobreviver ao merge — dois guards por tool call é o sintoma."""
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir()
-    (claude_dir / "settings.json").write_text(json.dumps({
+    (claude_dir / "settings.local.json").write_text(json.dumps({
         "hooks": {"PreToolUse": [
             {"matcher": "*", "hooks": [{
                 "type": "command",
@@ -693,7 +713,7 @@ def test_install_replaces_legacy_command_format_without_duplicating(tmp_path: Pa
 
     install_boundary_guard(tmp_path)
 
-    entries = json.loads((claude_dir / "settings.json").read_text(encoding="utf-8"))
+    entries = json.loads((claude_dir / "settings.local.json").read_text(encoding="utf-8"))
     guard_entries = [
         e for e in entries["hooks"]["PreToolUse"]
         if BOUNDARY_HOOK_FILENAME in json.dumps(e)
@@ -705,7 +725,7 @@ def test_install_replaces_legacy_command_format_without_duplicating(tmp_path: Pa
 def test_install_preserves_unrelated_settings_and_hooks(tmp_path: Path) -> None:
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir()
-    (claude_dir / "settings.json").write_text(json.dumps({
+    (claude_dir / "settings.local.json").write_text(json.dumps({
         "model": "opus",
         "permissions": {"allow": ["Bash(npm run *)"]},
         "hooks": {"PreToolUse": [
@@ -716,7 +736,7 @@ def test_install_preserves_unrelated_settings_and_hooks(tmp_path: Path) -> None:
 
     install_boundary_guard(tmp_path)
 
-    settings = json.loads((claude_dir / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads((claude_dir / "settings.local.json").read_text(encoding="utf-8"))
     assert settings["model"] == "opus"
     assert "Bash(npm run *)" in settings["permissions"]["allow"]
     user_hooks = [e for e in settings["hooks"]["PreToolUse"] if "meu-hook.sh" in json.dumps(e)]
@@ -728,7 +748,7 @@ def test_install_preserves_unrelated_settings_and_hooks(tmp_path: Path) -> None:
 def test_install_removes_legacy_guard_tests_hook(tmp_path: Path) -> None:
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir()
-    (claude_dir / "settings.json").write_text(json.dumps({
+    (claude_dir / "settings.local.json").write_text(json.dumps({
         "hooks": {"PreToolUse": [
             {"matcher": "Write|Edit",
              "hooks": [{"type": "command", "command": 'python ".harness/hooks/guard_tests.py"'}]},
@@ -737,7 +757,7 @@ def test_install_removes_legacy_guard_tests_hook(tmp_path: Path) -> None:
 
     install_boundary_guard(tmp_path)
 
-    settings = json.loads((claude_dir / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads((claude_dir / "settings.local.json").read_text(encoding="utf-8"))
     legacy = [e for e in settings["hooks"]["PreToolUse"] if "guard_tests.py" in json.dumps(e)]
     assert legacy == []
     new_entries = [e for e in settings["hooks"]["PreToolUse"] if e.get("matcher") == BOUNDARY_HOOK_MATCHER]
@@ -1957,11 +1977,11 @@ def test_write_work_dir_traversal_denies(tmp_path: Path) -> None:
 
 
 def test_write_claude_progress_allows_with_active_contract(tmp_path: Path) -> None:
-    """claude-progress.md é gerado/mantido pelo próprio harness (lifecycle
+    """.harness/progress.md é gerado/mantido pelo próprio harness (lifecycle
     passo 12 manda atualizá-lo) — negar a escrita era auto-derrotante."""
     _contract_with_verify(tmp_path)
     script = _script(tmp_path)
-    for rel in ("claude-progress.md", "CLAUDE-PROGRESS.md"):
+    for rel in (".harness/progress.md", ".HARNESS/PROGRESS.MD"):
         out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
                                   "tool_input": {"file_path": rel, "content": "x"}})
         assert out["permissionDecision"] == "allow", (rel, out)
@@ -1974,7 +1994,7 @@ def test_edit_claude_progress_allows_absolute_path(tmp_path: Path) -> None:
     script = _script(tmp_path)
     out = _run_hook(script, {
         "tool_name": "Edit", "cwd": str(tmp_path),
-        "tool_input": {"file_path": str(tmp_path / "claude-progress.md"),
+        "tool_input": {"file_path": str(tmp_path / ".harness/progress.md"),
                        "old_string": "a", "new_string": "b"},
     })
     assert out["permissionDecision"] == "allow", out
@@ -1986,7 +2006,7 @@ def test_write_claude_progress_in_subdir_still_denies(tmp_path: Path) -> None:
     _contract_with_verify(tmp_path)
     script = _script(tmp_path)
     out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "src/claude-progress.md",
+                              "tool_input": {"file_path": "src/.harness/progress.md",
                                              "content": "x"}})
     assert out["permissionDecision"] == "deny", out
 
@@ -1994,11 +2014,13 @@ def test_write_claude_progress_in_subdir_still_denies(tmp_path: Path) -> None:
 def test_is_progress_file_path_importable() -> None:
     from harness.boundary_guard import _is_progress_file_path
 
-    assert _is_progress_file_path("claude-progress.md") is True
-    assert _is_progress_file_path("CLAUDE-PROGRESS.md") is True
-    assert _is_progress_file_path("docs/../claude-progress.md") is True
-    assert _is_progress_file_path("src/claude-progress.md") is False
-    assert _is_progress_file_path("claude-progress.md.bak") is False
+    assert _is_progress_file_path(".harness/progress.md") is True
+    assert _is_progress_file_path(".HARNESS/PROGRESS.MD") is True
+    assert _is_progress_file_path("docs/../.harness/progress.md") is True
+    assert _is_progress_file_path("src/.harness/progress.md") is False
+    assert _is_progress_file_path("progress.md") is False
+    assert _is_progress_file_path(".harness/sub/progress.md") is False
+    assert _is_progress_file_path(".harness/progress.md.bak") is False
     assert _is_progress_file_path("") is False
 
 
@@ -2772,6 +2794,82 @@ def test_install_creates_harness_gitignore_for_sentinel(tmp_path: Path) -> None:
     assert "harness.disabled" in gitignore.read_text(encoding="utf-8")
 
 
+def test_install_ignores_every_machine_local_artifact(tmp_path: Path) -> None:
+    """Itens 2 e 3 do P0: o estado de máquina (`compiled-state*.json`,
+    `hooks/`, `settings.local.json`) nasce ignorado por regra que o PRODUTO
+    escreve em arquivo tool-owned. Antes disso, o dogfood só parecia limpo
+    porque o gitignore GLOBAL da máquina do usuário cobria o settings local —
+    nada que o alvo herdasse."""
+    _script(tmp_path)
+
+    harness_lines = (tmp_path / ".harness" / ".gitignore").read_text(encoding="utf-8").split()
+    for entry in ("compiled-state.json", "compiled-state-session.json", "hooks/"):
+        assert entry in harness_lines
+
+    claude_lines = (tmp_path / ".claude" / ".gitignore").read_text(encoding="utf-8").split()
+    assert "settings.local.json" in claude_lines
+
+    # A raiz do usuário continua intocada — decisão de design preservada.
+    assert not (tmp_path / ".gitignore").exists()
+
+
+# ---------------------------------------------------------------------------
+# Feature-lock: identidade de contrato (achado de teste isento)
+# ---------------------------------------------------------------------------
+
+def test_feature_lock_denies_evidence_from_another_contract(tmp_path: Path) -> None:
+    """A prova de um contrato ANTERIOR não pode destravar `passes:true` numa
+    tarefa nunca verificada. Todo contrato começa em `T-01`, então o cenário é
+    o normal, não o exótico. Antes existia só o frescor contra o último commit
+    — defesa TEMPORAL, que depende de haver um commit entre os dois contratos.
+
+    A evidência aqui está FRESCA e no diretório do contrato ativo (como se
+    tivesse sido copiada à mão): o caminho escopado sozinho não pegaria."""
+    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    _write_evidence(
+        tmp_path, "T-01", recorded_at="2026-06-01T00:00:00+00:00",
+        contract="contrato-antigo", dir_contract="test",
+    )
+    script = _script(tmp_path)
+    new_content = _feature_list_json([
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": True}
+    ])
+
+    out = _run_hook(script, {
+        "tool_name": "Write", "cwd": str(tmp_path),
+        "tool_input": {"file_path": ".harness/feature_list.json", "content": new_content},
+    })
+
+    assert out["permissionDecision"] == "deny", out
+    reason = out["permissionDecisionReason"]
+    assert "contrato-antigo" in reason and "test" in reason, reason
+
+
+def test_feature_lock_allows_evidence_of_the_active_contract(tmp_path: Path) -> None:
+    """O outro lado: evidência fresca E do contrato ativo continua liberando."""
+    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    _write_evidence(tmp_path, "T-01", recorded_at="2026-06-01T00:00:00+00:00")
+    script = _script(tmp_path)
+    new_content = _feature_list_json([
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": True}
+    ])
+
+    out = _run_hook(script, {
+        "tool_name": "Write", "cwd": str(tmp_path),
+        "tool_input": {"file_path": ".harness/feature_list.json", "content": new_content},
+    })
+
+    assert out["permissionDecision"] == "allow", out
 # ---------------------------------------------------------------------------
 # Item 0 do plano v2 — floor do plano de controle (`.harness/**`).
 #
@@ -3105,3 +3203,47 @@ def test_commit_message_form_is_irrelevant_off_protected_branch(tmp_path: Path) 
                                  "tool_input": {"command": command}})
         assert out["permissionDecision"] == "allow", (command, out)
 
+
+
+# ---------------------------------------------------------------------------
+# Floor do plano de controle x progress.md movido (integracao dos dois planos)
+# ---------------------------------------------------------------------------
+
+def test_control_plane_floor_lets_only_progress_md_through(tmp_path: Path) -> None:
+    """O floor do Item 0 (plano v2 do dogfood Savant) nega `.harness/**` e e
+    avaliado ANTES de `_is_progress_file_path`. Como o item 6 do laudo de
+    footprint moveu o progresso para `.harness/progress.md`, sem esta excecao
+    o agente perderia a escrita no arquivo que o proprio lifecycle (passo 12)
+    manda manter e o `runtime_audit` cobra se ausente — a contradicao interna
+    que o issue 3 do dogfood aegis existe para corrigir.
+
+    A excecao e de ARQUIVO nomeado, nao de diretorio: `.harness/sub/progress.md`
+    e `.harness/progress.md/x` continuam deny."""
+    liberados = (".harness/progress.md", ".HARNESS/PROGRESS.MD",
+                 ".harness/work/x/spec.md", ".harness/scratch/a.png")
+    negados = (".harness/harness.yaml", ".harness/feature_list.json",
+               ".harness/hooks/boundary_guard.py", ".harness/compiled-state.json",
+               ".harness/sub/progress.md", ".harness/progress.md/x")
+
+    for path in liberados:
+        assert is_floor_control_plane_path(path) is False, path
+    for path in negados:
+        assert is_floor_control_plane_path(path) is True, path
+
+
+def test_generated_hook_allows_writing_the_moved_progress_file(tmp_path: Path) -> None:
+    """Prova de ponta a ponta no hook standalone gerado: o lifecycle continua
+    executavel depois do merge dos dois planos."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+
+    allow = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                               "tool_input": {"file_path": ".harness/progress.md",
+                                              "content": "# progresso"}})
+    assert allow["permissionDecision"] == "allow", allow
+
+    deny = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                              "tool_input": {"file_path": ".harness/harness.yaml",
+                                             "content": "governance: {}"}})
+    assert deny["permissionDecision"] == "deny", deny
+    assert "plano de controle" in deny["permissionDecisionReason"]

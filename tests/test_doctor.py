@@ -9,11 +9,13 @@ nunca o `~/.claude/plugins/installed_plugins.json` real da máquina)."""
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import harness
-from harness.compiler import STATE_FILE
+from harness.compiler import HARNESS_YAML, STATE_FILE
 from harness.doctor import run_doctor
+from harness.settings_paths import MANAGED_SETTINGS_FILE, managed_settings_path
 from harness.hook_launcher import hook_command
 
 _PIP_VERSION = harness.__version__
@@ -114,7 +116,20 @@ def test_plugin_install_of_other_plugin_is_ignored(tmp_path: Path) -> None:
 # runtime — o `doctor` é o único lugar onde ele fica visível.
 
 def _write_settings_with_hook(tmp_path: Path, command: str, event: str = "PreToolUse") -> None:
-    path = tmp_path / ".claude" / "settings.json"
+    # O script precisa existir em disco: um comando de hook apontando para
+    # script ausente é, por si só, uma instalação quebrada (repo movido de
+    # lugar) e o `doctor` reporta isso separadamente.
+    for script in re.findall(r'"([^"]+\.py)"', command):
+        script_path = Path(script)
+        # Só path ABSOLUTO (o que `hook_command` produz). Path relativo nestes
+        # fixtures é string de formato legado, não arquivo — criá-lo escreveria
+        # na raiz do repo do produto, porque resolve contra o cwd do pytest.
+        if not script_path.is_absolute():
+            continue
+        script_path.parent.mkdir(parents=True, exist_ok=True)
+        script_path.write_text("# hook" + chr(10), encoding="utf-8")
+
+    path = tmp_path / ".claude" / "settings.local.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps({"hooks": {event: [{"matcher": "*", "hooks": [
@@ -163,7 +178,7 @@ def test_third_party_hook_is_ignored(tmp_path: Path) -> None:
 
 
 def test_malformed_settings_does_not_raise(tmp_path: Path) -> None:
-    path = tmp_path / ".claude" / "settings.json"
+    path = tmp_path / ".claude" / "settings.local.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("{ nao é json", encoding="utf-8")
     report = run_doctor(tmp_path, plugins_file=tmp_path / "no-such-file.json")
@@ -187,7 +202,84 @@ def test_to_json_roundtrips_all_fields(tmp_path: Path) -> None:
     assert data["compiled_version"] == _PIP_VERSION
     assert data["ok"] is True
     assert "issues" in data and "notes" in data
-    assert data["hooks"] == []
+
+
+# ---------------- clone sem compile / repo movido (item 10 do laudo) ----------------
+
+def _write_harness_yaml(tmp_path: Path) -> None:
+    path = tmp_path / HARNESS_YAML
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("version: 1\n", encoding="utf-8")
+
+
+def _write_managed_settings(tmp_path: Path, hook_script: Path) -> None:
+    path = managed_settings_path(tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "PreToolUse": [
+                        {
+                            "matcher": "Edit|Write",
+                            "hooks": [
+                                {"type": "command", "command": hook_command(hook_script)}
+                            ],
+                        }
+                    ]
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_harness_yaml_without_managed_settings_is_issue(tmp_path: Path) -> None:
+    """O caso do clone: `harness.yaml` viaja versionado, o settings
+    machine-local não. Sem este check o repo parece governado e nenhum hook
+    roda — falha silenciosa, que era o motivo do P0."""
+    _write_harness_yaml(tmp_path)
+
+    report = run_doctor(tmp_path, plugins_file=tmp_path / "no-such-file.json")
+
+    assert not report.ok
+    assert any("harness compile" in i and "clone" in i for i in report.issues)
+
+
+def test_no_harness_yaml_does_not_demand_compile(tmp_path: Path) -> None:
+    """Diretório que não usa o harness não é cobrado — o gate é a config
+    versionada, não a ausência do settings."""
+    report = run_doctor(tmp_path, plugins_file=tmp_path / "no-such-file.json")
+
+    assert report.ok
+    assert not any(MANAGED_SETTINGS_FILE in i for i in report.issues)
+
+
+def test_hook_command_pointing_to_missing_script_is_issue(tmp_path: Path) -> None:
+    """Repo movido de lugar: o comando de hook carrega path absoluto (decisão
+    de PLAN.md:180-182) e passa a apontar para um diretório inexistente."""
+    _write_harness_yaml(tmp_path)
+    _write_managed_settings(tmp_path, tmp_path / "caminho" / "antigo" / "boundary_guard.py")
+
+    report = run_doctor(tmp_path, plugins_file=tmp_path / "no-such-file.json")
+
+    assert not report.ok
+    assert any("movido de lugar" in i for i in report.issues)
+
+
+def test_hook_command_pointing_to_existing_script_is_ok(tmp_path: Path) -> None:
+    _write_harness_yaml(tmp_path)
+    hook_script = tmp_path / ".harness" / "hooks" / "boundary_guard.py"
+    hook_script.parent.mkdir(parents=True, exist_ok=True)
+    hook_script.write_text("# hook\n", encoding="utf-8")
+    _write_managed_settings(tmp_path, hook_script)
+    _write_compiled_state(tmp_path, _PIP_VERSION)
+
+    report = run_doctor(tmp_path, plugins_file=tmp_path / "no-such-file.json")
+
+    assert report.ok, report.issues
+    # O hook e NOSSO e o script existe: nada a reportar sobre ele.
+    assert report.hooks[0]["ok"] is True
 
 
 def test_hook_without_fail_closed_suffix_is_reported(tmp_path: Path) -> None:

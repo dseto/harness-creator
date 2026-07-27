@@ -13,7 +13,7 @@ Plugin do Claude Code que **cria, avalia e compila** estrutura de harness
 ## Como funciona
 
 ```
-.harness/harness.yaml  ──harness compile──►  .claude/settings.json   (permissions + hooks)
+.harness/harness.yaml  ──harness compile──►  .claude/settings.local.json  (permissions + hooks)
       (sua spec)                              .harness/hooks/*.py    (guards PreToolUse)
                                               AGENTS.md              (bloco gerenciado)
 ```
@@ -113,7 +113,7 @@ orquestradora sequencial única, não usar com múltiplos agentes em paralelo) �
 `harness task add-file <task-id> <path> --dir <alvo> --slug <slug>` (append
 no `files[]` de UMA task existente no `Plans.md` + recompila, sem editar o
 markdown à mão nem reabrir o gate de aprovação — recompila o contrato mas
-não o `permissions.allow` enumerado de `.claude/settings.json`; sem impacto
+não o `permissions.allow` enumerado de `.claude/settings.local.json`; sem impacto
 funcional, o `boundary_guard.py` decide `allow`/`deny` lendo o contrato
 em tempo de execução, não a lista enumerada — detalhe em
 [TUTORIAL.md §B.4](docs/plugin/TUTORIAL.md)) · `harness audit-runtime
@@ -163,14 +163,38 @@ para trabalhar o contrato, com revisão de qualidade independente já embutida
 ```
 harness-creator/
 ├── .claude-plugin/plugin.json   # manifesto do plugin
-├── skills/                      # init, audit, compile
+├── AGENTS.md                    # 3 blocos gerenciados + prosa humana
+├── skills/                      # init, preflight, plan, compile, audit, team
 ├── src/harness/
-│   ├── compiler.py              # harness.yaml -> governança nativa (coração)
-│   ├── audit.py                 # score + findings (dogfooding: compile+diff)
 │   ├── config.py                # HarnessConfig (pydantic) — fonte de verdade
-│   └── cli.py                   # harness compile|audit
-└── tests/                       # 514+ testes (sem Docker/API para compile/audit)
+│   ├── analyzer.py              # detecta linguagem/package manager/test command
+│   ├── compiler.py              # harness.yaml -> governança nativa (coração)
+│   ├── settings_paths.py        # fronteira machine-local: destino único do settings
+│   ├── contract.py              # spec.md + Plans.md -> feature_list.json
+│   ├── boundary_guard.py        # guard do raio de impacto + runtime floor
+│   ├── session_start.py         # hooks de sessão (contexto, fim de sessão,
+│   ├── stop_hook.py             #   permissions do contrato ativo)
+│   ├── session_permissions.py   #
+│   ├── templates.py             # .harness/progress.md + init.sh/init.ps1
+│   ├── verify.py                # roda verify_cmd e grava a evidência
+│   ├── review.py, teams.py      # Fase 4 — time produtor/revisor
+│   ├── audit.py                 # score + findings (dogfooding: compile+diff)
+│   ├── doctor.py                # saúde da instalação (versão, clone sem compile)
+│   └── cli.py                   # harness compile|compile-session|verify|audit|...
+├── .harness/                    # o produto governado por si mesmo:
+│   │                            #   work/ + evidence/ versionados;
+│   │                            #   hooks/ + compiled-state* machine-local
+│   └── .gitignore               # a regra de ignore é do próprio produto
+├── docs/plugin/                 # TUTORIAL, GUIDE, ARCHITECTURE
+├── docs/project/                # ROADMAP, PLAN, laudos e handoffs
+└── tests/                       # 685 testes (sem Docker/API para compile/audit)
 ```
+
+Quem decide o que entra no git é a **Seção 3** de
+`docs/project/AUDIT-footprint-raiz-e-versionamento-2026-07-26.md` — política
+canônica, uma frase: *especificação, contrato e prova são versionados; saída
+de compilação que carrega dado de máquina é machine-local e regenerada por
+`compile`*. O inventário artefato a artefato está em `docs/plugin/TUTORIAL.md`.
 
 ## Testes
 

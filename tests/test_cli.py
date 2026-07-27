@@ -356,7 +356,7 @@ def test_compile_session_subcommand_success(
     # branch_per_contract default true: compile-session criou e mudou pra
     # branch de contrato antes de instalar qualquer coisa (finding C).
     assert data["branch"] == "contract/exemplo-feature"
-    assert data["settings"].endswith("settings.json")
+    assert data["settings"].endswith("settings.local.json")
     assert data["boundary_guard"].endswith("boundary_guard.py")
     assert data["agents_md"].endswith("AGENTS.md")
     assert data["lifecycle_detail"].endswith("LIFECYCLE.md")
@@ -365,13 +365,18 @@ def test_compile_session_subcommand_success(
     assert any(p.endswith("init.sh") for p in data["templates"])
     assert any(p.endswith("init.ps1") for p in data["templates"])
 
-    assert (tmp_path / ".claude" / "settings.json").is_file()
+    assert (tmp_path / ".claude" / "settings.local.json").is_file()
     assert (tmp_path / ".harness" / "hooks" / "boundary_guard.py").is_file()
     assert (tmp_path / "AGENTS.md").is_file()
     assert (tmp_path / ".harness" / "LIFECYCLE.md").is_file()
-    assert (tmp_path / "claude-progress.md").is_file()
-    assert (tmp_path / "init.sh").is_file()
-    assert (tmp_path / "init.ps1").is_file()
+    assert (tmp_path / ".harness/progress.md").is_file()
+    assert (tmp_path / ".harness" / "init.sh").is_file()
+    assert (tmp_path / ".harness" / "init.ps1").is_file()
+    # Item 6 do laudo de footprint: a raiz do alvo recebe só AGENTS.md.
+    assert not (tmp_path / "init.sh").exists()
+    assert not (tmp_path / "init.ps1").exists()
+    assert not (tmp_path / "claude-progress.md").exists()
+    assert data["templates_preserved"] == []
     assert (tmp_path / ".harness" / "hooks" / "session_start.py").is_file()
     assert (tmp_path / ".harness" / "hooks" / "stop_hook.py").is_file()
 
@@ -411,7 +416,7 @@ def test_compile_session_dirty_tree_aborts_before_writing(
     assert exc_info.value.code == 1
     err = capsys.readouterr().err
     assert "suja" in err
-    assert not (tmp_path / ".claude" / "settings.json").is_file()
+    assert not (tmp_path / ".claude" / "settings.local.json").is_file()
 
 
 def test_compile_session_branch_per_contract_false_skips_branch(
@@ -493,7 +498,7 @@ def test_verify_subcommand_success_exits_zero(
     assert data["feature_id"] == "T-01"
     assert data["exit_code"] == 0
 
-    evidence_path = tmp_path / ".harness" / "evidence" / "T-01.json"
+    evidence_path = tmp_path / ".harness" / "evidence" / "exemplo-feature" / "T-01.json"
     assert evidence_path.is_file()
 
 
@@ -507,7 +512,7 @@ def test_verify_subcommand_failure_propagates_exit_code(
         main()
 
     assert exc_info.value.code == 3
-    evidence_path = tmp_path / ".harness" / "evidence" / "T-01.json"
+    evidence_path = tmp_path / ".harness" / "evidence" / "exemplo-feature" / "T-01.json"
     assert not evidence_path.is_file()
 
 
@@ -757,7 +762,7 @@ def test_audit_runtime_subcommand_exits_zero_when_healthy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _write_feature_list(tmp_path, _true_cmd())
-    _write(tmp_path / "claude-progress.md", "# Progresso\n")
+    _write(tmp_path / ".harness/progress.md", "# Progresso\n")
 
     monkeypatch.setattr(sys, "argv", ["harness", "audit-runtime", "--dir", str(tmp_path)])
     with pytest.raises(SystemExit) as exc_info:
@@ -904,3 +909,82 @@ def test_verify_subcommand_with_team_auto_submits_for_review(
     review_data = json.loads(review_path.read_text(encoding="utf-8"))
     assert review_data["status"] == "in_review"
     assert review_data["iteration"] == 1
+
+
+# ---------------------------------------------------------------------------
+# --dir tem que apontar para diretório existente (D1/D2 do teste isento)
+# ---------------------------------------------------------------------------
+
+def _run(monkeypatch: pytest.MonkeyPatch, *argv: str) -> int:
+    monkeypatch.setattr(sys, "argv", ["harness", *argv])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    return exc_info.value.code
+
+
+def test_analyze_with_nonexistent_dir_writes_nothing_and_exits_usage_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """D1: `analyze` criava a árvore inteira e gravava um `repo-profile.json`
+    vazio com exit 0 — um erro de digitação no `--dir` materializava um
+    projeto fantasma, e um path mutilado pelo shell escrevia DENTRO da raiz do
+    repo-alvo."""
+    ghost = tmp_path / "nao-existe"
+
+    code = _run(monkeypatch, "analyze", "--dir", str(ghost))
+
+    assert code == 2
+    assert not ghost.exists(), "o comando criou o diretório que devia recusar"
+    assert "não existe" in capsys.readouterr().err
+
+
+def test_audit_with_nonexistent_dir_does_not_emit_a_plausible_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """D2: `audit` devolvia score 60 e "rode `/harness-creator:init`" sobre um
+    caminho inexistente — laudo crível sobre nada, exit 0."""
+    code = _run(monkeypatch, "audit", "--dir", str(tmp_path / "nao-existe"))
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert captured.out == ""
+    assert "missing_harness_yaml" not in captured.out
+
+
+def test_every_dir_taking_subcommand_refuses_a_nonexistent_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A guarda é do parse, não de cada branch do dispatch: validar comando a
+    comando é o que deixou `compile` certo e `analyze`/`audit` errados."""
+    ghost = str(tmp_path / "nao-existe")
+    for command in ("analyze", "compile", "audit", "audit-runtime", "preflight",
+                    "compile-session", "supervise", "doctor", "status"):
+        assert _run(monkeypatch, command, "--dir", ghost) == 2, command
+    assert not Path(ghost).exists()
+
+
+def test_existing_dir_still_passes_through(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """O outro lado da guarda: diretório que existe segue o fluxo normal —
+    `analyze` num repo vazio continua devolvendo perfil com `unknowns`."""
+    code = _run(monkeypatch, "analyze", "--dir", str(tmp_path))
+
+    assert code == 0
+    assert (tmp_path / ".harness" / "repo-profile.json").is_file()
+    assert json.loads(capsys.readouterr().out)["unknowns"]
+
+
+def test_audit_exits_one_when_a_critical_finding_exists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`skills/audit/SKILL.md` promete "exit 1 = algum finding crítico", mas o
+    gate era só `score >= 60` — e UM critical custa exatamente 40, deixando o
+    score em 60. Um repo sem harness nenhum passava por qualquer gate de CI que
+    olhasse o exit code."""
+    code = _run(monkeypatch, "audit", "--dir", str(tmp_path))
+
+    report = json.loads(capsys.readouterr().out)
+    assert report["score"] == 60
+    assert any(f["severity"] == "critical" for f in report["findings"])
+    assert code == 1, "critical com score exatamente 60 saía 0"

@@ -1,0 +1,18 @@
+{
+  "contract": "spec-template-resumo-executivo",
+  "compiled_at": "2026-07-23T21:38:11.880823+00:00",
+  "compiled_with_version": "0.17.6",
+  "features": [
+    {
+      "id": "T-01",
+      "desc": "Template spec.md ganha secao Resumo executivo por padrao",
+      "files": [
+        "skills/plan/references/contract-templates.md"
+      ],
+      "verify_cmd": "python -c \"text = open('skills/plan/references/contract-templates.md', encoding='utf-8').read(); assert '## Resumo executivo' in text; assert text.index('## Resumo executivo') < text.index('## Escopo')\"",
+      "depends": [],
+      "cwd": null,
+      "passes": true
+    }
+  ]
+}

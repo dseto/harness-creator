@@ -4,9 +4,9 @@ Pivot do projeto (2026-07): o harness não executa mais tarefas — ele compila
 a especificação de governança para os mecanismos que o Claude Code já
 enforça sozinho:
 
-    .harness/harness.yaml  ──compile──►  .claude/settings.json   (permissions + hooks)
-                                         .harness/hooks/*.py     (PreToolUse standalone)
-                                         AGENTS.md               (bloco gerenciado)
+    .harness/harness.yaml  ──compile──►  .claude/settings.local.json  (permissions + hooks)
+                                         .harness/hooks/*.py          (PreToolUse standalone)
+                                         AGENTS.md                    (bloco gerenciado)
 
 Fontes de verdade reusadas da biblioteca (não duplicar tabelas):
 - `_POLICY_MATRIX`/`_ALWAYS_GATED` (governance/approval.py) — quais classes
@@ -15,10 +15,15 @@ Fontes de verdade reusadas da biblioteca (não duplicar tabelas):
   teste; o regex é EMBUTIDO no hook gerado (hooks são standalone/stdlib,
   não importam a biblioteca).
 
-Estratégia de merge do settings.json: nunca sobrescrever o que o usuário
-tem lá. As entradas gerenciadas pelo harness ficam registradas em
-`.harness/compiled-state.json`; recompilar remove as entradas ANTIGAS
-gerenciadas e insere as novas, preservando qualquer regra/hook manual.
+O destino é `settings.local.json`, não `settings.json`: o comando de hook
+compilado leva path ABSOLUTO (ver `_hook_entry`), então é dado desta máquina
+e nunca pode viajar no git — ver `harness.settings_paths` para a política e
+para a migração do alvo já instalado.
+
+Estratégia de merge: nunca sobrescrever o que o usuário tem lá. As entradas
+gerenciadas pelo harness ficam registradas em `.harness/compiled-state.json`;
+recompilar remove as entradas ANTIGAS gerenciadas e insere as novas,
+preservando qualquer regra/hook manual.
 """
 
 from __future__ import annotations
@@ -36,6 +41,7 @@ from harness.config import HarnessConfig
 from harness.governance.approval import _ALWAYS_GATED, _POLICY_MATRIX
 from harness.killswitch import DISABLED_CHECK_SRC
 from harness.patterns import _glob_to_regex
+from harness.settings_paths import prepare_managed_settings, write_managed_settings
 
 HARNESS_YAML = ".harness/harness.yaml"
 STATE_FILE = ".harness/compiled-state.json"
@@ -313,7 +319,37 @@ def compile_project(target_dir: Path) -> CompileResult:
         raise FileNotFoundError(
             f"{yaml_path} não existe — rode a skill /harness-creator:init primeiro."
         )
-    raw: dict[str, Any] = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+    try:
+        loaded = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+    except (yaml.YAMLError, ValueError) as exc:
+        # Único caminho do CLI que vazava traceback do PyYAML. `ValueError`
+        # entra junto porque o resolver de data levanta ValueError CRU (não
+        # YAMLError) quando os componentes não formam data real.
+        raise ValueError(
+            f"{yaml_path}: YAML inválido — {exc}\n"
+            "       corrija a sintaxe ou rode a skill /harness-creator:init "
+            "para regenerar o arquivo."
+        ) from exc
+
+    if loaded is None:
+        # `harness.yaml` vazio caía em `{}` e compilava os defaults do
+        # `HarnessConfig` — que são Python (`pytest`, `tests/**/*.py`). Num
+        # repo Angular/.NET isso protege um diretório inexistente e DEIXA DE
+        # proteger os testes reais: governança degradada em silêncio, com
+        # exit 0. A spec é a entrada do compilador; vazia, não há o que
+        # compilar.
+        raise ValueError(
+            f"{yaml_path} está vazio — não há governança para compilar. "
+            "Rode a skill /harness-creator:init para preencher a spec "
+            "(os defaults do schema são Python e não servem para todo repo)."
+        )
+    if not isinstance(loaded, dict):
+        raise ValueError(
+            f"{yaml_path}: o topo do YAML precisa ser um mapeamento "
+            f"(chaves `governance:`/`verification:`), não {type(loaded).__name__}."
+        )
+
+    raw: dict[str, Any] = loaded
     config = HarnessConfig.model_validate(raw)
     artifacts = render(config, target_dir, raw_keys=set(raw))
 
@@ -367,10 +403,11 @@ def _write_state(target_dir: Path, artifacts: Artifacts) -> None:
 
 
 def _merge_settings(target_dir: Path, artifacts: Artifacts) -> Path:
-    settings_path = target_dir / ".claude" / "settings.json"
-    settings: dict[str, Any] = {}
-    if settings_path.is_file():
-        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    # Destino machine-local (`.claude/settings.local.json`): as entradas
+    # abaixo carregam o path ABSOLUTO desta máquina no comando do hook, então
+    # não podem nascer no `settings.json` que o time versiona. `prepare_*`
+    # também garante os .gitignore tool-owned — ver `harness.settings_paths`.
+    settings_path, settings = prepare_managed_settings(target_dir)
 
     previous = _load_state(target_dir)
     prev_perms: dict[str, list[str]] = previous.get("managed_permissions", {})
@@ -399,10 +436,7 @@ def _merge_settings(target_dir: Path, artifacts: Artifacts) -> Path:
     kept_entries = [e for e in pre if not is_managed(e)]
     hooks["PreToolUse"] = kept_entries + artifacts.hook_entries
 
-    settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(
-        json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
+    write_managed_settings(settings_path, settings)
     return settings_path
 
 

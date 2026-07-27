@@ -5,10 +5,27 @@
 O backlog continua sendo a fonte do *conteúdo* de cada item (evidência,
 `file:line`, fix proposto, comando de verificação); este documento redefine
 **ordem, escopo e critério de pronto**, à luz de
-[`…correction.parecer-MAR.md`](ROADMAP-dogfood-savant-venv.correction.parecer-MAR.md).
+[`…correction.parecer-MAR.md`](ROADMAP-dogfood-savant-venv.correction.parecer-MAR.md)
+e da auditoria dos testes descrita na §6.
 
-Data: 2026-07-26. Mapeamento: `U1`…`U9` do parecer = `Item 1`…`Item 9` do
+Criado em 2026-07-26. Mapeamento: `U1`…`U9` do parecer = `Item 1`…`Item 9` do
 backlog; `U10` = seção "Decisão pendente"; `U11` = seção "Sequenciamento".
+
+## Estado da entrega
+
+| Onda | Itens | Onde | Estado |
+|---|---|---|---|
+| — | 1, 2 | [PR #27](https://github.com/dseto/harness-creator/pull/27) (merge `42f4eb1`) | ✅ em `main` |
+| **0** | 0 | [PR #28](https://github.com/dseto/harness-creator/pull/28) | ✅ entregue |
+| **1** | 1b, 5 | PR #28 | ✅ entregue |
+| — | B1, B2, B3 (auditoria) | PR #28 | ✅ entregue |
+| **2** | 3, 4 | — | pendente |
+| **3** | 6, 8, contagem na CLI | — | pendente |
+| **4** | 7 | — | pendente |
+| **5** | decidir B vs C | — | pendente |
+
+Suíte: **732 testes** verdes (658 antes da linha), `ruff check src tests`
+limpo.
 
 ---
 
@@ -23,23 +40,24 @@ ordem, porque repriorizar sobre premissa é herdar condicionalidade evitável.
 
 | # | Premissa do parecer | Onde | Resultado | Efeito |
 |---|---|---|---|---|
-| P1 | `harness disable` **não** é executável pelo agente | U9 premissa 1 | **CONFIRMADA, e mais forte** | Não é só ausência de allowlist: `disable` é **floor incondicional** ([`boundary_guard.py:450`](../../src/harness/boundary_guard.py#L450)), nas duas formas de invocação, mais o redirect que criaria o sentinel. O agente não consegue se auto-desativar. Os ~13 ciclos foram humanos. |
-| P2 | `harness task add-file` **não** aceita paths sob `.harness/` | U9 premissa 2 / nota subordinada de U3 | **FALSIFICADA** | `add_task_file` valida **só** backtick e vírgula ([`contract.py:335`](../../src/harness/contract.py#L335)). Aceita qualquer path. |
-| P3 | O deny de `Write .harness/harness.yaml` é por superfície de contrato | idem | **CONFIRMADA** | `DOCS_SURFACE_EXCLUDED_PATHS` só o tira da allowlist de `docs/**`; ele cai no check de superfície em [`boundary_guard.py:1875`](../../src/harness/boundary_guard.py#L1875). Não há deny incondicional. |
+| P1 | `harness disable` **não** é executável pelo agente | U9 premissa 1 | **CONFIRMADA, e mais forte** | Não é só ausência de allowlist: `disable` é **floor incondicional** (`boundary_guard.py`, `FLOOR_DISABLE_SEQUENCES`), nas duas formas de invocação, mais o redirect que criaria o sentinel. O agente não consegue se auto-desativar. Os ~13 ciclos foram humanos. |
+| P2 | `harness task add-file` **não** aceita paths sob `.harness/` | U9 premissa 2 / nota subordinada de U3 | **FALSIFICADA** | `add_task_file` validava **só** backtick e vírgula. Aceitava qualquer path. |
+| P3 | O deny de `Write .harness/harness.yaml` é por superfície de contrato | idem | **CONFIRMADA** | `DOCS_SURFACE_EXCLUDED_PATHS` só o tirava da allowlist de `docs/**`; ele caía no check de superfície. Não havia deny incondicional. |
 | P4 | O floor casa por **sequência de tokens** | U4 contra | **CONFIRMADA, com escopo menor que o alegado** | Ver §3. |
-| P5 | O `boundary_guard` gerado já é fail-closed internamente | U1 | **CONFIRMADA** (já era achado da fonte) | Mantém o diagnóstico de U1: a camada corrigível é o lançador. |
+| P5 | O `boundary_guard` gerado já é fail-closed internamente | U1 | **CONFIRMADA** | Mantém o diagnóstico de U1: a camada corrigível é o lançador. |
 
 P2 + P3 juntas são a hipótese que o parecer agendou como *"verificação barata,
 junto da onda 1"* e classificou como **"risco a verificar antes da onda 2 — não
 é tese verificada; é hipótese com teste definido"**. O teste foi executado. A
-hipótese se confirmou, e é pior do que o parecer supôs: a rota **não depende do
-Item 3**.
+hipótese se confirmou, e era pior do que o parecer supôs: a rota **não dependia
+do Item 3**.
 
 ---
 
-## 2. Item 0 (NOVO, P0) — rota de auto-ampliação de superfície de comando, aberta hoje
+## 2. Item 0 — rota de auto-ampliação de superfície de comando
 
-**Severidade: CRÍTICA. Bloqueia a onda 2. Independe de todo o resto do backlog.**
+**Severidade: CRÍTICA. Bloqueava a onda 2. Independia de todo o resto do
+backlog.**
 
 ### Prova de execução
 
@@ -71,43 +89,39 @@ enumera**. Por confissão da própria fonte em U9, isso inclui `ssh`, `scp`,
 
 1. **A razão 1 de U9 perde o fundamento comparativo.** A postura A não *criaria
    o primeiro* caminho de auto-ampliação de superfície de comando — ele já
-   existe. O `rejeitar` de U9 **se mantém**, e pela própria lógica do parecer,
+   existia. O `rejeitar` de U9 **se mantém**, e pela própria lógica do parecer,
    que antecipou este cenário: *"se a rota existir, o eixo B manda **fechá-la**,
    não sancionar uma segunda. Institucionalizar a perda do gate porque ele já
    vazou por acidente é o inverso do critério do pedido."* O fundamento passa
    de "cria o primeiro" para "amplia superfície de comando sem gate, seja a
    primeira via ou a segunda".
-2. **O Item 3 não cria o furo — encurta-o.** Com runtime-read, o passo 3
+2. **O Item 3 não criava o furo — encurtava-o.** Com runtime-read, o passo 3
    (`compile-session`) desaparece e a cadeia cai de 4 para 3 calls. Isso
    confirma a leitura do parecer (*"se a rota existir, ela é furo hoje,
-   independentemente de U3"*) e **justifica o bloqueio**: o Item 3 não pode
-   entrar antes do Item 0.
+   independentemente de U3"*) e **justificou o bloqueio** até o Item 0 entrar.
 3. **A hipótese do parecer sobre `disable` (P1) fica reforçada por contraste.**
    O repo *fechou* a via óbvia (auto-desativação é floor) e *deixou aberta* a
    via composta. É um furo de composição, não de postura: cada peça
    (`task add-file` liberado, superfície de contrato governando `.harness/`,
    `compile-session` liberado) é defensável isolada.
 
-### Correção exigida — duas camadas, deliberadamente
+### Correção entregue — duas camadas
 
-O furo existe porque uma única camada governa `.harness/`. Corrigir só uma
-repete o erro.
-
-1. **`add_task_file` recusa paths sob `.harness/`** que não sejam
-   `.harness/work/**` ou `.harness/scratch/**` (esses dois já são graváveis por
-   regra própria e nunca precisam de `add-file`). Erro explícito, mesmo padrão
-   da recusa de backtick/vírgula.
+1. **`add_task_file` recusa paths do plano de controle** na entrada, sem
+   escrever byte nenhum no `Plans.md`. Exceções: `.harness/work/**` e
+   `.harness/scratch/**`, que já são graváveis por regra própria e nunca
+   precisam de `add-file`.
 2. **`_evaluate_file` nega `.harness/**` incondicionalmente**, *antes* do check
-   de superfície, com as exceções `work/`/`scratch/` já existentes — de modo que
-   um `files[]` legado, ou qualquer outra via de entrada na superfície, não
-   reabra a rota. Posição: junto dos demais floors, não depois do contrato.
+   de superfície, com as mesmas exceções. Declarar o path em `files[]` não abre
+   exceção; vale sem contrato ativo e vale com contrato 100% `passes:true` (a
+   "aposentadoria" do guard não se aplica ao floor).
 
-Testes de regressão obrigatórios: a cadeia de 4 passos acima, asserindo `deny`
-no passo 1 **e** no passo 2, independentemente.
+Regressão fixada: a cadeia de 4 passos, asserindo `deny` no passo 1 **e** no
+passo 2 independentemente.
 
-**Fora de escopo deste item, registrado:** restringir `compile-session` ou
-`task` é a correção errada — ambos são o mecanismo legítimo do lifecycle. O
-gate certo é o conteúdo de `.harness/`.
+**Fora de escopo, registrado:** restringir `compile-session` ou `task` seria a
+correção errada — ambos são o mecanismo legítimo do lifecycle. O gate certo é o
+conteúdo de `.harness/`.
 
 ---
 
@@ -116,10 +130,9 @@ gate certo é o conteúdo de `.harness/`.
 ### Item 4 — o gap de floor é real, porém **menor** que o parecer descreve
 
 O parecer assume que `.venv/Scripts/git.exe push`, `uv run twine upload` e
-`python -m twine upload` escapariam do floor. `_has_sequence`
-([`boundary_guard.py:351`](../../src/harness/boundary_guard.py#L351)) casa a
-sequência **em qualquer posição** da lista de tokens, não só no prefixo.
-Execução real de `is_floor_bash_command`:
+`python -m twine upload` escapariam do floor. `_has_sequence` casa a sequência
+**em qualquer posição** da lista de tokens, não só no prefixo. Execução real de
+`is_floor_bash_command`:
 
 ```
 FLOOR   git push origin main
@@ -148,67 +161,62 @@ floor. Hoje elas morrem no default-deny da allowlist; depois do Item 4,
 morreriam só se a adaptação existir. Não é regressão introduzida pelo Item 4 —
 é uma pré-condição que o Item 4 torna load-bearing.
 
-### Item 2 — a objeção decisiva do parecer **já não se aplica ao código entregue**
+### Item 2 — a objeção decisiva do parecer não se aplicava ao código entregue
 
 O parecer avaliou o **texto** do backlog, que propunha executar o comando
 inferido com `shell=True`. O que foi entregue não executa nada: resolve o
-token-cabeça via `shutil.which` ([`preflight.py`](../../src/harness/preflight.py)),
-decisão tomada durante a implementação por violar a stop condition read-only de
-`run_preflight` — e registrada como correção no próprio backlog.
+token-cabeça (`preflight.py`), decisão tomada durante a implementação por
+violar a stop condition read-only de `run_preflight`.
 
 O contra decisivo de U2 (*"executa string inferida de repo cru no ponto de menor
-proteção"*) portanto **não tem objeto**. O que sobra da adaptação é o resíduo
-que a implementação já documenta em código: `shutil.which` usa o PATH do
-processo do preflight, que pode divergir do PATH do shell do agente. Trocar por
-`where`/`command -v` **no shell-alvo** fecharia isso.
+proteção"*) portanto **não tinha objeto**. O resíduo que sobrava — `which` usa
+o PATH do processo do preflight, não o do shell do agente — deixou de ser
+"limite aceitável" quando a auditoria da §6 mostrou que ele **anulava o item no
+cenário que o motivou**. Ver **B3**.
 
-Reclassificação: **Item 2 = atendido**; resíduo vira **Item 2b (LOW)**, não
-bloqueante, porque o desfecho é WARNING e o pior caso é um aviso impreciso —
-não uma decisão de governança errada.
+### Item 1 — a adaptação do parecer estava certa
 
-### Item 1 — a adaptação do parecer **continua devendo**, e o parecer está certo
-
-Foi entregue bake de `sys.executable` + check no `doctor`. O parecer diz, com
-razão, que isso *"não fecha o fail-open, só muda a causa dele"*: se o
+Foi entregue no PR #27 o bake de `sys.executable` + check no `doctor`. O parecer
+disse, com razão, que isso *"não fecha o fail-open, só muda a causa dele"*: se o
 interpretador bakeado sumir, o processo continua morrendo com exit ≠ 2 e a tool
-call continua passando. E o contra de frequência é real — bakear caminho
+call continua passando. E o contra de frequência era real — bakear caminho
 absoluto troca "PATH divergente" (acidente) por "venv recriado" (rotina) como
 gatilho.
 
-Resíduo: **Item 1b — lançador que sai com `exit 2` quando não resolve o
-interpretador.** Mantido como o item de maior severidade da onda 1. Só ele
-converte fail-open em fail-closed, e o Item 8 depende dele (U8: a neutralidade
-de eixo B do Item 8 é condicional a o guard efetivamente rodar).
+Resíduo entregue como **Item 1b**: sufixo `|| exit 2` no próprio `command`.
+Só ele converte fail-open em fail-closed. O Item 8 depende dele (U8: a
+neutralidade de eixo B do Item 8 é condicional a o guard efetivamente rodar).
 
 ---
 
-## 4. Nova ordenação
+## 4. Ordenação
 
 Critério mantido do backlog — `(severidade, fricção eliminada ÷ esforço)` — com
-as três correções que o parecer impõe: promover o Item 5, adiar o Item 3 até o
+as três correções que o parecer impôs: promover o Item 5, adiar o Item 3 até o
 Item 0, e instrumentar contagem antes do gate de decisão.
 
 | Onda | Itens | Racional |
 |---|---|---|
-| **0** ✅ | **Item 0** (novo) | Rota de auto-ampliação provada por execução. Bloqueava a onda 2. **Entregue** — cadeia de 4 passos reexecutada contra o guard corrigido, negada nas duas camadas. |
-| **1** ✅ | **Item 1b** · **Item 5** (promovido) · *Item 2b (LOW, adiado)* | 1b é pré-condição do eixo B e do Item 8. Item 5 é esforço S, mata um ciclo documentado e **não move nenhuma regra** — o parecer aponta corretamente que deixá-lo na onda 3 contraria o critério declarado. **Entregue** — suíte 721 verde, ruff limpo. |
+| **0** ✅ | **Item 0** (novo) | Rota de auto-ampliação provada por execução. Bloqueava a onda 2. Cadeia de 4 passos reexecutada contra o guard corrigido, negada nas duas camadas. |
+| **1** ✅ | **Item 1b** · **Item 5** (promovido) · *Item 2b (LOW, absorvido por B3)* | 1b é pré-condição do eixo B e do Item 8. Item 5 é esforço S, mata um ciclo documentado e **não move nenhuma regra** — o parecer apontou corretamente que deixá-lo na onda 3 contrariava o critério declarado. |
 | **2** | **Item 3** (+ validação de gramática no `compile-session`) · **Item 4** (+ floor sobre a forma normalizada, escopo §3; + definição de `uv run --with` fechada **antes** de implementar) | O volume da fricção. Desbloqueado pela onda 0. |
 | **3** | **Item 6** (+ nota de desenho) · **Item 8** · **instrumentação de contagem na CLI** | Item 8 só aqui: depende do Item 1b. A contagem vive em `disable`/`enable`/`compile-session` — os ciclos ocorrem com o harness **desligado**, então contador em hook mediria a janela errada. |
 | **4** | **Item 7** (escapes rederivados, regra de scriptblock uniforme, redirecionamento tratado) | Mantido na onda 4, mas ver a ressalva do parecer: fricção *observada* subestima um caminho abandonado por inutilizável. |
-| **5** | Gate de medição · decisão **B vs C** | Item 9 **rejeitado**, agora com fundamento reforçado (§2). A postura A sai da mesa; o que resta é escolha de muito menor consequência. |
+| **5** | Gate de medição · decisão **B vs C** | Item 9 **rejeitado**, com fundamento reforçado (§2). A postura A sai da mesa; o que resta é escolha de muito menor consequência. |
 
 ### Mudanças em relação ao sequenciamento do backlog
 
 - **Item 0 criado** e posto à frente de tudo — não existia no backlog nem no
-  parecer como unidade; nasce da verificação que o parecer agendou.
+  parecer como unidade; nasceu da verificação que o parecer agendou.
 - **Item 5 promovido** da onda 3 para a onda 1 (correção do parecer, U11).
-- **Item 3 condicionado** ao Item 0 (novo; consequência do §2.2).
-- **Item 2 encerrado**, resíduo rebaixado a 2b LOW (novo; consequência do §3).
-- **Item 1 reaberto** como 1b (correção do parecer, U1).
+- **Item 3 condicionado** ao Item 0 (consequência do §2.2) — **desbloqueado**.
+- **Item 2 encerrado**, resíduo rebaixado a 2b LOW (§3) e depois **reaberto e
+  fechado como B3** (§6), quando a auditoria mostrou que o resíduo não era
+  cosmético.
+- **Item 1 reaberto** como 1b (correção do parecer, U1) e entregue.
 - **Onda 5 reduzida** a B vs C (correção do parecer, U10) — e a
   condicionalidade que o parecer anexava a essa redução **caiu**: ela dependia
-  de `disable` não ser executável pelo agente, o que P1 confirmou por leitura de
-  código.
+  de `disable` não ser executável pelo agente, o que P1 confirmou.
 - **Contagem instrumentada** entrou na onda 3 (correção do parecer, U10).
 
 ---
@@ -217,12 +225,12 @@ Item 0, e instrumentar contagem antes do gate de decisão.
 
 | Item | Parecer | Após verificação | Estado |
 |---|---|---|---|
-| **0** (novo) | — | **implementar, P0** | ✅ **ENTREGUE** |
-| 1 | `adaptar` | `adaptar` — confirmado | ✅ **ENTREGUE** (1 + 1b) |
-| 2 | `adaptar` | **`implementar`** — objeção sem objeto | ✅ **ENTREGUE**; 2b LOW pendente |
-| 3 | `adaptar` | `adaptar` + **desbloqueado** (Item 0 entregue) | pendente |
+| **0** (novo) | — | **implementar, P0** | ✅ entregue (PR #28) |
+| 1 | `adaptar` | `adaptar` — confirmado | ✅ entregue (#27 + 1b no #28) |
+| 2 | `adaptar` | **`implementar`** — objeção sem objeto; resíduo virou B3 | ✅ entregue (#27 + B3 no #28) |
+| 3 | `adaptar` | `adaptar` + **desbloqueado** | pendente |
 | 4 | `adaptar` | `adaptar`, **escopo reduzido** | pendente |
-| 5 | `implementar` | `implementar` — **promovido à onda 1** | ✅ **ENTREGUE** |
+| 5 | `implementar` | `implementar` — **promovido à onda 1** | ✅ entregue (PR #28) |
 | 6 | `implementar` | `implementar` | pendente |
 | 7 | `adaptar` | `adaptar` | pendente |
 | 8 | `implementar` | `implementar`, **depende do 1b** | pendente |
@@ -232,51 +240,95 @@ O `rejeitar` do Item 9 deixa de ser condicional: as duas evidências que o
 parecer nomeou como falsificadoras foram procuradas. P1 **não** falsificou (o
 agente não executa `disable`). P2 falsificou o "primeiro" — e o parecer já havia
 declarado que, nesse mundo, o veredicto se re-funda em *"fechar a rota, não
-sancionar uma segunda"*. É o que o Item 0 faz.
+sancionar uma segunda"*. É o que o Item 0 fez.
 
 ---
 
 ## 6. Auditoria dos testes pelo comitê MAR (2026-07-26, pós-entrega)
 
-Depois de entregues as ondas 0 e 1, o comitê MAR foi rodado sobre uma
-pergunta distinta da do parecer anterior: **os testes escritos verificam que
-os problemas foram resolvidos, ou apenas que o código novo funciona?**
+Com as ondas 0 e 1 entregues e **721 testes verdes**, o comitê MAR foi rodado
+sobre uma pergunta distinta da do parecer anterior: **os testes verificam que os
+problemas foram resolvidos, ou apenas que o código novo funciona?**
 
-Veredicto: **nota 2, REESCREVER**. As três personas convergiram para 2 após
-a rodada de debate (4/2/3 → 2/2/2). Trilha em
+Etapa `testes_vs_problemas`, standalone (sem gate anti-cascata), threshold 4.0
+assumido por ausência de `mar/config.toml`. Trilha completa em
 `…\scratchpad\mar\etapa_testes_vs_problemas\`.
 
-Três defeitos de código foram descobertos pela auditoria — nenhum deles
-visível na suíte verde de 721 testes:
+**Veredicto: `nota_final` 2, `decisao` REESCREVER.** As três personas cegas
+convergiram após a rodada de debate: 4 / 2 / 3 → **2 / 2 / 2**. O Verificador
+desceu de 4 para 2 ao reconhecer que sua régua media fidelidade descritiva, não
+poder de detecção — que é a régua do pedido.
+
+### Três defeitos de código, nenhum visível na suíte verde
 
 | # | Defeito | Estado |
 |---|---|---|
-| **B1** | `is_floor_control_plane_path` case-sensitive e sem match de path absoluto — a cadeia do Item 0 reabre com `.Harness/` no Windows | ✅ **CORRIGIDO** |
-| **B2** | Nenhum teste de instalação asserta o sufixo `\|\| exit 2` no `settings.json` gravado; só o unitário de `hook_command()` | ✅ **CORRIGIDO** |
-| **B3** | Item 2: preflight rodado com venv ATIVADO resolve `pytest` dentro do venv → PASS, enquanto a Bash tool do agente (sem ativação) não resolve — o cenário exato do dogfood passa | ✅ **CORRIGIDO** |
+| **B1** | `is_floor_control_plane_path` era prefixo case-sensitive e não casava path absoluto — a cadeia do Item 0 reabria com `.Harness/` no Windows | ✅ **CORRIGIDO** |
+| **B2** | Nenhum teste de instalação assertava o sufixo `\|\| exit 2` no `settings.json` gravado; só o unitário de `hook_command()` | ✅ **CORRIGIDO** |
+| **B3** | Preflight rodado com venv **ativado** resolve `pytest` dentro do venv → PASS, enquanto a Bash tool do agente (sem ativação) não resolve — o cenário exato do dogfood passava | ✅ **CORRIGIDO** |
 
-**O que B1 ensina, e que vale mais que o fix.** As duas camadas do Item 0
-foram construídas deliberadamente separadas, com a justificativa escrita de
-que "uma camada só reproduziria o erro que criou o furo". Mas ambas chamam o
-**mesmo predicado** — então um defeito no predicado derruba as duas juntas.
-Não eram duas barreiras: eram uma barreira instanciada duas vezes. O Item 0
-reproduziu o furo de composição um andar abaixo daquele que existia para
+**B1, provado por execução:** `add-file .Harness/harness.yaml` foi **aceito** e
+o `Write` subsequente devolveu **allow**, com `.harness/harness.yaml` minúsculo
+sendo `deny` no mesmo repo. No Windows os dois são o mesmo arquivo
+(`Path.resolve()` confirma). Correção: match por **segmento**,
+**case-insensitive**, com `\` convertido **antes** do `normpath`.
+
+**B2:** dois testes sobre os três instaladores, o segundo de **desfecho** — pega
+o comando gravado, corrompe o script do hook e exige exit 2. A quebra é erro de
+*sintaxe*, não script ausente: `python script_ausente.py` já sai 2 pelo próprio
+Python e não discriminaria nada. Discriminação confirmada por teste de mutação.
+
+**B3:** regra nova, independente de qual terminal rodou o preflight — repo COM
+venv + comando não ancorado nele → WARNING. Lançadores que gerenciam o próprio
+ambiente (`uv run`, `poetry run`, `tox`) ficam de fora. Correção adicional
+descoberta ao escrever o teste do simétrico: `head` em forma de caminho precisa
+ser resolvido por existência em disco, não por `shutil.which` — senão o usuário
+que seguisse a mensagem de fix receberia um WARNING impossível de silenciar.
+
+### O que B1 ensina, e que vale mais que o fix
+
+As duas camadas do Item 0 foram construídas deliberadamente separadas, com a
+justificativa escrita de que *"uma camada só reproduziria o erro que criou o
+furo"*. Mas ambas chamam o **mesmo predicado** — um defeito nele derruba as duas
+juntas. Não eram duas barreiras: eram **uma barreira instanciada duas vezes**. O
+Item 0 reproduziu o furo de composição um andar abaixo daquele que existia para
 reparar. Separação de camadas só vale se as camadas puderem falhar de forma
 independente.
 
-**E a evidência que não protegeu nada.** A "prova de execução real" usada
-para fechar o Item 0 percorreu `.harness/` minúsculo e passou — com o furo
-aberto, na mesma máquina, no mesmo commit. Execução manual é evidência de
-entrega, não guarda de regressão, e não cobre nem o presente quando a
-variante testada é escolhida por quem escreveu o fix.
+### A evidência que não protegeu nada
 
-Erros de método na aferição original, registrados: respondeu-se
-sistematicamente *"o teste falha se o código for revertido?"* quando a
-pergunta era *"se o problema voltar?"*; a segunda pergunta do critério
-("existe caminho pelo qual o problema ainda ocorre sem teste falhar?") nunca
-foi enunciada, só reclassificada como "limite conhecido"; e o argumento
-"fechados os passos 1 e 2, os passos 3 e 4 são inalcançáveis" era inválido —
-o bypass por caixa o refutou na prática.
+A "prova de execução real" usada para fechar o Item 0 percorreu `.harness/`
+minúsculo e passou — **com o furo aberto, na mesma máquina, no mesmo commit**.
+Execução manual é evidência de entrega, não guarda de regressão, e não cobre nem
+o presente quando a variante testada é escolhida por quem escreveu o fix.
+
+### Erros de método na aferição original
+
+- Respondeu-se sistematicamente *"o teste falha se o código for revertido?"*
+  quando a pergunta era *"se o problema voltar?"*.
+- A segunda pergunta do critério — *"existe caminho pelo qual o problema ainda
+  ocorre sem teste falhar?"* — nunca foi enunciada, só reclassificada como
+  "limite conhecido", que é concessão descritiva, não veredicto.
+- O argumento *"fechados os passos 1 e 2, os passos 3 e 4 são inalcançáveis"*
+  era inválido: exigia premissas de completude não estabelecidas, e o bypass por
+  caixa o refutou na prática.
+
+### Falha de setup da própria auditoria, registrada
+
+O `pedido_original.md` se declarava completo e **omitiu
+`tests/test_stop_hook.py`** do dump de código, induzindo as três personas ao
+mesmo falso-positivo ("não há teste de instalação do stop_hook"). O teste
+existe. A alegação foi tratada como correta no mérito pelo Juiz.
+
+### Estado do gate
+
+A etapa ficou com os **achados endereçados, não com o gate fechado**: os três
+defeitos foram corrigidos, mas não houve tentativa 2 do comitê. Observação do
+Juiz que vale reter: o rascunho atingiria ≥ 4 **sem nenhuma mudança de código**,
+bastando responder honestamente "não" nos Itens 0 e 2. O que reprovou não foi a
+existência das lacunas — foi afirmar que elas não existiam no item P0.
+
+---
 
 ## 7. Observação de método que sobrevive
 

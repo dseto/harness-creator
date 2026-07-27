@@ -97,12 +97,18 @@ def _write_json(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+#: Slug do contrato dos projetos sintéticos — a evidência é escopada por ele
+#: (`.harness/evidence/<contrato>/<id>.json`).
+CONTRACT = "fase4-outcomes"
+
+
 def _make_contract_project(tmp_path: Path, feature_id: str = "T-01") -> Path:
     """Projeto sintético mínimo com um contrato de 1 feature (passes=false)."""
     project = tmp_path / "proj"
     project.mkdir(exist_ok=True)
     verify_cmd = f'"{sys.executable}" -c "import sys; sys.exit(0)"'
     _write_json(project / ".harness" / "feature_list.json", {
+        "contract": CONTRACT,
         "features": [
             {
                 "id": feature_id,
@@ -129,8 +135,9 @@ def _write_team_manifest(project: Path, roles: list[str] | None = None) -> None:
 
 
 def _write_evidence(project: Path, feature_id: str, recorded_at: str) -> None:
-    _write_json(project / ".harness" / "evidence" / f"{feature_id}.json", {
+    _write_json(project / ".harness" / "evidence" / CONTRACT / f"{feature_id}.json", {
         "feature_id": feature_id,
+        "contract": CONTRACT,
         "verify_cmd": "echo ok",
         "recorded_at": recorded_at,
         "exit_code": 0,
@@ -554,7 +561,7 @@ def test_cli_verify_auto_submits_review_when_team_compiled(tmp_path):
 
     # Evidência gravada (comportamento Fase 3 intacto)...
     evidence = json.loads(
-        (project / ".harness" / "evidence" / "T-01.json").read_text(encoding="utf-8")
+        (project / ".harness" / "evidence" / CONTRACT / "T-01.json").read_text(encoding="utf-8")
     )
     assert evidence["feature_id"] == "T-01"
     assert evidence["exit_code"] == 0
@@ -575,7 +582,7 @@ def test_cli_verify_without_team_does_not_create_review(tmp_path):
 
     proc = _run_cli(["verify", "T-01", "--dir", str(project)], cwd=PLUGIN_ROOT)
     assert proc.returncode == 0, proc.stderr
-    assert (project / ".harness" / "evidence" / "T-01.json").is_file()
+    assert (project / ".harness" / "evidence" / CONTRACT / "T-01.json").is_file()
     assert not (project / ".harness" / "review").exists(), (
         "sem manifesto de time, verify não deveria criar registro de revisão"
     )

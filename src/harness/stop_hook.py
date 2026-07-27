@@ -39,8 +39,9 @@ NÃO assumido a partir de `PreToolUse`/`SessionStart`:
     control; exit code 2 bloquearia (não usado aqui); outros exit codes são
     erro não-bloqueante. Este hook sempre sai com 0.
 
-Merge com `.claude/settings.json`: registra em `hooks.Stop` (mesma técnica
-de merge não-destrutivo de `session_start.py`). O estado do que é
+Merge com `.claude/settings.local.json` (machine-local: o comando registrado
+leva path absoluto — ver `harness.settings_paths`): registra em `hooks.Stop`
+(mesma técnica de merge não-destrutivo de `session_start.py`). O estado do que é
 gerenciado por ESTE módulo fica em `.harness/compiled-state-session.json`
 (mesmo arquivo de `session_start.py`/`session_permissions.py`/
 `boundary_guard.py`), sob chave própria `stop_hook_command`, preservando
@@ -64,12 +65,17 @@ from typing import Any
 
 from harness.hook_launcher import hook_command
 from harness.killswitch import DISABLED_CHECK_SRC
-from harness.verify import EVIDENCE_DIR, compute_files_hash
+from harness.settings_paths import (
+    MANAGED_SETTINGS_FILE,
+    prepare_managed_settings,
+    write_managed_settings,
+)
+from harness.verify import compute_files_hash, evidence_path
 
 HOOKS_DIR = ".harness/hooks"
 HOOK_FILENAME = "stop_hook.py"
 SESSION_STATE_FILE = ".harness/compiled-state-session.json"
-SETTINGS_FILE = ".claude/settings.json"
+SETTINGS_FILE = MANAGED_SETTINGS_FILE
 STATE_KEY = "stop_hook_command"
 
 
@@ -111,23 +117,29 @@ def is_feature_in_progress(feature: dict[str, Any], target_dir: Path) -> bool:
     return bool(proc.stdout.strip())
 
 
-def needs_verification(feature: dict[str, Any], target_dir: Path) -> bool:
+def needs_verification(
+    feature: dict[str, Any], target_dir: Path, contract: str = ""
+) -> bool:
     """`True` se `feature` está em progresso (ver `is_feature_in_progress`) E
-    a verificação nunca rodou (`.harness/evidence/<id>.json` ausente) ou está
-    desatualizada (`files_hash` gravado != hash atual dos `files[]`, via
-    `harness.verify.compute_files_hash` — nunca reimplementado aqui).
+    a verificação nunca rodou (`.harness/evidence/<contrato>/<id>.json`
+    ausente) ou está desatualizada (`files_hash` gravado != hash atual dos
+    `files[]`, via `harness.verify.compute_files_hash` — nunca reimplementado
+    aqui).
+
+    `contract` escopa a evidência: sem ele, a prova de um contrato anterior
+    (que também tem um `T-01`) faria esta função dizer que não falta nada.
     """
     if not is_feature_in_progress(feature, target_dir):
         return False
 
     target_dir = Path(target_dir).resolve()
     feature_id = feature.get("id", "")
-    evidence_path = target_dir / EVIDENCE_DIR / f"{feature_id}.json"
-    if not evidence_path.is_file():
+    path = evidence_path(target_dir, contract, feature_id)
+    if not path.is_file():
         return True
 
     try:
-        evidence = json.loads(evidence_path.read_text(encoding="utf-8-sig"))
+        evidence = json.loads(path.read_text(encoding="utf-8-sig"))
     except (json.JSONDecodeError, OSError):
         return True
 
@@ -172,6 +184,7 @@ from pathlib import Path
 
 FEATURE_LIST_FILE = ".harness/feature_list.json"
 EVIDENCE_DIR = ".harness/evidence"
+UNSCOPED_EVIDENCE_DIR = "_sem-contrato"
 
 
 def compute_files_hash(files, target_dir):
@@ -211,12 +224,13 @@ def is_feature_in_progress(feature, target_dir):
     return bool(proc.stdout.strip())
 
 
-def needs_verification(feature, target_dir):
+def needs_verification(feature, target_dir, contract=""):
     if not is_feature_in_progress(feature, target_dir):
         return False
 
     feature_id = feature.get("id", "")
-    evidence_path = target_dir / EVIDENCE_DIR / (feature_id + ".json")
+    slug = (contract or "").strip() or UNSCOPED_EVIDENCE_DIR
+    evidence_path = target_dir / EVIDENCE_DIR / slug / (feature_id + ".json")
     if not evidence_path.is_file():
         return True
 
@@ -233,18 +247,19 @@ def needs_verification(feature, target_dir):
 def _load_features(cwd):
     path = cwd / FEATURE_LIST_FILE
     if not path.is_file():
-        return []
+        return [], ""
     try:
         data = json.loads(path.read_text(encoding="utf-8-sig"))
     except (json.JSONDecodeError, OSError):
-        return []
-    return data.get("features") or []
+        return [], ""
+    return data.get("features") or [], str(data.get("contract") or "")
 
 
 def build_feedback(cwd):
+    features, contract = _load_features(cwd)
     pending_ids = []
-    for feature in _load_features(cwd):
-        if needs_verification(feature, cwd):
+    for feature in features:
+        if needs_verification(feature, cwd, contract):
             pending_ids.append(feature.get("id", "?"))
 
     if not pending_ids:
@@ -254,7 +269,7 @@ def build_feedback(cwd):
     return (
         "Feature(s) em progresso sem verificacao atualizada: " + ids + ". "
         "Rode `harness verify <id>` antes de encerrar a sessao para gravar "
-        "a evidencia em .harness/evidence/<id>.json."
+        "a evidencia em .harness/evidence/<contrato>/<id>.json."
     )
 
 
@@ -317,8 +332,7 @@ def install_stop_hook(target_dir: Path) -> Path:
     state = _load_json(state_path)
     prev_command = state.get(STATE_KEY)
 
-    settings_path = target_dir / SETTINGS_FILE
-    settings = _load_json(settings_path)
+    settings_path, settings = prepare_managed_settings(target_dir)
 
     hooks = settings.setdefault("hooks", {})
     entries: list[dict[str, Any]] = hooks.get("Stop", [])
@@ -340,10 +354,7 @@ def install_stop_hook(target_dir: Path) -> Path:
     })
     hooks["Stop"] = kept_entries
 
-    settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(
-        json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
+    write_managed_settings(settings_path, settings)
 
     # Preserva quaisquer outras chaves já presentes (ex.: escritas por
     # session_start.py/session_permissions.py/boundary_guard.py) — só

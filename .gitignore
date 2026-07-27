@@ -1,9 +1,23 @@
 __pycache__/
 *.pyc
 .venv/
-.harness/*
-!.harness/harness.yaml
 *.egg-info/
 dist/
 .pytest_cache/
 .ruff_cache/
+
+# .harness/ e .claude/ NAO aparecem aqui de proposito.
+#
+# A politica canonica de versionamento esta na Secao 3 de
+# docs/project/AUDIT-footprint-raiz-e-versionamento-2026-07-26.md: especificacao,
+# contrato e prova sao versionados; saida de compilacao que carrega dado de
+# maquina e machine-local. Quem aplica essa regra sao os .gitignore tool-owned
+# que o proprio produto gera (.harness/.gitignore e .claude/.gitignore, via
+# harness.settings_paths.ensure_machine_local_gitignores) — este arquivo nao
+# duplica as linhas de la, senao a politica passa a viver em duas fontes que
+# divergem (foi exatamente o achado F4 do laudo).
+#
+# A regra antiga (`.harness/*` + `!.harness/harness.yaml`) tinha dois defeitos:
+# jogava fora spec/Plans/evidencia — que a politica manda versionar — e ignorava
+# o proprio `.harness/.gitignore`, ou seja, o repo ignorava o arquivo que carrega
+# as regras.

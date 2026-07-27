@@ -142,7 +142,8 @@ def test_feature_in_progress_with_up_to_date_evidence_signals_nothing(tmp_path: 
     feature = _make_feature_with_uncommitted_diff(tmp_path)
     _write_feature_list(tmp_path, [feature])
 
-    evidence_dir = tmp_path / ".harness" / "evidence"
+    # Evidência escopada por contrato: "exemplo" é o slug do _write_feature_list.
+    evidence_dir = tmp_path / ".harness" / "evidence" / "exemplo"
     evidence_dir.mkdir(parents=True, exist_ok=True)
     current_hash = compute_files_hash(feature["files"], tmp_path)
     (evidence_dir / "T-01.json").write_text(
@@ -165,7 +166,8 @@ def test_feature_in_progress_with_stale_evidence_signals(tmp_path: Path) -> None
     feature = _make_feature_with_uncommitted_diff(tmp_path)
     _write_feature_list(tmp_path, [feature])
 
-    evidence_dir = tmp_path / ".harness" / "evidence"
+    # Evidência escopada por contrato: "exemplo" é o slug do _write_feature_list.
+    evidence_dir = tmp_path / ".harness" / "evidence" / "exemplo"
     evidence_dir.mkdir(parents=True, exist_ok=True)
     (evidence_dir / "T-01.json").write_text(
         json.dumps({
@@ -226,18 +228,20 @@ def test_needs_verification_true_when_evidence_missing(tmp_path: Path) -> None:
 
 def test_needs_verification_false_when_evidence_hash_matches(tmp_path: Path) -> None:
     feature = _make_feature_with_uncommitted_diff(tmp_path)
-    evidence_dir = tmp_path / ".harness" / "evidence"
+    # Evidência escopada por contrato: "exemplo" é o slug do _write_feature_list.
+    evidence_dir = tmp_path / ".harness" / "evidence" / "exemplo"
     evidence_dir.mkdir(parents=True, exist_ok=True)
     current_hash = compute_files_hash(feature["files"], tmp_path)
     (evidence_dir / "T-01.json").write_text(
         json.dumps({"feature_id": "T-01", "files_hash": current_hash}), encoding="utf-8"
     )
-    assert needs_verification(feature, tmp_path) is False
+    assert needs_verification(feature, tmp_path, "exemplo") is False
 
 
 def test_needs_verification_true_when_evidence_hash_stale(tmp_path: Path) -> None:
     feature = _make_feature_with_uncommitted_diff(tmp_path)
-    evidence_dir = tmp_path / ".harness" / "evidence"
+    # Evidência escopada por contrato: "exemplo" é o slug do _write_feature_list.
+    evidence_dir = tmp_path / ".harness" / "evidence" / "exemplo"
     evidence_dir.mkdir(parents=True, exist_ok=True)
     (evidence_dir / "T-01.json").write_text(
         json.dumps({"feature_id": "T-01", "files_hash": "sha256:desatualizado"}), encoding="utf-8"
@@ -262,7 +266,9 @@ def test_install_writes_hook_file(tmp_path: Path) -> None:
 
 def test_install_registers_hook_under_stop_event_without_matcher(tmp_path: Path) -> None:
     install_stop_hook(tmp_path)
-    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads(
+        (tmp_path / ".claude" / "settings.local.json").read_text(encoding="utf-8")
+    )
     assert "Stop" in settings["hooks"]
     assert "PreToolUse" not in settings["hooks"]
     entry = settings["hooks"]["Stop"][0]
@@ -274,14 +280,16 @@ def test_install_is_idempotent_no_duplicate_entries(tmp_path: Path) -> None:
     install_stop_hook(tmp_path)
     install_stop_hook(tmp_path)
 
-    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads(
+        (tmp_path / ".claude" / "settings.local.json").read_text(encoding="utf-8")
+    )
     assert len(settings["hooks"]["Stop"]) == 1
 
 
 def test_install_bakes_absolute_interpreter(tmp_path: Path) -> None:
     # Item 1 do backlog do dogfood Savant.Backend — ver harness.hook_launcher.
     install_stop_hook(tmp_path)
-    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads((tmp_path / ".claude" / "settings.local.json").read_text(encoding="utf-8"))
     command = settings["hooks"]["Stop"][0]["hooks"][0]["command"]
     assert sys.executable in command
     assert not command.startswith("python ")
@@ -290,7 +298,7 @@ def test_install_bakes_absolute_interpreter(tmp_path: Path) -> None:
 def test_install_replaces_legacy_command_format_without_duplicating(tmp_path: Path) -> None:
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir()
-    (claude_dir / "settings.json").write_text(json.dumps({
+    (claude_dir / "settings.local.json").write_text(json.dumps({
         "hooks": {"Stop": [
             {"hooks": [{
                 "type": "command",
@@ -301,7 +309,7 @@ def test_install_replaces_legacy_command_format_without_duplicating(tmp_path: Pa
 
     install_stop_hook(tmp_path)
 
-    settings = json.loads((claude_dir / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads((claude_dir / "settings.local.json").read_text(encoding="utf-8"))
     assert len(settings["hooks"]["Stop"]) == 1
     assert sys.executable in settings["hooks"]["Stop"][0]["hooks"][0]["command"]
 
@@ -335,7 +343,7 @@ def test_install_preserves_sibling_state_keys(tmp_path: Path) -> None:
 def test_install_preserves_manual_settings_and_other_hook_events(tmp_path: Path) -> None:
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir(parents=True, exist_ok=True)
-    (claude_dir / "settings.json").write_text(json.dumps({
+    (claude_dir / "settings.local.json").write_text(json.dumps({
         "permissions": {"allow": ["Bash(git status)"]},
         "hooks": {
             "SessionStart": [{"matcher": "*", "hooks": [{"type": "command", "command": "python session_start.py"}]}],
@@ -344,7 +352,7 @@ def test_install_preserves_manual_settings_and_other_hook_events(tmp_path: Path)
 
     install_stop_hook(tmp_path)
 
-    settings = json.loads((claude_dir / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads((claude_dir / "settings.local.json").read_text(encoding="utf-8"))
     assert settings["permissions"]["allow"] == ["Bash(git status)"]
     assert len(settings["hooks"]["SessionStart"]) == 1
     assert "Stop" in settings["hooks"]

@@ -39,6 +39,25 @@
 - Erros de ferramenta são estruturados: leia `stderr` e `recovery_hints`
   antes de repetir um comando que falhou.
 
+## O que entra no git
+
+Fonte canônica: **Seção 3** de
+`docs/project/AUDIT-footprint-raiz-e-versionamento-2026-07-26.md`. Não
+reescreva a política aqui nem em outro documento com palavras próprias —
+foi exatamente assim que ela passou a existir em duas versões contraditórias
+(achado F4 daquele laudo). Precisou decidir sobre um artefato novo? Aplique o
+critério de decisão da Seção 3 e acrescente a linha **lá**.
+
+Em uma frase: *especificação, contrato e prova são versionados; saída de
+compilação que carrega dado de máquina é machine-local e regenerada por
+`compile`*.
+
+Consequência operacional para você, agente: as regras de ignore são escritas
+pelo próprio produto em `.harness/.gitignore` e `.claude/.gitignore` (via
+`harness.settings_paths.ensure_machine_local_gitignores`). **Nunca edite o
+`.gitignore` da raiz para acomodar artefato do harness**, e nunca duplique
+nele uma linha que já vive num desses dois arquivos.
+
 <!-- harness:begin -->
 ## Governança do Harness (gerado — edite .harness/harness.yaml e rode `harness compile`)
 
@@ -65,8 +84,8 @@ sempre exige aprovação humana.
 ## Agent Session Lifecycle (gerado — 17 passos, docs/project/ROADMAP.md Fase 2)
 
 1. Ler `AGENTS.md`.
-2. Rodar `init.sh`/`init.ps1` (deps + health check do profile).
-3. Ler `claude-progress.md`.
+2. Rodar `.harness/init.sh`/`.harness/init.ps1` (deps + health check do profile).
+3. Ler `.harness/progress.md`.
 4. Ler `feature_list.json`.
 5. Checar `git log`.
 6. Escolher exatamente UMA feature pendente.
@@ -75,7 +94,7 @@ sempre exige aprovação humana.
 9. Rodar `verify_cmd` da tarefa.
 10. Se falhar: autocorrigir e re-rodar `verify_cmd` até passar.
 11. Registrar a prova (evidência da verificação bem-sucedida).
-12. Atualizar `claude-progress.md` com o estado atual.
+12. Atualizar `.harness/progress.md` com o estado atual.
 13. Marcar a feature concluída em `feature_list.json`.
 14. Documentar o que ficou quebrado, se houver.
 15. Parar e pedir aprovação humana explícita antes do commit — a mensagem
