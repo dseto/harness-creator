@@ -236,16 +236,22 @@ def main() -> None:
 
     if args.command == "compile":
         from harness.compiler import compile_project
+        from harness.boundary_guard import install_boundary_guard
 
         try:
             result = compile_project(Path(args.dir))
+            # Instala boundary_guard já no compile (Fase 2): default-deny sem contrato ativo,
+            # atualizado/liberado em compile-session conforme features aprovadas.
+            target_dir = Path(args.dir).resolve()
+            boundary_guard_path = install_boundary_guard(target_dir)
+            hooks_written = list(result.hooks_written) + [boundary_guard_path]
         except (FileNotFoundError, ValueError) as exc:
             print(f"erro: {exc}", file=sys.stderr)
             sys.exit(1)
         print(json.dumps({
             "settings": str(result.settings_path),
             "agents_md": str(result.agents_path),
-            "hooks": [str(p) for p in result.hooks_written],
+            "hooks": [str(p) for p in hooks_written],
             "warnings": result.warnings,
         }, indent=2, ensure_ascii=False))
         sys.exit(0)

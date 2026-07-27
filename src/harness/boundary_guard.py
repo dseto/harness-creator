@@ -2567,7 +2567,11 @@ def _evaluate_file(path, cwd):
 
     feature_list = _load_json(cwd, FEATURE_LIST_PATH)
     if feature_list is None:
-        return "allow", "sem contrato ativo — boundary_guard não gateia fora de uma sessão de contrato"
+        return "deny", (
+            "nenhum contrato ativo no projeto. Rode /harness-creator:plan para compilar "
+            "um contrato e autorizar a superfície de edição; artefatos temporários "
+            "(screenshot, dump, HTML de debug) podem ser salvos em .harness/scratch/"
+        )
     if _contract_fully_passed(feature_list):
         return "allow", (
             "contrato concluido (todas as features com passes:true) - boundary_guard "
@@ -2631,7 +2635,11 @@ def _evaluate_bash(command, cwd):
 
     feature_list = _load_json(cwd, FEATURE_LIST_PATH)
     if feature_list is None:
-        return "allow", "sem contrato ativo — boundary_guard não gateia fora de uma sessão de contrato"
+        return "deny", (
+            "nenhum contrato ativo no projeto. Rode /harness-creator:plan para compilar "
+            "um contrato e autorizar a superfície de edição; artefatos temporários "
+            "(screenshot, dump, HTML de debug) podem ser salvos em .harness/scratch/"
+        )
     if _contract_fully_passed(feature_list):
         return "allow", (
             "contrato concluido (todas as features com passes:true) - boundary_guard "
@@ -2770,7 +2778,11 @@ def _evaluate_powershell(command, cwd):
 
     feature_list = _load_json(cwd, FEATURE_LIST_PATH)
     if feature_list is None:
-        return "allow", "sem contrato ativo — boundary_guard não gateia fora de uma sessão de contrato"
+        return "deny", (
+            "nenhum contrato ativo no projeto. Rode /harness-creator:plan para compilar "
+            "um contrato e autorizar a superfície de edição; artefatos temporários "
+            "(screenshot, dump, HTML de debug) podem ser salvos em .harness/scratch/"
+        )
     if _contract_fully_passed(feature_list):
         return "allow", (
             "contrato concluido (todas as features com passes:true) - boundary_guard "
