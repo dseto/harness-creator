@@ -1088,8 +1088,21 @@ def _is_readonly_shell_segment(segment: str) -> bool:
 # de fora: muda o ambiente de execução dos comandos seguintes, e liberá-la
 # reabriria por outra porta o problema de PATH que o Item 4 resolve de forma
 # controlada (normalizando a FORMA de invocação, sem mexer no ambiente).
+#
+# O segundo grupo (cmdlets de ORIGEM, não de pipeline) corrige a assimetria
+# entre os dois caminhos: o Bash tinha `cat`/`head`/`tail`/`ls`/`grep`/`echo`
+# liberados por `READONLY_SHELL_UTILITIES`, mas o PowerShell não tinha os
+# equivalentes — `Get-ChildItem` era deny mesmo COM contrato ativo. Quem só
+# tem PowerShell 5.1 não conseguia nem listar um diretório sem declarar o
+# comando no contrato. Cada entrada aqui é o análogo direto de uma entrada
+# de `READONLY_SHELL_UTILITIES`, com os aliases nativos do PowerShell (que
+# incluem os nomes POSIX: `cat`, `ls`, `echo`, `dir`, `type`, `pwd`).
+# Continuam de fora os cmdlets `Set-*`/`New-*`/`Remove-*`/`Out-File`/`Add-*`
+# e qualquer coisa que execute — e `_segment_has_file_redirect` já barra
+# `Get-Content x > y` para todo o conjunto.
 # ---------------------------------------------------------------------------
 READONLY_PS_CMDLETS = frozenset({
+    # cmdlets de pipeline (formatação/filtro)
     "select-object", "select",
     "where-object", "where", "?",
     "measure-object", "measure",
@@ -1097,12 +1110,21 @@ READONLY_PS_CMDLETS = frozenset({
     "format-table", "ft",
     "format-list", "fl",
     "out-string",
+    # cmdlets de origem (leitura), espelhando READONLY_SHELL_UTILITIES
+    "get-content", "gc", "cat", "type",           # cat/head/tail
+    "get-childitem", "gci", "ls", "dir",          # ls/find
+    "select-string", "sls",                       # grep/rg
+    "write-output", "write",                      # echo
+    "get-location", "gl", "pwd",
+    "get-item", "gi",
+    "test-path",
 })
 
 
 def _is_readonly_ps_cmdlet_segment(segment: str) -> bool:
-    """True se o segmento é um cmdlet de pipeline read-only da allowlist
-    (`READONLY_PS_CMDLETS`), sem redirecionamento de escrita. Mesma postura de
+    """True se o segmento é um cmdlet read-only da allowlist
+    (`READONLY_PS_CMDLETS`) — de pipeline ou de origem —, sem
+    redirecionamento de escrita. Mesma postura de
     `_is_readonly_shell_segment`: allowlist de nome + denylist de escrita, não
     prova universal de inocuidade."""
     seg = segment or ""
@@ -2772,6 +2794,23 @@ def _extract_powershell_write_target(command):
     )
     if not is_write:
         return None
+
+    # Redirecionamento: o alvo e o token DEPOIS do '>'/'>>', nao o primeiro
+    # token com cara de path. Sem isto, `Get-Content src/a.py > src/b.py`
+    # era avaliado contra `src/a.py` (a ORIGEM) - e se a origem estivesse em
+    # files[], a escrita em `src/b.py` (fora do contrato) passava. Bug de
+    # superficie de escrita, independente da allowlist de leitura.
+    # Sem regex de proposito: esta faixa e TEXTO dentro do template do hook
+    # gerado, e sequencias de escape sao processadas na leitura do modulo -
+    # um padrao com barra invertida chegaria deformado ao arquivo gerado.
+    # rsplit no ultimo '>' cobre '>' e '>>'; _tokenize_command corta em
+    # espaco/tab e remove aspas, entao o primeiro token do que sobra e o alvo
+    # (para em '|'/';' porque estes viram tokens separados).
+    if ">" in command:
+        target_tokens = _tokenize_command(command.rsplit(">", 1)[1])
+        if target_tokens:
+            return target_tokens[0]
+
     for tok in _tokenize_command(command):
         if _looks_like_ps_write_marker(tok):
             continue
@@ -2875,10 +2914,13 @@ def _evaluate_powershell(command, cwd):
             return "deny", _no_contract_command_deny(failing)
         return "deny", (
             "segmento '" + failing[:80] + "' fora da superficie compilada do "
-            "contrato (PowerShell) e nao aceito como cmdlet read-only de "
+            "contrato (PowerShell) e nao aceito como cmdlet read-only - nem de "
             "pipeline (Select-Object/Where-Object/Measure-Object/Sort-Object/"
-            "Format-Table/Format-List/Out-String; ForEach-Object NAO entra - "
-            "executa scriptblock arbitrario), utilitario read-only ou cd "
+            "Format-Table/Format-List/Out-String) nem de leitura (Get-Content/"
+            "Get-ChildItem/Select-String/Write-Output/Get-Location/Get-Item/"
+            "Test-Path e seus aliases); ForEach-Object NAO entra - executa "
+            "scriptblock arbitrario. Tambem nao passou como utilitario "
+            "read-only nem cd "
             "intra-repo. Atribuicao a $env:* tambem nao entra: para invocar um "
             "binario do venv, use a forma `.venv/Scripts/<bin>` direto, que o "
             "guard reconhece como equivalente ao declarado. "

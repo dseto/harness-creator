@@ -3802,6 +3802,113 @@ def test_powershell_pipeline_with_readonly_cmdlet_allows(tmp_path: Path) -> None
         assert out["permissionDecision"] == "allow", (command, out)
 
 
+@pytest.mark.parametrize("command", [
+    "Get-ChildItem",
+    "Get-ChildItem -Recurse src",
+    "ls src",
+    "dir",
+    "Get-Content src/main.py",
+    "cat src/main.py",
+    "type src/main.py",
+    "gc src/main.py | Select-Object -First 20",
+    "Select-String -Pattern TODO -Path src/main.py",
+    "sls TODO src/main.py",
+    "Write-Output hello",
+    "echo hello",
+    "Get-Location",
+    "pwd",
+    "Get-Item src/main.py",
+    "Test-Path src/main.py",
+])
+def test_powershell_readonly_source_cmdlets_allow(tmp_path: Path, command: str) -> None:
+    """Correção da assimetria entre os dois caminhos: o Bash tinha
+    `cat`/`ls`/`grep`/`echo` liberados por `READONLY_SHELL_UTILITIES`, mas o
+    PowerShell não tinha os equivalentes — `Get-ChildItem` era deny mesmo COM
+    contrato ativo. Quem só tem PowerShell 5.1 não conseguia nem listar um
+    diretório sem declarar o comando no contrato."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": command}})
+    assert out["permissionDecision"] == "allow", (command, out)
+
+
+@pytest.mark.parametrize("command", [
+    "Get-ChildItem",
+    "Get-Content src/main.py",
+    "Test-Path src/main.py",
+])
+def test_powershell_readonly_source_cmdlets_allow_in_bootstrap(
+    tmp_path: Path, command: str
+) -> None:
+    """Mesma allowlist vale sem contrato: inspecionar o repo é pré-requisito
+    para planejar o contrato, não consequência dele."""
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": command}})
+    assert out["permissionDecision"] == "allow", (command, out)
+
+
+@pytest.mark.parametrize("command", [
+    # redirecionamento transforma leitura em escrita: cai em _evaluate_file
+    "Get-Content src/main.py > src/other.py",
+    "Get-ChildItem >> listing.txt",
+    # escrita explícita nunca entrou e continua fora
+    "Set-Content src/other.py 'x'",
+    "Out-File -FilePath src/other.py",
+    "Add-Content src/other.py 'x'",
+    "Remove-Item -Recurse -Force src",
+    "New-Item -ItemType File src/other.py",
+])
+def test_powershell_write_cmdlets_still_denied(tmp_path: Path, command: str) -> None:
+    """A allowlist de leitura não abre nenhuma porta de escrita: alvo fora de
+    `files[]` continua deny, com ou sem redirecionamento."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": command}})
+    assert out["permissionDecision"] == "deny", (command, out)
+
+
+def test_powershell_redirect_target_is_the_destination_not_the_source(
+    tmp_path: Path
+) -> None:
+    """Escape de superfície de escrita achado ao corrigir a assimetria:
+    `_extract_powershell_write_target` devolvia o PRIMEIRO token com cara de
+    path, que num redirecionamento é a ORIGEM. Com `src/main.py` em `files[]`,
+    `... src/main.py > src/other.py` era avaliado contra `src/main.py` e a
+    escrita em `src/other.py` (fora do contrato) passava. O alvo agora é o
+    token depois do último `>`."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": "Get-Content src/main.py > src/other.py"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "fora da superficie" in out["permissionDecisionReason"], out
+
+    # o caminho inverso continua allow: destino DENTRO do contrato
+    ok = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                             "tool_input": {"command": "Get-Content src/other.py > src/main.py"}})
+    assert ok["permissionDecision"] == "allow", ok
+
+
+def test_powershell_readonly_source_cmdlet_secret_still_floor(tmp_path: Path) -> None:
+    """Ler é liberado, escrever em segredo não — o floor continua acima de
+    tudo. `Get-Content .env` (leitura) passa; redirecionar PARA `.env` não."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+
+    read = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                               "tool_input": {"command": "Get-Content .env"}})
+    assert read["permissionDecision"] == "allow", read
+
+    write = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                                "tool_input": {"command": "Write-Output x > .env"}})
+    assert write["permissionDecision"] == "deny", write
+    assert "runtime floor" in write["permissionDecisionReason"], write
+
+
 def test_powershell_foreach_object_still_denied(tmp_path: Path) -> None:
     """`ForEach-Object` executa scriptblock arbitrário — é execução, não
     formatação, e fica fora da allowlist de propósito."""
