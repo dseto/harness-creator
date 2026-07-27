@@ -151,11 +151,15 @@ def _transition_payload(tmp_path: Path, files: list[str] | None = None) -> dict:
 
 # ---------------- sem contrato ativo ----------------
 
-def test_no_feature_list_allows_edit(tmp_path: Path) -> None:
+def test_no_feature_list_denies_edit_by_default(tmp_path: Path) -> None:
+    """Fase 2: default-deny sem contrato ativo. Projeto com .harness/ presente
+    mas sem feature_list.json compilado (entre init e compile-session) nega
+    qualquer Edit/Write fora de .harness/scratch/."""
     script = _script(tmp_path)
     out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
                               "tool_input": {"file_path": "src/main.py"}})
-    assert out["permissionDecision"] == "allow"
+    assert out["permissionDecision"] == "deny"
+    assert "nenhum contrato ativo" in out["permissionDecisionReason"].lower()
 
 
 # ---------------- superfície do contrato: Edit/Write ----------------
@@ -1632,11 +1636,14 @@ def test_powershell_unrelated_command_denies(tmp_path: Path) -> None:
     assert out["permissionDecision"] == "deny", out
 
 
-def test_powershell_no_contract_allows(tmp_path: Path) -> None:
+def test_powershell_no_contract_denies_by_default(tmp_path: Path) -> None:
+    """Fase 2: default-deny sem contrato ativo. PowerShell commands fora de
+    verify_cmd/extra_allowed_commands e não-read-only são negadas."""
     script = _script(tmp_path)
     out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
                               "tool_input": {"command": "Get-ChildItem"}})
-    assert out["permissionDecision"] == "allow", out
+    assert out["permissionDecision"] == "deny", out
+    assert "nenhum contrato ativo" in out["permissionDecisionReason"].lower()
 
 
 def test_is_floor_powershell_network_importable() -> None:
@@ -1725,25 +1732,38 @@ def test_powershell_secret_write_quoted_target_still_denies(tmp_path: Path) -> N
 
 
 def test_bash_read_secret_without_redirect_not_blocked_by_floor(tmp_path: Path) -> None:
-    """cat .env (leitura, sem redirecionamento) não é bloqueado pelo floor
-    de segredo — escopo restrito a redirecionamento/tee (não persegue todo
-    comando que meramente MENCIONA um path de segredo)."""
+    """cat .env (leitura, sem redirecionamento) dentro de verify_cmd é permitido
+    e não é bloqueado pelo floor de segredo — escopo do floor restrito a
+    redirecionamento/tee (não persegue todo comando que meramente MENCIONA um
+    path de segredo)."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "cat .env && pytest -q",
+         "depends": [], "passes": False}
+    ])
     script = _script(tmp_path)
     out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
                               "tool_input": {"command": "cat .env"}})
     assert out["permissionDecision"] == "allow", out
+    assert "runtime floor" not in out["permissionDecisionReason"]
 
 
-def test_bash_redirect_non_secret_not_blocked_by_secret_floor(tmp_path: Path) -> None:
-    """echo x > src/app.py não é bloqueado pelo FLOOR de segredo (pode ainda
-    ser deny pela superfície genérica — não testado aqui — mas a razão não
-    deve citar runtime floor de segredo)."""
+def test_bash_redirect_non_secret_still_denies_outside_verify_cmd(tmp_path: Path) -> None:
+    """Redirecionamento de escrita em arquivo normal (não secret) continua deny
+    quando FORA de verify_cmd. O floor de segredo não precisa citá-lo — é o
+    guard genérico de Bash que nega. Se o comando precisa rodar, deve estar
+    em verify_cmd ou extra_allowed_commands do harness.yaml."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/app.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
     script = _script(tmp_path)
     out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
                               "tool_input": {"command": "echo x > src/app.py"}})
-    # sem contrato ativo, cai no "sem contrato -> allow" genérico, não no floor
-    assert out["permissionDecision"] == "allow", out
+    assert out["permissionDecision"] == "deny", out
+    # Floor não deve aparecer (não é secret/push/etc)
     assert "runtime floor" not in out["permissionDecisionReason"]
+    # Razão real: fora da superfície de comando
+    assert "superficie compilada" in out["permissionDecisionReason"]
 
 
 def test_is_floor_bash_secret_redirect_importable() -> None:
@@ -2378,10 +2398,12 @@ def test_missing_repo_root_key_falls_back_to_current_cwd_behavior(tmp_path: Path
         "tool_input": {"file_path": absolute_target, "old_string": "x", "new_string": "y"},
     })
     # sem a chave, cai no cwd do payload (derivado) -> _load_json não acha
-    # feature_list.json sob <tmp_path>/frontend -> fail-open PRÉ-existente,
-    # comportamento IDÊNTICO ao pré-correção (não quebra, não regride).
-    assert out["permissionDecision"] == "allow", out
-    assert "sem contrato ativo" in out["permissionDecisionReason"], out
+    # feature_list.json sob <tmp_path>/frontend. Com o fix Fase 2 (default-deny
+    # sem contrato), essa situação agora retorna deny em vez de fail-open allow.
+    # (Um contrato EXISTE, mas em lugar inacessível por causa do cwd derivado —
+    # é falha de ancoragem, tratada corretamente: nega em vez de deixar passar.)
+    assert out["permissionDecision"] == "deny", out
+    assert "nenhum contrato ativo" in out["permissionDecisionReason"], out
 
 
 def test_missing_session_state_file_falls_back_without_crashing(tmp_path: Path) -> None:
