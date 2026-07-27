@@ -227,8 +227,126 @@ clone; a diferença é que agora o produto é honesto sobre isso em vez de
 manter a aparência de governança. `TUTORIAL.md`, `GUIDE.md`, `README.md`,
 `ARCHITECTURE.md` e as skills `init`/`compile`/`audit`/`plan` foram
 atualizados, e o TUTORIAL ganhou coluna "versionar?" na tabela de artefatos.
+Correção da fricção do dogfood real em `Savant.Backend.APP-15167` (API Python
+com venv, Windows, atrás de proxy corporativo), que acumulou ~13 ciclos
+`disable`/`compile-session`/`enable` e terminou com o harness desativado.
+Backlog em `docs/project/ROADMAP-dogfood-savant-venv.correction.backlog.md`;
+ordem de execução (pós-parecer MAR) em `…correction.plano-v2.md`.
+
+### Segurança
+- **Floor do plano de controle: escrita do agente em `.harness/**` é deny
+  incondicional** (exceto `work/` e `scratch/`, que já tinham regra própria).
+  Fecha uma rota de auto-ampliação de superfície de **comando** que estava
+  aberta e foi provada por execução contra o guard gerado do HEAD:
+  `harness task add-file T-01 .harness/harness.yaml` (allow) tornava o `Write`
+  nesse arquivo allow, o agente escrevia a própria
+  `governance.extra_allowed_commands`, `harness compile-session` re-bakeava o
+  guard, e um comando fora do floor (`scp`, `ssh`, `rsync`, `nc`, `docker run`,
+  `certutil -urlcache`) passava a ser allow — **quatro tool calls, nenhum toque
+  humano**. O floor de rede (`git push`) resistia em todos os passos, então a
+  exposição era exatamente tudo o que a denylist do floor não enumera.
+  Corrigido em **duas camadas independentes**: `harness.contract.add_task_file`
+  recusa o path na entrada, e `_evaluate_file` nega a escrita mesmo que o path
+  entre em `files[]` por outra via (Plans.md editado à mão, contrato legado já
+  compilado). O usuário continua editando `.harness/harness.yaml` no terminal
+  próprio, fora do Claude Code, como sempre.
+  O predicado casa por **segmento** e é **case-insensitive**: o primeiro
+  desenho era prefixo case-sensitive e foi contornado em execução real
+  trocando a caixa (`.Harness\harness.yaml` é o MESMO arquivo no Windows,
+  plataforma do dogfood), o que derrubava as duas camadas de uma vez — elas
+  compartilham o predicado, então não eram duas barreiras, eram uma barreira
+  instanciada duas vezes. Match por segmento cobre também path absoluto, que
+  escapava do prefixo quando não relativizável à raiz do repo.
+- **Hooks passam a falhar FECHADO.** O `command` gravado em
+  `.claude/settings.json` ganha o sufixo `|| exit 2`. Os três hooks eram
+  registrados como `python "<script>"` — interpretador nu, resolvido pelo PATH
+  só no instante da tool call; quando não resolvia, o processo morria antes do
+  script e, pela semântica de exit code de hook do Claude Code (apenas `exit 2`
+  bloqueia), a tool call **prosseguia** sem runtime floor, sem proteção de
+  segredo e sem bloqueio de push. Bakear o caminho absoluto do interpretador
+  (`sys.executable`, resolvido no `compile-session`) trocava a causa da falha
+  sem mudar o modo; o sufixo converte qualquer falha de partida no único código
+  que bloqueia. `||` e `exit` têm a mesma semântica em `sh` e em `cmd.exe`, o
+  que evita gerar um arquivo de lançador (que teria o problema simétrico).
+  Escape para guard quebrado: `harness disable` no terminal do usuário.
 
 ### Adicionado
+- **`harness doctor` reporta hooks que falham aberto.** Dois checks
+  independentes por hook gerenciado: interpretador irresolúvel (nu, caminho
+  morto, sem permissão de execução) e ausência do sufixo fail-closed. Ambos
+  aparecem em `hooks[]` e viram `issues` com o comando exato de correção.
+- **`harness preflight` verifica se o comando inferido resolve.** As 4
+  categorias checavam declaração, nunca resolução — no dogfood o analyzer
+  inferiu `pytest`, gravou no `repo-profile.json`, e ninguém verificou que
+  `pytest` nu não está no PATH sem ativar `.venv\Scripts`; o preflight devolveu
+  READY e o contrato nasceu com um `verify_cmd` que não executa. Novos checks
+  `test_command_resolvable` e `lint_command_resolvable`, **nunca FAIL** (runner
+  declarado porém não resolvido não impede o repo de receber o harness). Três
+  desfechos: não resolve → WARNING listando as formas reais achadas em disco;
+  resolve FORA do venv havendo homônimo dentro dele → WARNING de sombra;
+  resolve sem ambiguidade → PASS. Implementado por resolução (`shutil.which`),
+  não por execução — `run_preflight` é read-only por contrato, e `pytest`
+  criaria `.pytest_cache/`.
+  Quarto desfecho, que os três primeiros não alcançavam: num repo COM venv, um
+  comando **não ancorado nele** é WARNING mesmo que resolva. `shutil.which`
+  responde sobre o PATH do processo do preflight — o terminal do usuário, em
+  geral com o venv ativado —, enquanto o comando aprovado será executado pela
+  Bash tool do agente, que abre um shell sem ativação. São PATHs diferentes, e
+  o check respondia sobre o errado: o cenário exato do dogfood dava PASS, e o
+  desenho só pegava o problema quando o preflight rodava **sem** o venv ativo.
+  A regra nova não depende de qual terminal rodou o preflight. Lançadores que
+  gerenciam o próprio ambiente (`uv run`, `poetry run`, `tox`, …) ficam de
+  fora. E um `head` em forma de caminho passa a ser resolvido por existência em
+  disco, não por `shutil.which` — sem isso, declarar a forma ancorada que a
+  própria mensagem de fix pede produziria um WARNING impossível de silenciar.
+
+### Corrigido
+- **Mensagens de deny apontam o escape barato.** O deny de superfície de
+  arquivo mandava "replaneje via `/harness-creator:plan`" quando
+  `harness task add-file` já existia, já estava liberado no guard e já
+  resolvia — criar um `verify-env.sh` na raiz custou um ciclo inteiro por isso.
+  Agora cita `harness task add-file <task_id> <path>` com o id da tarefa
+  pendente **já preenchido**. O deny de comando nomeia
+  `governance.extra_allowed_commands` (o escape real; replanejar muda
+  `files[]`/`verify_cmd`, não a allowlist permanente). O deny de branch
+  protegida aponta `git checkout -b <tipo>/<slug>` e **refuta explicitamente**
+  a hipótese de que a mensagem do commit seja o problema — numa sessão real o
+  agente diagnosticou errado e gastou ciclos reescrevendo a mensagem; fixado
+  como regressão que `-m`, `-F -` e mensagem multi-linha são todos allow fora
+  de branch protegida.
+- Instaladores dos três hooks passam a casar entrada gerenciada também por
+  nome de arquivo. Sem isso, a mudança de formato do `command` deixaria a
+  entrada antiga órfã no `settings.json` de quem já tem o harness instalado, e
+  o hook rodaria duas vezes por tool call.
+
+## 0.17.7 — 2026-07-24
+
+Fecha o ciclo de dogfood do próprio harness-creator (contrato
+`hook-reasons-progress-sync`, achados A/B/C do backlog de fricção de
+dogfood 2026-07-22 e os issues #9, #11, #12, #14, #16, #18 abertos no teste
+real de 2026-07-23) e resolve a fricção achada por consumidor externo: não
+havia como saber qual das 3 camadas de distribuição (pacote pip, `.harness/`
+compilado, cache de plugin do Claude Code) ficou atrasada depois de um
+update.
+
+### Adicionado
+- **`harness doctor --dir <alvo>` — diagnóstico de versão entre as 3 camadas
+  de distribuição.** O plugin chega ao usuário por três caminhos com ciclos
+  de atualização independentes (`pip install --upgrade`, `harness compile`,
+  `claude plugin update`); atualizar só um deixa o comportamento observado
+  preso na camada mais atrasada, sem sinal nenhum de qual é. Novo módulo
+  `harness.doctor` (`run_doctor`/`DoctorReport`) compara
+  `harness.__version__` (pacote pip), o `plugin_version` gravado pelo último
+  `harness compile` em `.harness/compiled-state.json` e a `version` de cada
+  instalação de `harness-creator` em
+  `~/.claude/plugins/installed_plugins.json`. Imprime JSON com
+  `pip_version`/`compiled_version`/`plugin_installs`/`ok`/`issues`/`notes`;
+  cada divergência vira um `issue` com o comando exato de correção. Exit code
+  0 quando as três camadas batem, 1 quando alguma ficou atrás. Camada
+  AUSENTE é `note`, não `issue` (repo sem `.harness/` compilado, ou uso só
+  via pip/`--plugin-dir` sem plugin instalado por marketplace). É diagnóstico
+  sob demanda: não previne o drift, aponta quem ficou pra trás. README ganha
+  a seção "Atualizando" com a sequência canônica de update.
 - **Kill-switch externo do harness (`harness disable | enable | status`).**
   Comando rodável **apenas pelo usuário no terminal próprio** (fora do Claude
   Code, onde nenhum hook `PreToolUse` intercepta) que desativa
@@ -249,47 +367,6 @@ atualizados, e o TUTORIAL ganhou coluna "versionar?" na tabela de artefatos.
   ancorada por `__file__`, não pelo `cwd` do payload. Residual idêntico ao
   floor de segredo (não persegue escrita indireta via interpretador,
   `python -c open(...)`).
-
-### Corrigido
-- **`claude-progress.md` regenera quando o contrato compilado muda.**
-  `install_templates` só gravava esse arquivo se ele ainda não existisse —
-  recompilar (`harness compile-session`) sobre um contrato NOVO deixava o
-  agente lendo header/tabela de features de um contrato ANTIGO já
-  encerrado, sem qualquer sinal de que o arquivo estava desatualizado.
-  Agora, se o `claude-progress.md` existente tem um header `Contrato:
-  \`slug\`` reconhecível e esse slug diverge do `contract` recém-compilado,
-  o arquivo é restaurado para o novo contrato — preservando sempre a seção
-  `## Última atualização` (notas livres do agente). Conteúdo sem esse
-  header (customizado manualmente) continua intocado, como antes.
-- **`boundary_guard` não bloqueia mais a memória do Claude Code.**
-  `_evaluate_file` negava qualquer escrita em
-  `~/.claude/projects/<slug>/memory/*.md` como "fora da superfície do
-  contrato ativo" — toda persistência de memória travava com um contrato
-  ativo. Path novo `_is_claude_memory_path` reconhece esse diretório (fora
-  de `repo_root` por design) e sempre permite.
-- **`boundary_guard` se aposenta da superfície de ARQUIVO quando o contrato
-  está 100% concluído.** Com `feature_list.json` totalmente `passes:true`,
-  o guard continuava restringindo `Edit`/`Write`/`MultiEdit`/`NotebookEdit`
-  ao `files[]` do contrato já encerrado — a única saída observada era
-  edição manual de `.claude/settings.json` (inclusive um caso de
-  auto-proteção: o guard negava editar o próprio arquivo que o
-  removeria). Nova função `_contract_fully_passed` trata esse estado como
-  equivalente a "sem contrato ativo" — mesma superfície aberta, floor
-  (segredo/rede/push) continua incondicional. Escopo deliberadamente
-  restrito à superfície de ARQUIVO: a superfície de COMANDO (Bash/
-  PowerShell) continua enforçada mesmo com `passes:true` — é o
-  comportamento provado por `tests/e2e/test_extra_allowed_commands_e2e.py`
-  (CLI do produto fora do `verify_cmd`, liberado só via
-  `governance.extra_allowed_commands`, não por um allow genérico de fim de
-  contrato).
-- **Razão concreta nos hooks TDD gerados.** `guard_test_runner.py` e
-  `guard_tests.py` (gerados por `compiler._render_guard_test_runner`/
-  `_render_guard_tests`) emitiam `permissionDecisionReason` com texto fixo,
-  igual em toda aprovação. Agora a razão do `guard_test_runner.py` cita o
-  comando Bash executado e a do `guard_tests.py` cita o path do arquivo de
-  teste — o humano aprova sabendo o que está em jogo.
-
-### Adicionado
 - **Fluxo branch-first gerenciado pela CLI (`governance.branch_per_contract`,
   default `true`) + branches protegidas (`governance.protected_branches`,
   default `main`/`homolog`/`develop`).** Achado C do dogfood 2026-07-22: sem
@@ -317,6 +394,104 @@ atualizados, e o TUTORIAL ganhou coluna "versionar?" na tabela de artefatos.
   manual 12 do lifecycle. A fonte de verdade (`feature_list.json`/`passes`)
   e o rastro legível deixam de divergir. Só a coluna de status muda; a
   seção "Última atualização" e o texto livre do agente ficam intactos.
+- **`pip` como package manager inferido quando não há lockfile (#14).**
+  `analyzer._detect_package_manager` só reconhecia manager via lockfile — um
+  projeto Python com `pyproject.toml`/`requirements.txt` e sem lockfile saía
+  como "nenhum package manager detectado" (o caso do próprio
+  harness-creator). Agora, na ausência de lockfile, um manifesto Python
+  devolve `Finding("pip", <manifesto>, 0.6)` — confidence abaixo de 1.0
+  justamente porque é inferência, não leitura de lockfile.
+- **`pip install -e .` entra na superfície de comando de instalação (#18).**
+  `pip` faltava nos três mapas de install command
+  (`boundary_guard.INSTALL_COMMAND_BY_PACKAGE_MANAGER`,
+  `session_permissions._INSTALL_COMMAND_BY_PACKAGE_MANAGER`,
+  `templates._INSTALL_COMMANDS`) — com o analyzer passando a inferir `pip`,
+  instalar o próprio projeto ficava negado no runtime e ausente tanto do
+  `.claude/settings.json` quanto do onboarding gerado.
+
+### Corrigido
+- **`claude-progress.md` regenera quando o contrato compilado muda.**
+  `install_templates` só gravava esse arquivo se ele ainda não existisse —
+  recompilar (`harness compile-session`) sobre um contrato NOVO deixava o
+  agente lendo header/tabela de features de um contrato ANTIGO já
+  encerrado, sem qualquer sinal de que o arquivo estava desatualizado.
+  Agora, se o `claude-progress.md` existente tem um header `Contrato:
+  \`slug\`` reconhecível e esse slug diverge do `contract` recém-compilado,
+  o arquivo é restaurado para o novo contrato — preservando sempre a seção
+  `## Última atualização` (notas livres do agente). Conteúdo sem esse
+  header (customizado manualmente) continua intocado, como antes.
+- **`boundary_guard` não bloqueia mais a memória do Claude Code.**
+  `_evaluate_file` negava qualquer escrita em
+  `~/.claude/projects/<slug>/memory/*.md` como "fora da superfície do
+  contrato ativo" — toda persistência de memória travava com um contrato
+  ativo. Path novo `_is_claude_memory_path` reconhece esse diretório (fora
+  de `repo_root` por design) e sempre permite.
+- **`boundary_guard` se aposenta da superfície de ARQUIVO quando o contrato
+  está 100% concluído.** Com `feature_list.json` totalmente `passes:true`,
+  o guard continuava restringindo `Edit`/`Write`/`MultiEdit`/`NotebookEdit`
+  ao `files[]` do contrato já encerrado — a única saída observada era
+  edição manual de `.claude/settings.json` (inclusive um caso de
+  auto-proteção: o guard negava editar o próprio arquivo que o
+  removeria). Nova função `_contract_fully_passed` trata esse estado como
+  equivalente a "sem contrato ativo" — mesma superfície aberta, floor
+  (segredo/rede/push) continua incondicional. No primeiro corte o escopo
+  ficou restrito à superfície de ARQUIVO; a de COMANDO foi coberta em
+  seguida, no bullet abaixo.
+- **A aposentadoria de fim de contrato passou a cobrir também a superfície de
+  COMANDO.** `_evaluate_bash`/`_evaluate_powershell` continuavam negando
+  comando fora da superfície compilada mesmo com o contrato 100%
+  `passes:true` — caso real: o CLI do próprio produto negado com contrato
+  verde. Ambos passam a consultar `_contract_fully_passed` logo depois do
+  check de "sem contrato ativo" e devolvem `allow` com razão explícita
+  ("boundary_guard se aposenta da superfície de comando até o próximo
+  `/harness-creator:plan`"). O floor (segredo, rede, `git push`,
+  kill-switch, branch protegida) permanece incondicional, com teste
+  dedicado. `tests/e2e/test_extra_allowed_commands_e2e.py` passou a usar
+  contrato ATIVO (`passes:false`): o que `governance.extra_allowed_commands`
+  amplia é a superfície DURANTE o contrato — contrato concluído já libera
+  comando por si só.
+- **`ensure_contract_branch` checa branch-já-correta antes do dirty-tree
+  (#9).** Recompilar a sessão (`compile-session`) já na branch
+  `contract/<slug>` correta, com tracked modificado não commitado,
+  levantava `BranchingError` ("working tree suja") por engano — contra a
+  idempotência documentada na própria função. A ordem inverteu: o no-op de
+  `HEAD == branch alvo` vem primeiro; o guard de dirty-tree só roda quando
+  de fato vai criar ou trocar de branch.
+- **Versão com fonte única + guard test contra drift (#11).**
+  `pyproject.toml` passa a `dynamic = ["version"]` (hatchling lendo
+  `src/harness/__init__.py`), reduzindo as fontes manuais Python-side de 2
+  para 1 — o bump da 0.17.6 tinha deixado `marketplace.json`/`plugin.json`
+  desatualizados por esquecimento. Novo `tests/test_version_sync.py` falha
+  se `.claude-plugin/marketplace.json` ou `.claude-plugin/plugin.json`
+  divergirem de `harness.__version__`.
+- **Gate de aprovação exige descrição funcional + link `file:line` (#12).**
+  O passo 15 do lifecycle (`lifecycle.render_lifecycle_detail`/
+  `render_lifecycle_block`, e o espelho em `AGENTS.md`) pedia só "mensagem
+  clara do que foi feito" — vago o bastante para o agente despejar apenas
+  T-ID + JSON cru do `verify_cmd`, classificado como ilegível num teste real
+  (2026-07-23). Agora o texto exige, por escrito e por feature: descrição
+  funcional em linguagem natural do que mudou + link `file:line` do teste
+  que prova. `verify.run_verify` enriquece a evidência gravada
+  (`.harness/evidence/<id>.json`) com `desc` e `files` da feature, dando ao
+  agente o material pronto sem reler `feature_list.json` à parte.
+- **Razão concreta nos hooks TDD gerados.** `guard_test_runner.py` e
+  `guard_tests.py` (gerados por `compiler._render_guard_test_runner`/
+  `_render_guard_tests`) emitiam `permissionDecisionReason` com texto fixo,
+  igual em toda aprovação. Agora a razão do `guard_test_runner.py` cita o
+  comando Bash executado e a do `guard_tests.py` cita o path do arquivo de
+  teste — o humano aprova sabendo o que está em jogo.
+
+### Documentado
+- **Template de `spec.md` ganha seção "Resumo executivo" por padrão (#16)**
+  (`skills/plan/references/contract-templates.md`): o contrato passa a abrir
+  com o resumo em linguagem natural, antes dos critérios de aceitação.
+- **Fase 5 do `docs/roadmap-autonomous.md` ganha o item 8 (anti-viés de
+  teste).** Registra o parecer do comitê MAR de 2026-07-24 (avaliação cega,
+  nota 4/5): o escopo default do gate da Fase 5 permanece red→green +
+  judge-contract, e test-author independente entra apenas como opt-in por
+  tarefa, condicionado a 3 evidências (mecanismos entregues e medidos,
+  exemplar real de viés detectado por instrumento, mudança declarada da
+  isenção `tdd:true`). Ressalvas R1–R3 do comitê embutidas no item.
 
 ## 0.17.6 — 2026-07-22
 

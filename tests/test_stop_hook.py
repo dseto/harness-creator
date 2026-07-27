@@ -286,6 +286,34 @@ def test_install_is_idempotent_no_duplicate_entries(tmp_path: Path) -> None:
     assert len(settings["hooks"]["Stop"]) == 1
 
 
+def test_install_bakes_absolute_interpreter(tmp_path: Path) -> None:
+    # Item 1 do backlog do dogfood Savant.Backend — ver harness.hook_launcher.
+    install_stop_hook(tmp_path)
+    settings = json.loads((tmp_path / ".claude" / "settings.local.json").read_text(encoding="utf-8"))
+    command = settings["hooks"]["Stop"][0]["hooks"][0]["command"]
+    assert sys.executable in command
+    assert not command.startswith("python ")
+
+
+def test_install_replaces_legacy_command_format_without_duplicating(tmp_path: Path) -> None:
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+    (claude_dir / "settings.local.json").write_text(json.dumps({
+        "hooks": {"Stop": [
+            {"hooks": [{
+                "type": "command",
+                "command": 'python ".harness/hooks/stop_hook.py"',
+            }]},
+        ]},
+    }), encoding="utf-8")
+
+    install_stop_hook(tmp_path)
+
+    settings = json.loads((claude_dir / "settings.local.json").read_text(encoding="utf-8"))
+    assert len(settings["hooks"]["Stop"]) == 1
+    assert sys.executable in settings["hooks"]["Stop"][0]["hooks"][0]["command"]
+
+
 def test_install_records_state_under_own_key(tmp_path: Path) -> None:
     install_stop_hook(tmp_path)
     state_path = tmp_path / ".harness" / "compiled-state-session.json"

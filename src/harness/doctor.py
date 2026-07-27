@@ -1,6 +1,6 @@
 """Diagnóstico de saúde da instalação — comando `harness doctor`.
 
-Duas famílias de problema, ambas SILENCIOSAS: nada falha, o Claude Code
+Três famílias de problema, todas SILENCIOSAS: nada falha, o Claude Code
 simplesmente roda menos governança do que o repositório aparenta ter.
 
 **1. Divergência de versão entre as 3 camadas de distribuição.** O plugin
@@ -28,6 +28,15 @@ hook carrega path absoluto (decisão de `docs/project/PLAN.md:180-182`) e passa
 a apontar para um diretório que não existe mais. Antes deste check as duas
 situações só apareciam como prosa em `TUTORIAL.md`.
 
+**3. Hook registrado que não roda** (Item 1 do backlog do dogfood
+`Savant.Backend.APP-15167`). Um hook com interpretador irresolúvel
+(`python` nu que o PATH de runtime não acha, ou caminho absoluto de um venv
+que foi recriado) simplesmente NÃO RODA — e, pela semântica de exit code de
+hook do Claude Code, a tool call PASSA sem gate nenhum. É a falha mais
+perigosa que este módulo pode diagnosticar, porque o sintoma runtime é uma
+linha de `hook error` no transcript e nada mais. Ver `harness.hook_launcher`
+para o mecanismo e o risco residual.
+
 `doctor` não previne nada sozinho: é diagnóstico sob demanda, que aponta qual
 camada ficou pra trás e o comando exato para corrigir.
 """
@@ -41,14 +50,22 @@ from pathlib import Path
 
 from harness import __version__ as _PIP_VERSION
 from harness.compiler import HARNESS_YAML, STATE_FILE
+from harness.hook_launcher import fail_closed_problem, interpreter_problem
 from harness.settings_paths import MANAGED_SETTINGS_FILE, managed_settings_path
 
 PLUGIN_NAME = "harness-creator"
 DEFAULT_INSTALLED_PLUGINS_FILE = Path.home() / ".claude" / "plugins" / "installed_plugins.json"
 
-#: Os comandos de hook gerados têm a forma `python "<path absoluto>.py"` — o
-#: path fica entre aspas justamente porque pode conter espaço.
+#: O comando de hook gerado tem a forma `"<interpretador>" "<script>.py" || exit 2`
+#: — o path fica entre aspas justamente porque pode conter espaço, e o padrão
+#: ancora no `.py` final para não casar o interpretador.
 _HOOK_SCRIPT_PATTERN = re.compile(r'"([^"]+\.py)"')
+
+# Nomes dos scripts de hook gerados por este pacote. Um `command` que cite
+# qualquer um deles é NOSSO e tem o interpretador verificado; hooks de
+# terceiros no mesmo arquivo são ignorados (não cabe ao `doctor` opinar sobre
+# eles).
+MANAGED_HOOK_FILENAMES = ("boundary_guard.py", "session_start.py", "stop_hook.py")
 
 
 @dataclass
@@ -58,6 +75,7 @@ class DoctorReport:
     plugin_installs: list[dict]
     issues: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    hooks: list[dict] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -69,6 +87,7 @@ class DoctorReport:
                 "pip_version": self.pip_version,
                 "compiled_version": self.compiled_version,
                 "plugin_installs": self.plugin_installs,
+                "hooks": self.hooks,
                 "ok": self.ok,
                 "issues": self.issues,
                 "notes": self.notes,
@@ -113,8 +132,15 @@ def _managed_hook_scripts(settings_path: Path) -> list[str]:
             if not isinstance(entry, dict):
                 continue
             for hook in entry.get("hooks") or []:
-                if isinstance(hook, dict):
-                    scripts.extend(_HOOK_SCRIPT_PATTERN.findall(hook.get("command") or ""))
+                if not isinstance(hook, dict):
+                    continue
+                command = hook.get("command") or ""
+                # Só hooks NOSSOS. Um `settings.local.json` pode registrar hook
+                # de terceiro; não cabe ao `doctor` opinar sobre a existência
+                # do script alheio (mesma postura de `_read_managed_hooks`).
+                if not any(name in command for name in MANAGED_HOOK_FILENAMES):
+                    continue
+                scripts.extend(_HOOK_SCRIPT_PATTERN.findall(command))
     return scripts
 
 
@@ -140,12 +166,70 @@ def _read_plugin_installs(plugins_file: Path) -> list[dict]:
     return installs
 
 
+def _read_managed_hooks(target_dir: Path) -> list[dict]:
+    """Lista os hooks DESTE pacote registrados no settings GERENCIADO
+    (`.claude/settings.local.json` — ver `harness.settings_paths`), cada um com
+    o veredito do seu interpretador.
+
+    Degradação graciosa idêntica aos demais leitores deste módulo (arquivo
+    ausente ou JSON inválido -> lista vazia): `doctor` nunca lança por causa
+    de um settings.json malformado — nesse caso a ausência de hooks vira
+    nota, não issue, porque não dá pra distinguir "malformado" de "projeto
+    que não usa o harness"."""
+    path = managed_settings_path(target_dir)
+    if not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, dict):
+        return []
+
+    found: list[dict] = []
+    hooks_section = data.get("hooks")
+    if not isinstance(hooks_section, dict):
+        return []
+    for event, entries in hooks_section.items():
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            for hook in entry.get("hooks") or []:
+                if not isinstance(hook, dict):
+                    continue
+                command = hook.get("command") or ""
+                if not any(name in command for name in MANAGED_HOOK_FILENAMES):
+                    continue
+                # Dois modos de fail-open independentes: interpretador que
+                # não resolve (Item 1) e ausência do sufixo `|| exit 2`
+                # (Item 1b). Reportados juntos porque a consequência é a
+                # mesma — tool call passa sem gate — e a correção também
+                # (`harness compile-session`).
+                problems = [
+                    p for p in (interpreter_problem(command), fail_closed_problem(command))
+                    if p is not None
+                ]
+                problem = " | ".join(problems) if problems else None
+                found.append(
+                    {
+                        "event": event,
+                        "command": command,
+                        "ok": problem is None,
+                        "problem": problem,
+                    }
+                )
+    return found
+
+
 def run_doctor(
     target_dir: Path,
     plugins_file: Path | None = None,
 ) -> DoctorReport:
     compiled_version = _read_compiled_version(target_dir)
     plugin_installs = _read_plugin_installs(plugins_file or DEFAULT_INSTALLED_PLUGINS_FILE)
+    hooks = _read_managed_hooks(target_dir)
 
     issues: list[str] = []
     notes: list[str] = []
@@ -172,6 +256,10 @@ def run_doctor(
                 "absoluto por design). Rode `harness compile` para recompilar os hooks "
                 "no caminho atual."
             )
+
+    for hook in hooks:
+        if hook["problem"]:
+            issues.append(f"hook `{hook['event']}`: {hook['problem']}")
 
     if compiled_version is None:
         notes.append(
@@ -204,4 +292,5 @@ def run_doctor(
         plugin_installs=plugin_installs,
         issues=issues,
         notes=notes,
+        hooks=hooks,
     )

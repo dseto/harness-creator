@@ -136,7 +136,7 @@ from typing import Any
 import yaml
 
 from harness import __version__ as _HARNESS_VERSION
-from harness.boundary_guard import is_floor_bash_command
+from harness.boundary_guard import is_floor_bash_command, is_floor_control_plane_path
 
 WORK_DIR = ".harness/work"
 FEATURE_LIST_FILE = ".harness/feature_list.json"
@@ -375,6 +375,18 @@ def add_task_file(target_dir: Path, slug: str, task_id: str, new_path: str) -> b
       explicitamente em vez de escapado: paths assim não existem em
       projetos reais, e escapar complicaria o parser para um caso que não
       precisa existir;
+    - `new_path` cai no plano de controle do harness (`.harness/**` fora de
+      `work/` e `scratch/`) — Item 0 do plano v2 da correção do dogfood
+      `Savant.Backend`. Sem esta recusa, `add-file` era a porta de entrada de
+      uma cadeia de auto-ampliação de superfície de COMANDO, provada por
+      execução: declarar `.harness/harness.yaml` numa tarefa tornava o `Write`
+      nele permitido, o agente escrevia a própria
+      `governance.extra_allowed_commands`, `harness compile-session` re-bakeava
+      o guard, e um comando fora do floor (`scp`, `ssh`, …) passava a ser
+      `allow` — quatro tool calls, nenhum toque humano. A recusa aqui é a
+      primeira das duas camadas; a segunda é o floor de mesmo nome em
+      `_evaluate_file`, que nega a escrita mesmo se o path entrar em `files[]`
+      por outra via (Plans.md editado à mão, contrato legado já compilado);
     - `Plans.md` não existir;
     - `task_id` não existir no arquivo (mensagem lista as tarefas presentes);
     - a tarefa existir mas não tiver bullet `files:` (Plans.md malformado —
@@ -392,6 +404,22 @@ def add_task_file(target_dir: Path, slug: str, task_id: str, new_path: str) -> b
         raise ContractError(
             f"path '{new_path}' contém caractere inválido (backtick/vírgula) "
             "que corromperia o formato de files[] no Plans.md"
+        )
+    # Plano de controle ANTES do confinamento: o predicado da main casa
+    # `.harness` em qualquer posição do path, então pega tanto a forma
+    # relativa quanto a absoluta — e a mensagem dele é a específica, que
+    # explica por que declarar esses arquivos seria auto-ampliação de
+    # superfície. Invertida a ordem, um `C:/repo/.harness/harness.yaml` saía
+    # com a mensagem genérica de "path absoluto".
+    if is_floor_control_plane_path(new_path):
+        raise ContractError(
+            f"path '{new_path}' está no plano de controle do harness "
+            "(.harness/**, exceto work/ e scratch/) e não pode entrar na "
+            "superfície de uma tarefa: estes arquivos definem a superfície que "
+            "o guard aplica, então declará-los seria auto-ampliação de "
+            "superfície sem gate humano. Para mudar a governança, edite "
+            ".harness/harness.yaml no SEU terminal (fora do Claude Code) e rode "
+            "`harness compile-session`"
         )
     require_repo_relative_path(new_path, context=f"task {task_id}")
 
