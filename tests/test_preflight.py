@@ -1068,3 +1068,136 @@ def test_venv_anchoring_warning_never_blocks_readiness(
 
     for categoria in (_check_tests(profile, tmp_path), _check_lint(profile, tmp_path)):
         assert all(c.status != "FAIL" for c in categoria.checks), categoria
+
+
+# ---------------------------------------------------------------------------
+# F1 + F5 (dogfood MiojoSimulator 3.0) — a cascata, e por que ela é o achado.
+#
+# O analyzer não reconhecia `requirements.txt`, então um serviço FastAPI real
+# saía sem `test_command`. Consequência em cadeia: `test_runner_detected`
+# FALHAVA, o preflight devolvia NOT_READY num repo governável, e o check de
+# sombra de venv — que existe justamente para o cenário deste alvo — NUNCA
+# disparava, porque ele só roda quando há um comando inferido para checar.
+# Um achado mascarando o outro.
+# ---------------------------------------------------------------------------
+
+def _write_requirements_service(root: Path) -> None:
+    (root / "requirements.txt").write_text("fastapi==0.115.8\n", encoding="utf-8")
+    (root / "backend").mkdir(exist_ok=True)
+    (root / "backend" / "main.py").write_text("app = None\n", encoding="utf-8")
+    tests_dir = root / "tests"
+    tests_dir.mkdir(exist_ok=True)
+    (tests_dir / "conftest.py").write_text("import pytest\n", encoding="utf-8")
+    (tests_dir / "test_api.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+
+
+def test_requirements_service_is_no_longer_not_ready(tmp_path: Path) -> None:
+    _init_repo(tmp_path)
+    (tmp_path / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
+    _write_requirements_service(tmp_path)
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-m", "baseline")
+
+    report = run_preflight(tmp_path)
+
+    assert report.verdict != "NOT_READY", report.to_json()
+    assert _by_code(report.categories[1], "manifest_present").status == "PASS"
+    assert _by_code(report.categories[2], "test_runner_detected").status == "PASS"
+
+
+def test_venv_shadow_check_now_fires_for_a_requirements_service(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """O F5 propriamente dito, e a razão de ele ser um teste do F1: com o
+    `test_command` inferido, o check de sombra volta a rodar e nomeia o
+    problema real do alvo — `pytest` resolvendo para o binário GLOBAL enquanto
+    existe um dentro do venv do projeto."""
+    _write_requirements_service(tmp_path)
+    _make_venv_binary(tmp_path, "pytest.exe")
+    monkeypatch.setattr(
+        preflight_mod.shutil, "which",
+        _fake_which({"pytest": r"C:\Python314\Scripts\pytest.exe"}),
+    )
+    profile = analyze_project(tmp_path)
+
+    check = _by_code(_check_tests(profile, tmp_path), "test_command_resolvable")
+    assert check.status == "WARNING", check
+    assert "FORA do venv" in check.message
+    assert ".venv/Scripts/pytest.exe" in check.fix
+
+
+# ---------------------------------------------------------------------------
+# F3 — o preflight passa a enxergar a correção manual do profile.
+#
+# Ele re-inferia tudo e ignorava o `repo-profile.json` do disco. Depois de o
+# usuário rodar `harness profile set test_command ...`, o laudo repetia
+# `test_runner_detected: FAIL` COM A MESMA INSTRUÇÃO DE FIX que ele acabara de
+# aplicar — dois comandos do mesmo produto discordando sobre o mesmo fato.
+# ---------------------------------------------------------------------------
+
+def _write_profile_json(root: Path, data: dict) -> None:
+    path = root / ".harness" / "repo-profile.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_manual_profile_correction_beats_reinference(tmp_path: Path) -> None:
+    from harness.analyzer import MANUAL_EVIDENCE
+
+    # repo em que o analyzer NÃO consegue inferir runner nenhum
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "mock"\nversion = "0.1.0"\n', encoding="utf-8"
+    )
+    _write_profile_json(tmp_path, {
+        "test_command": {
+            "value": "python -m pytest", "evidence": MANUAL_EVIDENCE, "confidence": 1.0
+        },
+    })
+
+    report = run_preflight(tmp_path)
+
+    runner = _by_code(report.categories[2], "test_runner_detected")
+    assert runner.status == "PASS", runner
+    assert runner.evidence == MANUAL_EVIDENCE
+
+
+def test_stale_inference_on_disk_does_not_beat_reinference(tmp_path: Path) -> None:
+    """A regra é estreita de propósito: só a marca de correção HUMANA vence.
+    Inferência velha em disco continua sendo descartada — se o repo mudou, quem
+    manda é a análise de agora."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "mock"\nversion = "0.1.0"\n', encoding="utf-8"
+    )
+    _write_profile_json(tmp_path, {
+        "test_command": {"value": "pytest", "evidence": "pyproject.toml", "confidence": 1.0},
+    })
+
+    report = run_preflight(tmp_path)
+
+    assert _by_code(report.categories[2], "test_runner_detected").status == "FAIL"
+
+
+def test_manual_correction_reading_stays_read_only(tmp_path: Path) -> None:
+    """Ler o profile não pode violar a stop condition do preflight."""
+    from harness.analyzer import MANUAL_EVIDENCE
+
+    _write_python_repo_complete(tmp_path)
+    _write_profile_json(tmp_path, {
+        "package_manager": {"value": "pip", "evidence": MANUAL_EVIDENCE, "confidence": 1.0},
+    })
+
+    before = _tree_snapshot(tmp_path)
+    run_preflight(tmp_path)
+
+    assert _tree_snapshot(tmp_path) == before
+
+
+def test_corrupt_profile_does_not_break_preflight(tmp_path: Path) -> None:
+    _write_python_repo_complete(tmp_path)
+    path = tmp_path / ".harness" / "repo-profile.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{ nao e json", encoding="utf-8")
+
+    report = run_preflight(tmp_path)
+
+    assert _by_code(report.categories[2], "test_runner_detected").status == "PASS"

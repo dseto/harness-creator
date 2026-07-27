@@ -56,9 +56,14 @@ P2 no backlog dos testes isentos; agora com instância real).
 
 ---
 
-## 2. Achados novos
+## 2. Achados novos — **os oito corrigidos**
 
-### F1 — `requirements.txt` não é manifest reconhecido (ALTO, causa-raiz)
+> **Estado (2026-07-27, fim do dia):** os oito achados foram corrigidos. F4 e F8
+> saíram na mesma sessão do dogfood; F1, F2, F3, F5, F6 e F7 saíram logo em
+> seguida, a pedido do usuário. Cada seção abaixo mantém o diagnóstico original
+> e traz o bloco **Corrigido** com o que mudou e como está coberto.
+
+### F1 — `requirements.txt` não era manifest reconhecido (ALTO, causa-raiz — CORRIGIDO)
 
 `harness analyze` num repo com `requirements.txt`, `backend/*.py`,
 `tests/conftest.py` e `tests/test_*.py` devolve:
@@ -83,21 +88,56 @@ descobrindo e escrevendo a explicação.
   "diff de teste exige justificativa" do padrão produtor-revisor fica **inerte**
   sem sinal nenhum.
 
-### F2 — `package_manager: pip` mapeia para o comando errado (MÉDIO)
+**Corrigido.** `requirements.txt` entrou em `_PYTHON_MANIFESTS`, e o runner
+ganhou dois detectores novos, nesta ordem: `conftest.py` — que é **prova**, o
+arquivo só existe para o pytest — e `pytest` declarado em `requirements*.txt`
+(casando o NOME do pacote, não substring: `pytest-asyncio` sozinho não conta).
+O `conftest.py` é o que resolve o caso do alvo, cujo `requirements.txt` lista só
+dependências de runtime. Repo com `pyproject.toml` **e** `requirements.txt`
+continua provando pelo manifesto mais forte, o que é o que mantém o
+`pip install -e .` de quem realmente é um pacote (F2).
+
+O alvo real, depois: `languages: [python]`, `test_command: pytest` (evidência
+`tests/conftest.py`), `test_glob: tests/**/*.py`, `unknowns: []`, e o preflight
+saiu de **NOT_READY** para **READY_WITH_WARNINGS**.
+
+### F2 — `package_manager: pip` mapeava para o comando errado (MÉDIO — CORRIGIDO)
 
 `INSTALL_COMMAND_BY_PACKAGE_MANAGER["pip"] = "pip install -e ."`, o que exige um
 pacote instalável. Neste alvo o comando correto é
-`pip install -r requirements.txt`, e ele é **deny**. Confirmado no A/B. O
-mapeamento assume que todo projeto pip é um pacote; a maioria dos serviços
+`pip install -r requirements.txt`, e ele era **deny**. Confirmado no A/B. O
+mapeamento assumia que todo projeto pip é um pacote; a maioria dos serviços
 Python não é.
 
-### F3 — `preflight` não lê o `repo-profile.json` (MÉDIO)
+**Corrigido**, e a correção começou por unificar: o mapa estava **triplicado**
+em `boundary_guard`, `session_permissions` e `templates`, cada cópia com o mesmo
+defeito. Agora vive em `harness/install_command.py`, e os três importam de lá —
+o hook standalone inclusive, via `inspect.getsource()`.
+
+A decisão é por **evidência**, não por um valor novo de `package_manager`: o
+analyzer já grava em `package_manager.evidence` o arquivo que provou o achado, e
+`pip` + `requirements*.txt` passa a render `pip install -r <arquivo>`. Criar um
+`package_manager: "pip-requirements"` vazaria detalhe de layout para dentro de
+uma enumeração que descreve FERRAMENTA, e quebraria todo consumidor que compara
+com `"pip"`.
+
+Verificado no alvo real: `Bash(pip install -r requirements.txt)` no
+`settings.local.json`, a mesma linha no `init.sh` gerado, e **allow** no guard.
+
+### F3 — `preflight` não lia o `repo-profile.json` (MÉDIO — CORRIGIDO)
 
 Depois de `harness profile set test_command "python -m pytest"` — que gravou
-corretamente e limpou o `unknowns` correspondente —, o `preflight` continua
+corretamente e limpou o `unknowns` correspondente —, o `preflight` continuava
 reportando `test_runner_detected: FAIL` com **a mesma instrução de fix que já
-foi aplicada**. Dois comandos do mesmo produto discordam sobre o mesmo fato. Um
-usuário seguindo a instrução literalmente entra em laço.
+foi aplicada**. Dois comandos do mesmo produto discordando sobre o mesmo fato.
+Um usuário seguindo a instrução literalmente entra em laço.
+
+**Corrigido** com uma regra estreita de propósito: só vence a re-inferência a
+entrada marcada com `MANUAL_EVIDENCE` (`"harness profile set"`), que é decisão
+humana sobre o ambiente. Todo o resto do arquivo em disco continua sendo
+descartado — se o repo mudou, quem manda é a análise de agora. O preflight
+segue read-only: lê o arquivo, não escreve nada (coberto por teste de snapshot
+da árvore).
 
 ### F4 — a nota do `profile set` prometia efeito que não existe (CORRIGIDO nesta sessão)
 
@@ -112,7 +152,7 @@ o `verify_cmd` do contrato aprovado); o que estava errado era a frase. A nota
 passou a ser por chave (`next_step_note`), com trava estrutural em teste para o
 conjunto não divergir dos leitores da superfície.
 
-### F5 — `harness verify` roda no Python global mesmo com `.venv` presente (MÉDIO)
+### F5 — `harness verify` roda no Python global mesmo com `.venv` presente (MÉDIO — AVISO RESTAURADO)
 
 ```
 platform win32 -- Python 3.14.2, pytest-9.1.1 -- C:\Python314\python.exe
@@ -124,12 +164,50 @@ e `pydantic` — num ambiente limpo, o `verify` falharia com `ImportError` e o
 agente iria depurar o código em vez do ambiente. É o cenário exato que o B3
 existe para avisar, e o aviso não veio (ver F1).
 
-### F6 — não há caminho para adotar o harness no meio de uma feature (BAIXO, design)
+**O aviso voltou**, que é o remédio desenhado — e ele voltou *pelo F1*: com o
+`test_command` inferido, o check de sombra tem o que checar. No alvo real,
+agora:
+
+```
+test_command_resolvable = WARNING :: o comando de teste inferido (`pytest`)
+resolve para C:\Users\...\Python314\Scripts\pytest.EXE, FORA do venv do
+projeto, embora exista um `pytest` dentro dele
+        fix: declarar a forma explícita do venv: .venv/Scripts/pytest.exe
+```
+
+**O que foi deliberadamente NÃO feito:** ancorar o `test_command` inferido no
+venv (gravar `.venv/Scripts/pytest` no profile). O `repo-profile.json` é
+**versionado**, e `.venv/Scripts` x `.venv/bin` é diferença de sistema
+operacional — a inferência ancorada quebraria o repo do colega de outra
+plataforma. Fazer `harness verify` injetar o venv por conta própria também está
+fora: ele executa o comando que o contrato aprovou, literalmente, e mudar isso
+em silêncio é pior que o problema. O aviso com o fix nominal é o desenho certo,
+e a regressão está fixada por teste que liga F1 e F5.
+
+### F6 — não havia caminho para adotar o harness no meio de uma feature (BAIXO, design — CORRIGIDO)
 
 `compile-session` recusa árvore suja para criar `contract/<slug>`. Aqui os dois
 arquivos modificados **são** os `files[]` do contrato: o trabalho já estava em
 andamento quando o harness foi instalado. O fluxo pressupõe instalar antes de
-começar, e a mensagem de erro não oferece saída para quem já começou.
+começar, e a mensagem de erro não oferecia saída para quem já começou — dizia
+"commit ou stash" e parava aí.
+
+**Corrigido na mensagem, não na regra** — a regra está certa: criar a branch de
+contrato com sujeira de outro contexto misturaria trabalho. O que faltava era
+dizer QUAIS arquivos e QUAIS são as saídas, e sobretudo dizer que **stash é o
+conselho errado quando o trabalho pendente é do próprio contrato** (o stash
+esconde exatamente o que o contrato existe para governar). A mensagem agora no
+alvo real:
+
+> working tree suja (…). **Sujo: frontend/app.js, frontend/styles.css.** Três
+> saídas, e a escolha depende de o trabalho pendente PERTENCER ou não a este
+> contrato: (1) se pertence — caso comum de quem instala o harness no meio de
+> uma feature —, commite AGORA, na branch atual, e rode de novo: o
+> `git switch -c contract/frontend-progress-bar` leva o commit junto, sem perder
+> nada; (2) se é de outro contexto, `git stash` e retome depois; (3) se este
+> repo não quer branch por contrato, desligue em
+> `governance.branch_per_contract`. **NÃO stashe trabalho que é deste
+> contrato** — é justamente o que ele vai governar.
 
 ### F8 — os hooks do `harness compile` lançavam `python` nu (ALTO, segurança — CORRIGIDO nesta sessão)
 
@@ -183,12 +261,26 @@ com `harness doctor` reportando os dois hooks, `ok: true`, e sem entrada órfã
 (o casamento por NOME DE ARQUIVO em `_merge_settings` já cobria a troca de
 formato — a lição do Item 1 que aqui estava aplicada).
 
-### F7 — `test_glob` tem duas fontes que podem divergir (BAIXO)
+### F7 — `test_glob` tinha duas fontes que podiam divergir (BAIXO — CORRIGIDO)
 
 `verification.test_glob` do `harness.yaml` alimenta `guard_tests`; `test_glob`
 do `repo-profile.json` alimenta `_is_test_diff`/review. Neste alvo o primeiro
-vale `tests/**/*.py` e o segundo é `null` — o mesmo conceito, protegido numa
-camada e inerte na outra.
+valia `tests/**/*.py` e o segundo era `null` — o mesmo conceito, protegido numa
+camada e inerte na outra, sem sinal nenhum.
+
+**Corrigido com a governança vencendo, por ESCRITA e não por aviso.**
+`compile-session` reconcilia: se o `harness.yaml` declara
+`verification.test_glob` e o profile diverge, o profile passa a seguir a
+governança (evidência `harness.yaml (verification.test_glob)`), e a
+reconciliação é reportada no JSON e em stderr. Escrever, e não só avisar, é a
+leitura correta de quem manda: o `test_glob` decide o que conta como arquivo de
+teste protegido, o que é política aprovada — é exatamente por isso que
+`harness profile set` **recusa** essa chave. Se governança manda, ela precisa
+chegar aos dois consumidores.
+
+No alvo real a reconciliação sai como **no-op** (`test_glob_reconciled: null`),
+porque com o F1 corrigido as duas fontes já concordam — que é o desfecho
+desejado: o mecanismo existe para o caso em que divergem.
 
 ---
 

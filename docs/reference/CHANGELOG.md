@@ -101,6 +101,47 @@ juntas porque compõem: cada uma sozinha ainda deixava o ciclo de pé.
   do `*` final; com a forma nova sobrava um `:` pendurado (`git push:`), que a
   tokenização não reduz a `push` — e uma entrada de floor sobreviveria ao filtro
   justamente pela forma que o Item 8 introduziu.
+- **`requirements.txt` passa a provar Python** (achado F1 do dogfood, e a
+  causa-raiz de outros dois). O analyzer era dirigido a manifesto e só
+  reconhecia Python por `pyproject.toml`/`setup.py`; um serviço FastAPI real
+  saía com `languages: []` e tudo em `unknowns`. A cascata era pior que a
+  detecção faltando: `preflight` devolvia NOT_READY num repo perfeitamente
+  governável, `_is_test_diff` ficava inerte sem `test_glob`, e o check de
+  **sombra de venv** nunca disparava, porque depende de haver um `test_command`
+  inferido — um achado mascarando o outro. O runner ganhou dois detectores:
+  `conftest.py` (que é prova — o arquivo só existe para o pytest) e `pytest`
+  declarado em `requirements*.txt`, casando o NOME do pacote e não substring.
+  Repo com manifesto de pacote continua provando por ele.
+- **O comando de instalação passa a considerar a evidência** (achado F2). O mapa
+  dizia `pip -> "pip install -e ."`, que exige um pacote instalável; a maioria
+  dos serviços Python declara dependências em `requirements.txt` e não é um
+  pacote — nesses repos o comando certo é `pip install -r requirements.txt`, e
+  ele caía no default-deny do guard enquanto o comando emitido falharia se
+  alguém o rodasse. O mapa estava **triplicado** em `boundary_guard`,
+  `session_permissions` e `templates`, cada cópia com o mesmo defeito; agora
+  vive em `harness/install_command.py` e os três importam de lá, o hook
+  standalone inclusive. A decisão é por `package_manager.evidence` — um valor
+  novo de `package_manager` vazaria detalhe de layout para uma enumeração que
+  descreve ferramenta.
+- **`preflight` passa a respeitar a correção manual do profile** (achado F3).
+  Ele re-inferia tudo e ignorava o `repo-profile.json`, então depois de
+  `harness profile set` o laudo repetia o mesmo FAIL **com a instrução de fix
+  que já tinha sido aplicada**. Só vence a re-inferência a entrada marcada como
+  correção humana; inferência velha em disco continua descartada. Segue
+  read-only.
+- **A recusa de árvore suja diz o que fazer** (achado F6). No alvo real os
+  arquivos sujos **eram** os `files[]` do próprio contrato — o caso de quem
+  adota o harness num projeto vivo —, e a mensagem dizia "commit ou stash" e
+  parava aí. Agora nomeia os arquivos, enumera as três saídas e diz
+  explicitamente para **não** stashear trabalho que pertence ao contrato: o
+  stash esconde exatamente o que ele existe para governar.
+- **`test_glob` deixa de ter duas fontes** (achado F7). O do `harness.yaml`
+  alimentava o `guard_tests`; o do `repo-profile.json` alimentava o gate de diff
+  de teste da revisão — no alvo real um valia `tests/**/*.py` e o outro era
+  `null`, o mesmo conceito protegido numa camada e inerte na outra.
+  `compile-session` passa a reconciliar, com a **governança vencendo por
+  escrita**: o `test_glob` decide o que conta como teste protegido, que é
+  política aprovada — é por isso que `harness profile set` recusa essa chave.
 - **Os hooks de `harness compile` deixam de lançar `python` nu** (achado F8 do
   dogfood no MiojoSimulator 3.0 — `docs/project/DOGFOOD-miojo-simulator-2026-07-27.md`).
   O Item 1/1b bakeou o interpretador absoluto e o sufixo `|| exit 2` nos três

@@ -217,6 +217,84 @@ def test_cli_profile_set_refused_exits_one(
     assert "floor" in capsys.readouterr().err
 
 
+def _write_harness_yaml(target: Path, test_glob: str) -> None:
+    path = target / ".harness" / "harness.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "governance:\n  approval_policy: auto\n"
+        f'verification:\n  test_glob: "{test_glob}"\n',
+        encoding="utf-8",
+    )
+
+
+def test_reconcile_test_glob_makes_governance_win(tmp_path: Path) -> None:
+    """Achado F7 do dogfood no MiojoSimulator 3.0: o mesmo conceito tinha DUAS
+    fontes. `verification.test_glob` do `harness.yaml` alimenta o `guard_tests`;
+    `test_glob` do `repo-profile.json` alimenta `_is_test_diff`, o gate de
+    "diff de teste exige justificativa". No alvo real o primeiro valia
+    `tests/**/*.py` e o segundo era `null` — protegido numa camada, **inerte**
+    na outra, sem sinal nenhum."""
+    from harness.profile_edit import reconcile_test_glob
+
+    profile = dict(PROFILE)
+    profile["test_glob"] = None
+    path = _write_profile(tmp_path, profile)
+    _write_harness_yaml(tmp_path, "tests/**/*.py")
+
+    note = reconcile_test_glob(tmp_path)
+
+    assert note is not None and "tests/**/*.py" in note
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["test_glob"]["value"] == "tests/**/*.py"
+    assert "harness.yaml" in data["test_glob"]["evidence"]
+    assert data["test_command"]["value"] == "pytest"  # resto preservado
+
+
+def test_reconcile_test_glob_is_a_noop_when_already_in_sync(tmp_path: Path) -> None:
+    from harness.profile_edit import reconcile_test_glob
+
+    profile = dict(PROFILE)
+    profile["test_glob"] = {"value": "tests/**/*.py", "evidence": "x", "confidence": 1.0}
+    path = _write_profile(tmp_path, profile)
+    _write_harness_yaml(tmp_path, "tests/**/*.py")
+    before = path.read_text(encoding="utf-8")
+
+    assert reconcile_test_glob(tmp_path) is None
+    assert path.read_text(encoding="utf-8") == before
+
+
+def test_reconcile_test_glob_overrides_a_divergent_inference(tmp_path: Path) -> None:
+    """Governança vence também quando os dois existem e discordam — o
+    `test_glob` decide o que conta como teste protegido, o que é política
+    aprovada. É o mesmo motivo de `profile set` recusar essa chave."""
+    from harness.profile_edit import reconcile_test_glob
+
+    profile = dict(PROFILE)
+    profile["test_glob"] = {"value": "**/*_test.py", "evidence": "x", "confidence": 1.0}
+    path = _write_profile(tmp_path, profile)
+    _write_harness_yaml(tmp_path, "tests/**/*.py")
+
+    reconcile_test_glob(tmp_path)
+
+    assert json.loads(path.read_text(encoding="utf-8"))["test_glob"]["value"] == (
+        "tests/**/*.py"
+    )
+
+
+def test_reconcile_test_glob_never_raises(tmp_path: Path) -> None:
+    """Roda dentro do `compile-session`: uma divergência de `test_glob` não
+    pode derrubar a compilação inteira."""
+    from harness.profile_edit import reconcile_test_glob
+
+    assert reconcile_test_glob(tmp_path) is None            # nada existe
+
+    _write_profile(tmp_path)
+    assert reconcile_test_glob(tmp_path) is None            # sem harness.yaml
+
+    (tmp_path / ".harness" / "harness.yaml").write_text("::: nao e yaml", encoding="utf-8")
+    assert reconcile_test_glob(tmp_path) is None            # yaml quebrado
+
+
 def test_profile_is_not_an_agent_subcommand() -> None:
     """Decisão de segurança, não omissão: `test_command` alimenta a superfície
     de comando compilada (`_collect_allowed_bash_commands` lê o profile), então

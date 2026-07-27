@@ -83,6 +83,7 @@ from harness.boundary_guard import (
     is_floor_secret_path,
     load_extra_allowed_commands,
 )
+from harness.install_command import install_command_for
 from harness.settings_paths import (
     MANAGED_SETTINGS_FILE,
     prepare_managed_settings,
@@ -117,15 +118,10 @@ _HARNESS_CLI_ALLOW: list[str] = (
     + [f"Bash(python -m harness.cli {sub}*)" for sub in _HARNESS_SUBCOMMANDS]
 )
 
-# package_manager.value (analyzer.py) -> comando de instalação real.
-_INSTALL_COMMAND_BY_PACKAGE_MANAGER: dict[str, str] = {
-    "npm": "npm ci",
-    "pnpm": "pnpm install --frozen-lockfile",
-    "yarn": "yarn install --frozen-lockfile",
-    "uv": "uv sync",
-    "poetry": "poetry install",
-    "pip": "pip install -e .",
-}
+# package_manager.value (analyzer.py) -> comando de instalação real. O mapa
+# vive em `harness.install_command` (fonte única): estava triplicado aqui, no
+# `boundary_guard` e no `templates`, e o achado F2 do dogfood mostrou o custo —
+# o mesmo defeito em três cópias.
 
 _EXTRAS_KEYS = ("lint_command", "typecheck_command", "build_command")
 
@@ -243,11 +239,8 @@ def render_session_permissions(
                 allow.append(f"Bash({value}:*)")
 
         package_manager_entry = profile.get("package_manager") or {}
-        package_manager_value = package_manager_entry.get("value")
-        install_cmd = (
-            _INSTALL_COMMAND_BY_PACKAGE_MANAGER.get(package_manager_value)
-            if package_manager_value
-            else None
+        install_cmd = install_command_for(
+            package_manager_entry.get("value"), package_manager_entry.get("evidence")
         )
         if install_cmd:
             allow.append(f"Bash({install_cmd})")

@@ -343,3 +343,103 @@ def test_write_profile_writes_json_under_harness_dir(tmp_path: Path) -> None:
     write_profile(profile, tmp_path)
     data_again = json.loads(written_path.read_text(encoding="utf-8"))
     assert data_again == data
+
+
+# ---------------------------------------------------------------------------
+# F1 (dogfood MiojoSimulator 3.0) — repo Python que declara dependências em
+# `requirements.txt` e não é um pacote instalável.
+#
+# O analyzer era dirigido a manifesto e só reconhecia Python por
+# `pyproject.toml`/`setup.py`. Um serviço FastAPI real saía com
+# `languages: []`, `test_command: null` e `test_glob: null` — e a CASCATA era
+# pior que a detecção faltando: `preflight` devolvia NOT_READY num repo
+# perfeitamente governável, `_is_test_diff` ficava inerte sem `test_glob`, e o
+# check de sombra de venv nunca disparava, porque ele depende de haver um
+# `test_command` inferido.
+# ---------------------------------------------------------------------------
+
+def _bootstrap_requirements_service(tmp_path: Path, requirements: str) -> None:
+    _write(tmp_path / "requirements.txt", requirements)
+    _write(tmp_path / "backend" / "main.py", "app = None\n")
+    _write(tmp_path / "tests" / "conftest.py", "import pytest\n")
+    _write(tmp_path / "tests" / "test_api.py", "def test_ok():\n    assert True\n")
+
+
+def test_requirements_txt_proves_python(tmp_path: Path) -> None:
+    _bootstrap_requirements_service(tmp_path, "fastapi==0.115.8\nuvicorn==0.30.6\n")
+
+    profile = analyze_project(tmp_path)
+
+    assert _finding_values(profile.languages) == {"python"}
+    assert profile.languages[0].evidence == "requirements.txt"
+    assert not any(u.startswith("languages:") for u in profile.unknowns)
+
+
+def test_conftest_proves_pytest_even_without_pytest_declared(tmp_path: Path) -> None:
+    """O caso EXATO do alvo real: o `requirements.txt` lista só dependências de
+    runtime (fastapi/uvicorn/pydantic), sem `pytest` — mas `conftest.py`
+    existe, e esse arquivo só existe para o pytest."""
+    _bootstrap_requirements_service(tmp_path, "fastapi==0.115.8\n")
+
+    profile = analyze_project(tmp_path)
+
+    assert profile.test_command is not None
+    assert profile.test_command.value == "pytest"
+    assert profile.test_command.evidence == "tests/conftest.py"
+    assert profile.test_glob is not None
+    assert profile.test_glob.value == "tests/**/*.py"
+    assert profile.unknowns == []
+
+
+def test_pytest_declared_in_requirements_proves_the_runner(tmp_path: Path) -> None:
+    _write(tmp_path / "requirements.txt", "fastapi\npytest>=8.0  # suite\n")
+    _write(tmp_path / "app.py", "x = 1\n")
+
+    profile = analyze_project(tmp_path)
+
+    assert profile.test_command is not None
+    assert profile.test_command.evidence == "requirements.txt"
+
+
+def test_pytest_plugin_alone_does_not_prove_the_runner(tmp_path: Path) -> None:
+    """Casa o NOME do pacote, não substring: `pytest-asyncio` sozinho não prova
+    que a suíte roda com `pytest` nu — mesma régua de "achado com prova" do
+    resto do módulo."""
+    _write(tmp_path / "requirements.txt", "pytest-asyncio==1.4.0\n")
+    _write(tmp_path / "app.py", "x = 1\n")
+
+    profile = analyze_project(tmp_path)
+
+    assert profile.test_command is None
+
+
+def test_package_manifest_still_wins_over_requirements(tmp_path: Path) -> None:
+    """Repo com os dois continua provando pelo manifesto mais forte — e é isso
+    que mantém `pip install -e .` para quem de fato é um pacote (ver F2)."""
+    _write(tmp_path / "pyproject.toml", '[project]\nname = "x"\ndependencies = ["pytest"]\n')
+    _write(tmp_path / "requirements.txt", "fastapi\n")
+    _write(tmp_path / "tests" / "test_x.py", "def test_x():\n    assert True\n")
+
+    profile = analyze_project(tmp_path)
+
+    assert profile.languages[0].evidence == "pyproject.toml"
+    assert profile.package_manager is not None
+    assert profile.package_manager.evidence == "pyproject.toml"
+
+
+def test_requirements_becomes_the_package_manager_evidence(tmp_path: Path) -> None:
+    """A prova que o F2 consome: sem lockfile e sem manifesto de pacote, a
+    evidência do `pip` é o `requirements.txt` — e é dela que sai
+    `pip install -r requirements.txt` em vez de `pip install -e .`."""
+    from harness.install_command import install_command_for
+
+    _bootstrap_requirements_service(tmp_path, "fastapi\n")
+
+    profile = analyze_project(tmp_path)
+
+    assert profile.package_manager is not None
+    assert profile.package_manager.value == "pip"
+    assert profile.package_manager.evidence == "requirements.txt"
+    assert install_command_for(
+        profile.package_manager.value, profile.package_manager.evidence
+    ) == "pip install -r requirements.txt"

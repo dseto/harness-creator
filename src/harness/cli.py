@@ -468,6 +468,15 @@ def main() -> None:
         if grammar_problem:
             print(f"aviso: {grammar_problem}", file=sys.stderr)
 
+        # F7: o `test_glob` tinha duas fontes — a do `harness.yaml` alimentava o
+        # `guard_tests`, a do `repo-profile.json` alimentava o gate de diff de
+        # teste da revisão. Governança vence, e precisa chegar às duas.
+        from harness.profile_edit import reconcile_test_glob
+
+        test_glob_reconciled = reconcile_test_glob(target_dir)
+        if test_glob_reconciled:
+            print(f"aviso: {test_glob_reconciled}", file=sys.stderr)
+
         record_event(target_dir, "compile-session")
 
         print(json.dumps({
@@ -481,6 +490,7 @@ def main() -> None:
             "stop_hook": str(stop_hook_path),
             "branch": branch,
             "extra_allowed_commands_grammar_problem": grammar_problem,
+            "test_glob_reconciled": test_glob_reconciled,
         }, indent=2, ensure_ascii=False))
         sys.exit(0)
 

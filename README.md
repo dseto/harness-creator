@@ -187,7 +187,7 @@ harness-creator/
 │   └── .gitignore               # a regra de ignore é do próprio produto
 ├── docs/plugin/                 # TUTORIAL, GUIDE, ARCHITECTURE
 ├── docs/project/                # ROADMAP, PLAN, laudos e handoffs
-└── tests/                       # 843 testes (sem Docker/API para compile/audit)
+└── tests/                       # 872 testes (sem Docker/API para compile/audit)
 ```
 
 Quem decide o que entra no git é a **Seção 3** de

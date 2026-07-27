@@ -38,8 +38,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from harness.analyzer import REPO_PROFILE_PATH
-from harness.boundary_guard import is_floor_bash_command
+import yaml
+
+from harness.analyzer import MANUAL_EVIDENCE, REPO_PROFILE_PATH
+from harness.boundary_guard import HARNESS_YAML_RELATIVE_PATH, is_floor_bash_command
 
 #: Chaves que moram na raiz do profile.
 _ROOT_KEYS = ("package_manager", "test_command")
@@ -55,9 +57,9 @@ SETTABLE_KEYS: tuple[str, ...] = _ROOT_KEYS + _EXTRAS_KEYS
 #: instalação nenhum.
 KNOWN_PACKAGE_MANAGERS: tuple[str, ...] = ("npm", "pnpm", "yarn", "uv", "poetry", "pip")
 
-#: Marca a origem do valor no campo `evidence`, para o profile continuar
-#: dizendo de onde veio cada coisa (o resto vem de arquivo do repo).
-MANUAL_EVIDENCE = "harness profile set"
+#: `MANUAL_EVIDENCE` (importado do `analyzer`) marca a origem do valor no campo
+#: `evidence`, para o profile continuar dizendo de onde veio cada coisa — e para
+#: o `preflight` reconhecer a correção humana em vez de re-inferir por cima.
 
 #: Chaves cujo valor CHEGA na superfície compilada (`settings.local.json` e
 #: `boundary_guard`) — para elas, `compile-session` é o passo seguinte.
@@ -136,6 +138,77 @@ def _validate(key: str, value: str) -> None:
             "virar comando do profile — o floor e incondicional, entao gravar "
             "isto so produziria um profile que mente sobre a superficie"
         )
+
+
+#: Marca, no `evidence`, o `test_glob` que veio da governança em vez da
+#: inferência. Distinto de `MANUAL_EVIDENCE`: aquele é decisão de AMBIENTE do
+#: usuário; este é a política aprovada do repo descendo para o profile.
+GOVERNANCE_EVIDENCE = f"{HARNESS_YAML_RELATIVE_PATH} (verification.test_glob)"
+
+
+def reconcile_test_glob(target_dir: Path) -> str | None:
+    """Faz o `test_glob` do profile seguir o do `.harness/harness.yaml`.
+
+    Achado F7 do dogfood no MiojoSimulator 3.0: o mesmo conceito tinha DUAS
+    fontes. `verification.test_glob` do `harness.yaml` alimenta o `guard_tests`
+    (via `harness compile`); `test_glob` do `repo-profile.json` alimenta
+    `_is_test_diff`, que é o gate de "diff de teste exige justificativa" do
+    padrão produtor-revisor. No alvo real o primeiro valia `tests/**/*.py` e o
+    segundo era `null` — o mesmo conceito protegido numa camada e **inerte** na
+    outra, sem sinal nenhum.
+
+    A governança vence, e por isso a reconciliação é ESCRITA e não aviso: o
+    `test_glob` decide o que conta como arquivo de teste protegido, o que é
+    política aprovada — é justamente o motivo de `harness profile set` recusar
+    essa chave. Se governança manda, ela precisa chegar aos dois consumidores.
+
+    Devolve uma nota descrevendo o que mudou, ou `None` se não havia nada a
+    fazer (sem `harness.yaml`, sem profile, ou já em sincronia). Nunca lança:
+    isto roda dentro do `compile-session`, e uma divergência de `test_glob` não
+    pode derrubar a compilação inteira.
+    """
+    try:
+        yaml_path = Path(target_dir) / HARNESS_YAML_RELATIVE_PATH
+        path = Path(target_dir).resolve() / REPO_PROFILE_PATH
+        if not yaml_path.is_file() or not path.is_file():
+            return None
+
+        raw = yaml.safe_load(yaml_path.read_text(encoding="utf-8-sig"))
+        if not isinstance(raw, dict):
+            return None
+        governed = ((raw.get("verification") or {}) or {}).get("test_glob")
+        if not isinstance(governed, str) or not governed.strip():
+            return None
+        governed = governed.strip()
+
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+        if not isinstance(data, dict):
+            return None
+        current_entry = data.get("test_glob")
+        current = current_entry.get("value") if isinstance(current_entry, dict) else None
+        if current == governed:
+            return None
+
+        data["test_glob"] = {
+            "value": governed,
+            "evidence": GOVERNANCE_EVIDENCE,
+            "confidence": 1.0,
+        }
+        unknowns = data.get("unknowns")
+        if isinstance(unknowns, list):
+            data["unknowns"] = [
+                item for item in unknowns
+                if not (isinstance(item, str) and item.startswith("test_glob:"))
+            ]
+        path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        return (
+            f"test_glob do repo-profile.json ajustado de {current!r} para "
+            f"{governed!r}, seguindo verification.test_glob do harness.yaml — o "
+            "mesmo glob precisa valer para o guard_tests E para o gate de diff "
+            "de teste da revisao, senao um deles fica inerte sem sinal"
+        )
+    except Exception:
+        return None
 
 
 def set_profile_value(target_dir: Path, key: str, value: str) -> Path:

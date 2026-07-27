@@ -298,6 +298,10 @@ from pydantic import ValidationError
 
 from harness.config import HarnessConfig
 from harness.hook_launcher import hook_command
+from harness.install_command import (
+    INSTALL_COMMAND_BY_PACKAGE_MANAGER,
+    install_command_for,
+)
 from harness.killswitch import DISABLED_CHECK_SRC
 from harness.review import ReviewError, is_test_diff, load_review
 from harness.settings_paths import prepare_managed_settings, write_managed_settings
@@ -1898,6 +1902,8 @@ def render_boundary_guard(protected_branches: list[str] | None = None) -> str:
         inspect.getsource(_pending_task_id),
         inspect.getsource(_transitions_to_true),
         inspect.getsource(_read_last_commit_timestamp),
+        f"INSTALL_COMMAND_BY_PACKAGE_MANAGER = {INSTALL_COMMAND_BY_PACKAGE_MANAGER!r}",
+        inspect.getsource(install_command_for),
         f"UNSCOPED_EVIDENCE_DIR_NAME = {UNSCOPED_EVIDENCE_DIR_NAME!r}",
         inspect.getsource(_evidence_freshness_problem),
         inspect.getsource(_read_team_manifest),
@@ -2049,18 +2055,9 @@ REVIEW_DIR = ".harness/review"
 # junto com _is_work_surface_path/_is_scratch_surface_path (normalizacao
 # anti-traversal) - fonte unica em harness.boundary_guard.
 
-# package_manager.value (analyzer.py) -> comando de instalação EXATO. Mesmo
-# mapeamento de harness.session_permissions/harness.templates: o valor bruto
-# do profile (ex.: "npm") NUNCA vira um comando permitido por si só - isso
-# liberaria qualquer subcomando ("npm run x", "npm exec"), nao so a instalacao.
-INSTALL_COMMAND_BY_PACKAGE_MANAGER = {
-    "npm": "npm ci",
-    "pnpm": "pnpm install --frozen-lockfile",
-    "yarn": "yarn install --frozen-lockfile",
-    "uv": "uv sync",
-    "poetry": "poetry install",
-    "pip": "pip install -e .",
-}
+# INSTALL_COMMAND_BY_PACKAGE_MANAGER e install_command_for vem da faixa GERADA
+# acima (fonte unica em harness.install_command) — a copia digitada a mao que
+# ficava aqui era uma das tres que carregavam o mesmo defeito do achado F2.
 
 
 def _glob_to_regex(glob):
@@ -2187,6 +2184,18 @@ def _profile_entry_value(profile, key):
     return None
 
 
+def _profile_entry_evidence(profile, key):
+    """Campo `evidence` de uma entrada do profile — o arquivo que PROVOU o
+    achado. `install_command_for` usa o do `package_manager` para distinguir o
+    repo que e um pacote instalavel do que so declara requirements."""
+    if not isinstance(profile, dict):
+        return None
+    entry = profile.get(key)
+    if isinstance(entry, dict):
+        return entry.get("evidence")
+    return None
+
+
 def _profile_extra_value(profile, key):
     if not isinstance(profile, dict):
         return None
@@ -2246,11 +2255,9 @@ def _collect_allowed_bash_commands(feature_list, profile):
         value = _profile_extra_value(profile, key)
         if value:
             commands.append(value)
-    package_manager_value = _profile_entry_value(profile, "package_manager")
-    install_cmd = (
-        INSTALL_COMMAND_BY_PACKAGE_MANAGER.get(package_manager_value)
-        if package_manager_value
-        else None
+    install_cmd = install_command_for(
+        _profile_entry_value(profile, "package_manager"),
+        _profile_entry_evidence(profile, "package_manager"),
     )
     if install_cmd:
         commands.append(install_cmd)
