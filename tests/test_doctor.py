@@ -111,7 +111,7 @@ def test_plugin_install_of_other_plugin_is_ignored(tmp_path: Path) -> None:
 
 
 # ---------------- interpretador dos hooks ----------------
-# Item 1 do backlog do dogfood Savant.Backend: hook com interpretador
+# Item 1 do backlog do dogfood venv-Windows: hook com interpretador
 # irresolúvel não roda, e a tool call PASSA sem gate. É estado silencioso em
 # runtime — o `doctor` é o único lugar onde ele fica visível.
 

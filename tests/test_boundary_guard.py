@@ -684,7 +684,7 @@ def test_install_is_idempotent(tmp_path: Path) -> None:
 
 
 def test_install_bakes_absolute_interpreter_not_bare_python(tmp_path: Path) -> None:
-    """Item 1 do backlog do dogfood Savant.Backend: `python` nu é resolvido
+    """Item 1 do backlog do dogfood venv-Windows: `python` nu é resolvido
     pelo PATH só no instante da tool call. Se não resolver ali, o hook não
     roda — e a tool call PASSA sem floor, sem proteção de segredo, sem
     bloqueio de push (só exit 2 bloqueia; qualquer outro não-zero é erro
@@ -3217,7 +3217,7 @@ def test_commit_message_form_is_irrelevant_off_protected_branch(tmp_path: Path) 
 # ---------------------------------------------------------------------------
 
 def test_control_plane_floor_lets_only_progress_md_through(tmp_path: Path) -> None:
-    """O floor do Item 0 (plano v2 do dogfood Savant) nega `.harness/**` e e
+    """O floor do Item 0 (plano v2 do dogfood venv-Windows) nega `.harness/**` e e
     avaliado ANTES de `_is_progress_file_path`. Como o item 6 do laudo de
     footprint moveu o progresso para `.harness/progress.md`, sem esta excecao
     o agente perderia a escrita no arquivo que o proprio lifecycle (passo 12)
@@ -3257,7 +3257,7 @@ def test_generated_hook_allows_writing_the_moved_progress_file(tmp_path: Path) -
 
 
 # ===========================================================================
-# Item 4 (dogfood Savant.Backend) — normalização da FORMA de invocação
+# Item 4 (dogfood venv-Windows) — normalização da FORMA de invocação
 # ===========================================================================
 
 def test_normalize_python_dash_m_reduces_to_module() -> None:
@@ -3430,7 +3430,7 @@ def test_normalized_floor_survives_declaration_in_yaml(tmp_path: Path) -> None:
 
 
 # ===========================================================================
-# Item 3 (dogfood Savant.Backend) — extra_allowed_commands lido em RUNTIME
+# Item 3 (dogfood venv-Windows) — extra_allowed_commands lido em RUNTIME
 # ===========================================================================
 
 def test_parse_extra_allowed_commands_block_and_flow() -> None:
@@ -3571,7 +3571,7 @@ def test_extra_allowed_commands_grammar_problem(tmp_path: Path) -> None:
 
 
 # ===========================================================================
-# Item 7 (dogfood Savant.Backend) — PowerShell deixa de ser cidadão de segunda
+# Item 7 (dogfood venv-Windows) — PowerShell deixa de ser cidadão de segunda
 # ===========================================================================
 
 def test_powershell_pipeline_with_readonly_cmdlet_allows(tmp_path: Path) -> None:

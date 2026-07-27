@@ -1,11 +1,11 @@
 # Plano v2 — repriorização pós-parecer MAR
 
 **Substitui a seção "Sequenciamento sugerido" de
-[`ROADMAP-dogfood-savant-venv.correction.backlog.md`](ROADMAP-dogfood-savant-venv.correction.backlog.md).**
+[`ROADMAP-dogfood-venv-windows.correction.backlog.md`](ROADMAP-dogfood-venv-windows.correction.backlog.md).**
 O backlog continua sendo a fonte do *conteúdo* de cada item (evidência,
 `file:line`, fix proposto, comando de verificação); este documento redefine
 **ordem, escopo e critério de pronto**, à luz de
-[`…correction.parecer-MAR.md`](ROADMAP-dogfood-savant-venv.correction.parecer-MAR.md)
+[`…correction.parecer-MAR.md`](ROADMAP-dogfood-venv-windows.correction.parecer-MAR.md)
 e da auditoria dos testes descrita na §6.
 
 Criado em 2026-07-26. Mapeamento: `U1`…`U9` do parecer = `Item 1`…`Item 9` do
@@ -19,7 +19,7 @@ backlog; `U10` = seção "Decisão pendente"; `U11` = seção "Sequenciamento".
 | **0** | 0 | [PR #28](https://github.com/dseto/harness-creator/pull/28) | ✅ entregue |
 | **1** | 1b, 5 | PR #28 | ✅ entregue |
 | — | B1, B2, B3 (auditoria) | PR #28 | ✅ entregue |
-| **2** | 3, 4 | branch `feat/savant-ondas-2-5` | ✅ entregue |
+| **2** | 3, 4 | branch `feat/ondas-2-5` | ✅ entregue |
 | **3** | 6, 8, contagem na CLI | idem | ✅ entregue |
 | **4** | 7 | idem | ✅ entregue |
 | **5** | decidir B vs C | — | **gate instrumentado, decisão pendente** |

@@ -1,4 +1,4 @@
-"""Item 6 do backlog do dogfood `Savant.Backend.APP-15167` — `harness profile set`.
+"""Item 6 do backlog do dogfood venv-Windows — `harness profile set`.
 
 O profile é gerado por `analyze`, que só INFERE. Quando a inferência erra por
 causa do AMBIENTE — no caso real, o proxy corporativo derrubou o TLS do `uv` e

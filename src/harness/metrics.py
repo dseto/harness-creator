@@ -3,7 +3,7 @@
 O gate da onda 5 (decidir entre as posturas **B** e **C** do Item 9) depende de
 UM número que ninguém tem: quantos ciclos `disable` -> editar ->
 `compile-session` -> `enable` uma sessão real ainda gasta depois das ondas 2 e 3.
-A sessão do `Savant.Backend.APP-15167` gastou ~13, contados à mão relendo
+A sessão daquele dogfood gastou ~13, contados à mão relendo
 transcrição. Sem instrumentação, a próxima medição seria igualmente manual — e a
 §7 do plano v2 registra que a contagem que ordenou as ondas já está
 possivelmente contaminada, porque não há registro de quantas tool calls

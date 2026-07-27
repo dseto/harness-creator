@@ -55,7 +55,7 @@ incondicional em `.env` e `git push`.
 As três branches são locais. Nenhum push foi dado — decisão do usuário.
 
 Untracked deliberadamente deixado de fora do commit do P0:
-`docs/project/ROADMAP-dogfood-savant-venv.correction.plano-v2.md` (é de outra sessão).
+`docs/project/ROADMAP-dogfood-venv-windows.correction.plano-v2.md` (é de outra sessão).
 
 ---
 

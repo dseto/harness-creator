@@ -460,7 +460,7 @@ def _write_python_repo_complete(root: Path) -> None:
 
 # ---------------------------------------------------------------------------
 # Resolubilidade do comando inferido — Item 2 do backlog do dogfood
-# Savant.Backend. O preflight dizia READY para um repo cujo `test_command`
+# venv-Windows. O preflight dizia READY para um repo cujo `test_command`
 # inferido não executava no shell (venv não ativado), e a descoberta da forma
 # correta virou ~13 ciclos disable/compile-session/enable sob guard ativo.
 # ---------------------------------------------------------------------------

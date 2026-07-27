@@ -204,7 +204,7 @@ def install_session_start(target_dir: Path) -> Path:
     hook_path = hooks_dir / HOOK_FILENAME
     hook_path.write_text(render_session_start_hook(), encoding="utf-8")
 
-    # Item 1 do backlog do dogfood Savant.Backend: interpretador ABSOLUTO
+    # Item 1 do backlog do dogfood venv-Windows: interpretador ABSOLUTO
     # bakeado — ver `harness.hook_launcher`.
     command = hook_command(hook_path)
 
@@ -220,7 +220,7 @@ def install_session_start(target_dir: Path) -> Path:
     def _is_managed(entry: dict[str, Any]) -> bool:
         # Casa também por NOME DE ARQUIVO, não só pelo comando exato: desde
         # que o formato do `command` mudou (Item 1 do backlog do dogfood
-        # Savant.Backend), uma entrada antiga ausente do
+        # venv-Windows), uma entrada antiga ausente do
         # `compiled-state-session.json` sobreviveria ao merge e o hook
         # rodaria duas vezes por sessão.
         return any(

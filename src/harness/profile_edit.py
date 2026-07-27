@@ -1,6 +1,6 @@
 """Correção pontual do `.harness/repo-profile.json` — `harness profile set`.
 
-Item 6 do backlog do dogfood `Savant.Backend.APP-15167`. O profile é gerado por
+Item 6 do backlog do dogfood venv-Windows. O profile é gerado por
 `analyze`, que só INFERE; não havia forma suportada de corrigi-lo. Quando a
 inferência erra por causa do AMBIENTE — no caso real, o proxy corporativo
 derrubou o TLS do `uv` e foi preciso trocar `package_manager` de `uv` para

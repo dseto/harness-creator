@@ -3,7 +3,7 @@
 O gate da onda 5 (decidir entre as posturas B e C do Item 9) depende de UM
 número que ninguém tem: quantos ciclos `disable` -> editar -> `compile-session`
 -> `enable` uma sessão real ainda gasta depois das ondas 2 e 3. Os ~13 da sessão
-do `Savant.Backend.APP-15167` foram contados à mão, relendo transcrição.
+daquele dogfood foram contados à mão, relendo transcrição.
 """
 
 from __future__ import annotations
