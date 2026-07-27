@@ -124,6 +124,7 @@ Saída de `compile_contract` — `.harness/feature_list.json`:
 from __future__ import annotations
 
 import json
+import posixpath
 import re
 import subprocess
 import sys
@@ -206,6 +207,15 @@ def parse_spec(spec_path: Path) -> dict[str, Any]:
         data = yaml.safe_load(frontmatter_text)
     except yaml.YAMLError as exc:
         raise ContractError(f"{spec_path}: frontmatter YAML inválido — {exc}") from exc
+    except ValueError as exc:
+        # PyYAML resolve `2026-07-15` para `datetime.date` e levanta ValueError
+        # CRU (não YAMLError) quando os componentes não formam uma data real —
+        # `approved_at: 2026-13-45` saía como traceback em vez de erro de
+        # contrato. Um typo no frontmatter é erro do usuário, não crash.
+        raise ContractError(
+            f"{spec_path}: frontmatter YAML inválido — valor de data/hora "
+            f"impossível ({exc})"
+        ) from exc
 
     if data is None:
         data = {}
@@ -281,6 +291,10 @@ def parse_plans(plans_path: Path) -> list[Task]:
             )
 
         files = _split_list(raw_fields["files"])
+        # Backstop do confinamento: `add_task_file` valida na entrada, mas o
+        # Plans.md é autorado à mão e pode chegar com path absoluto direto.
+        for entry in files:
+            require_repo_relative_path(entry, context=f"{plans_path}: tarefa {task_id}")
         verify_values = _split_list(raw_fields["verify"])
         verify_cmd = verify_values[0] if verify_values else raw_fields["verify"].strip()
         depends = _split_list(raw_fields["depends"]) if raw_fields.get("depends") else []
@@ -297,6 +311,48 @@ def parse_plans(plans_path: Path) -> list[Task]:
 # ---------------------------------------------------------------------------
 # add_task_file
 # ---------------------------------------------------------------------------
+
+_DRIVE_LETTER_RE = re.compile(r"^[A-Za-z]:")
+
+
+def require_repo_relative_path(raw: str, *, context: str) -> str:
+    """Valida que `raw` é um path RELATIVO que fica dentro do repositório.
+    Devolve o path normalizado (`/` como separador); levanta `ContractError`
+    sem escrever nada.
+
+    O `files[]` de uma tarefa é a superfície de escrita do contrato: cada
+    entrada vira uma regra `Edit(<path>)`/`Write(<path>)` no settings e um
+    `allow` do `boundary_guard`. Sem esta guarda, `harness task add-file T-01
+    'C:/Windows/System32/config/SAM'` era aceito com exit 0 — e como
+    `task add-file` **não reabre o gate de aprovação** (comportamento
+    documentado e desejado), isso era um caminho de escalada para escrita em
+    arquivo arbitrário do sistema a partir de um contrato já aprovado.
+
+    Rejeita, nesta ordem: vazio; path absoluto (letra de unidade `C:`, barra
+    inicial, UNC `\\\\servidor`); e qualquer coisa que normalize para fora da
+    raiz (`../`). O confinamento é sintático de propósito — não toca o disco,
+    então vale igual em Windows e POSIX e não depende de o arquivo existir.
+    """
+    text = (raw or "").strip()
+    if not text:
+        raise ContractError(f"{context}: entrada vazia em files[] — remova ou preencha")
+
+    normalized = text.replace("\\", "/")
+    if normalized.startswith("/") or _DRIVE_LETTER_RE.match(normalized):
+        raise ContractError(
+            f"{context}: '{raw}' é um path ABSOLUTO. `files[]` só aceita path "
+            "relativo à raiz do repositório — a superfície de escrita do "
+            "contrato não pode sair do projeto"
+        )
+
+    collapsed = posixpath.normpath(normalized)
+    if collapsed == ".." or collapsed.startswith("../"):
+        raise ContractError(
+            f"{context}: '{raw}' escapa da raiz do repositório (resolve para "
+            f"'{collapsed}'). `files[]` só aceita path dentro do projeto"
+        )
+    return collapsed
+
 
 def add_task_file(target_dir: Path, slug: str, task_id: str, new_path: str) -> bool:
     """Adiciona `new_path` ao bullet `files:` da tarefa `task_id` em
@@ -337,6 +393,7 @@ def add_task_file(target_dir: Path, slug: str, task_id: str, new_path: str) -> b
             f"path '{new_path}' contém caractere inválido (backtick/vírgula) "
             "que corromperia o formato de files[] no Plans.md"
         )
+    require_repo_relative_path(new_path, context=f"task {task_id}")
 
     target_dir = target_dir.resolve()
     plans_path = target_dir / WORK_DIR / slug / "Plans.md"
@@ -497,12 +554,43 @@ def _dry_check_verify_cmd(verify_cmd: str, cwd: Path, timeout: float = 8.0) -> s
     return None
 
 
+def _require_iso8601_approval(approved_at: Any) -> None:
+    """`approved_at` tem que ser um timestamp ISO 8601 de verdade.
+
+    O gate só checava "não-vazio", e `approved_at: banana` compilava com exit
+    0 — um contrato indistinguível de um aprovado de verdade. Este é o ÚNICO
+    ponto de controle humano do pipeline, e o campo é a trilha de auditoria de
+    quando a aprovação aconteceu: aceitar string arbitrária esvazia a
+    garantia que o gate existe para dar.
+
+    Aceita as formas que `skills/plan/SKILL.md` documenta e que o resto do
+    produto já grava (`verify.py` usa `datetime.now(timezone.utc).isoformat()`,
+    e o sufixo `Z` aparece nos templates). Data sozinha (`2026-07-27`) passa —
+    é ISO 8601 e é o que um humano escreve à mão; o que não passa é texto que
+    não denota instante nenhum.
+    """
+    text = str(approved_at).strip()
+    # `fromisoformat` do 3.11+ aceita o sufixo `Z`; normalizar mantém a
+    # validação idêntica em versões mais antigas sem custo.
+    normalized = text[:-1] + "+00:00" if text.endswith("Z") else text
+    try:
+        datetime.fromisoformat(normalized)
+    except ValueError:
+        raise ContractNotApprovedError(
+            f"contrato não aprovado — approved_at não é um timestamp ISO 8601: "
+            f"{approved_at!r}. Use o formato do template "
+            "(ex.: 2026-07-27T14:30:00Z); o campo é a trilha de auditoria da "
+            "aprovação, não texto livre"
+        ) from None
+
+
 def compile_contract(target_dir: Path, slug: str, *, dry_run_verify: bool = False) -> Path:
     """Compila `.harness/work/<slug>/{spec.md,Plans.md}` -> `.harness/feature_list.json`.
 
-    GATE OBRIGATÓRIO: se `approved_by` ou `approved_at` estiverem ausentes ou
-    vazios no frontmatter de `spec.md`, levanta `ContractNotApprovedError` e
-    NÃO escreve nada em disco — sem aprovação, nada compila.
+    GATE OBRIGATÓRIO: se `approved_by` ou `approved_at` estiverem ausentes,
+    vazios, ou se `approved_at` não for um timestamp ISO 8601 válido, levanta
+    `ContractNotApprovedError` e NÃO escreve nada em disco — sem aprovação,
+    nada compila.
 
     Recompilação: tarefas cujo (`id`, `verify_cmd`, `files`) não mudaram em
     relação ao `feature_list.json` existente preservam `passes: true`; ids
@@ -526,6 +614,7 @@ def compile_contract(target_dir: Path, slug: str, *, dry_run_verify: bool = Fals
         raise ContractNotApprovedError(
             "contrato não aprovado — preencha approved_by/approved_at no spec.md"
         )
+    _require_iso8601_approval(approved_at)
 
     tasks = parse_plans(plans_path)
 

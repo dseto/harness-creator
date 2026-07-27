@@ -142,7 +142,8 @@ def test_feature_in_progress_with_up_to_date_evidence_signals_nothing(tmp_path: 
     feature = _make_feature_with_uncommitted_diff(tmp_path)
     _write_feature_list(tmp_path, [feature])
 
-    evidence_dir = tmp_path / ".harness" / "evidence"
+    # Evidência escopada por contrato: "exemplo" é o slug do _write_feature_list.
+    evidence_dir = tmp_path / ".harness" / "evidence" / "exemplo"
     evidence_dir.mkdir(parents=True, exist_ok=True)
     current_hash = compute_files_hash(feature["files"], tmp_path)
     (evidence_dir / "T-01.json").write_text(
@@ -165,7 +166,8 @@ def test_feature_in_progress_with_stale_evidence_signals(tmp_path: Path) -> None
     feature = _make_feature_with_uncommitted_diff(tmp_path)
     _write_feature_list(tmp_path, [feature])
 
-    evidence_dir = tmp_path / ".harness" / "evidence"
+    # Evidência escopada por contrato: "exemplo" é o slug do _write_feature_list.
+    evidence_dir = tmp_path / ".harness" / "evidence" / "exemplo"
     evidence_dir.mkdir(parents=True, exist_ok=True)
     (evidence_dir / "T-01.json").write_text(
         json.dumps({
@@ -226,18 +228,20 @@ def test_needs_verification_true_when_evidence_missing(tmp_path: Path) -> None:
 
 def test_needs_verification_false_when_evidence_hash_matches(tmp_path: Path) -> None:
     feature = _make_feature_with_uncommitted_diff(tmp_path)
-    evidence_dir = tmp_path / ".harness" / "evidence"
+    # Evidência escopada por contrato: "exemplo" é o slug do _write_feature_list.
+    evidence_dir = tmp_path / ".harness" / "evidence" / "exemplo"
     evidence_dir.mkdir(parents=True, exist_ok=True)
     current_hash = compute_files_hash(feature["files"], tmp_path)
     (evidence_dir / "T-01.json").write_text(
         json.dumps({"feature_id": "T-01", "files_hash": current_hash}), encoding="utf-8"
     )
-    assert needs_verification(feature, tmp_path) is False
+    assert needs_verification(feature, tmp_path, "exemplo") is False
 
 
 def test_needs_verification_true_when_evidence_hash_stale(tmp_path: Path) -> None:
     feature = _make_feature_with_uncommitted_diff(tmp_path)
-    evidence_dir = tmp_path / ".harness" / "evidence"
+    # Evidência escopada por contrato: "exemplo" é o slug do _write_feature_list.
+    evidence_dir = tmp_path / ".harness" / "evidence" / "exemplo"
     evidence_dir.mkdir(parents=True, exist_ok=True)
     (evidence_dir / "T-01.json").write_text(
         json.dumps({"feature_id": "T-01", "files_hash": "sha256:desatualizado"}), encoding="utf-8"

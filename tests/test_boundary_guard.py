@@ -73,11 +73,26 @@ def _init_git_repo_with_commit(target: Path, commit_iso_date: str) -> None:
                     check=True, env=env)
 
 
-def _write_evidence(target: Path, feature_id: str, recorded_at: str, **overrides) -> None:
-    path = target / ".harness" / "evidence" / f"{feature_id}.json"
+def _write_evidence(
+    target: Path,
+    feature_id: str,
+    recorded_at: str,
+    contract: str = "test",
+    dir_contract: str | None = None,
+    **overrides,
+) -> None:
+    """Evidência escopada: `.harness/evidence/<contrato>/<id>.json`, com o campo
+    `contract` DENTRO do JSON. `"test"` é o contrato dos fixtures deste arquivo
+    (ver `_feature_list_json`).
+
+    `dir_contract` desacopla o diretório do campo — é como se reproduz o
+    arquivo copiado à mão para a pasta do contrato ativo, que é o caso em que
+    o caminho sozinho não protege."""
+    path = target / ".harness" / "evidence" / (dir_contract or contract) / f"{feature_id}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     data = {
         "feature_id": feature_id,
+        "contract": contract,
         "verify_cmd": "pytest -q",
         "recorded_at": recorded_at,
         "exit_code": 0,
@@ -1921,11 +1936,11 @@ def test_write_work_dir_traversal_denies(tmp_path: Path) -> None:
 
 
 def test_write_claude_progress_allows_with_active_contract(tmp_path: Path) -> None:
-    """claude-progress.md é gerado/mantido pelo próprio harness (lifecycle
+    """.harness/progress.md é gerado/mantido pelo próprio harness (lifecycle
     passo 12 manda atualizá-lo) — negar a escrita era auto-derrotante."""
     _contract_with_verify(tmp_path)
     script = _script(tmp_path)
-    for rel in ("claude-progress.md", "CLAUDE-PROGRESS.md"):
+    for rel in (".harness/progress.md", ".HARNESS/PROGRESS.MD"):
         out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
                                   "tool_input": {"file_path": rel, "content": "x"}})
         assert out["permissionDecision"] == "allow", (rel, out)
@@ -1938,7 +1953,7 @@ def test_edit_claude_progress_allows_absolute_path(tmp_path: Path) -> None:
     script = _script(tmp_path)
     out = _run_hook(script, {
         "tool_name": "Edit", "cwd": str(tmp_path),
-        "tool_input": {"file_path": str(tmp_path / "claude-progress.md"),
+        "tool_input": {"file_path": str(tmp_path / ".harness/progress.md"),
                        "old_string": "a", "new_string": "b"},
     })
     assert out["permissionDecision"] == "allow", out
@@ -1950,7 +1965,7 @@ def test_write_claude_progress_in_subdir_still_denies(tmp_path: Path) -> None:
     _contract_with_verify(tmp_path)
     script = _script(tmp_path)
     out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "src/claude-progress.md",
+                              "tool_input": {"file_path": "src/.harness/progress.md",
                                              "content": "x"}})
     assert out["permissionDecision"] == "deny", out
 
@@ -1958,11 +1973,13 @@ def test_write_claude_progress_in_subdir_still_denies(tmp_path: Path) -> None:
 def test_is_progress_file_path_importable() -> None:
     from harness.boundary_guard import _is_progress_file_path
 
-    assert _is_progress_file_path("claude-progress.md") is True
-    assert _is_progress_file_path("CLAUDE-PROGRESS.md") is True
-    assert _is_progress_file_path("docs/../claude-progress.md") is True
-    assert _is_progress_file_path("src/claude-progress.md") is False
-    assert _is_progress_file_path("claude-progress.md.bak") is False
+    assert _is_progress_file_path(".harness/progress.md") is True
+    assert _is_progress_file_path(".HARNESS/PROGRESS.MD") is True
+    assert _is_progress_file_path("docs/../.harness/progress.md") is True
+    assert _is_progress_file_path("src/.harness/progress.md") is False
+    assert _is_progress_file_path("progress.md") is False
+    assert _is_progress_file_path(".harness/sub/progress.md") is False
+    assert _is_progress_file_path(".harness/progress.md.bak") is False
     assert _is_progress_file_path("") is False
 
 
@@ -2753,3 +2770,62 @@ def test_install_ignores_every_machine_local_artifact(tmp_path: Path) -> None:
 
     # A raiz do usuário continua intocada — decisão de design preservada.
     assert not (tmp_path / ".gitignore").exists()
+
+
+# ---------------------------------------------------------------------------
+# Feature-lock: identidade de contrato (achado de teste isento)
+# ---------------------------------------------------------------------------
+
+def test_feature_lock_denies_evidence_from_another_contract(tmp_path: Path) -> None:
+    """A prova de um contrato ANTERIOR não pode destravar `passes:true` numa
+    tarefa nunca verificada. Todo contrato começa em `T-01`, então o cenário é
+    o normal, não o exótico. Antes existia só o frescor contra o último commit
+    — defesa TEMPORAL, que depende de haver um commit entre os dois contratos.
+
+    A evidência aqui está FRESCA e no diretório do contrato ativo (como se
+    tivesse sido copiada à mão): o caminho escopado sozinho não pegaria."""
+    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    _write_evidence(
+        tmp_path, "T-01", recorded_at="2026-06-01T00:00:00+00:00",
+        contract="contrato-antigo", dir_contract="test",
+    )
+    script = _script(tmp_path)
+    new_content = _feature_list_json([
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": True}
+    ])
+
+    out = _run_hook(script, {
+        "tool_name": "Write", "cwd": str(tmp_path),
+        "tool_input": {"file_path": ".harness/feature_list.json", "content": new_content},
+    })
+
+    assert out["permissionDecision"] == "deny", out
+    reason = out["permissionDecisionReason"]
+    assert "contrato-antigo" in reason and "test" in reason, reason
+
+
+def test_feature_lock_allows_evidence_of_the_active_contract(tmp_path: Path) -> None:
+    """O outro lado: evidência fresca E do contrato ativo continua liberando."""
+    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    _write_evidence(tmp_path, "T-01", recorded_at="2026-06-01T00:00:00+00:00")
+    script = _script(tmp_path)
+    new_content = _feature_list_json([
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": True}
+    ])
+
+    out = _run_hook(script, {
+        "tool_name": "Write", "cwd": str(tmp_path),
+        "tool_input": {"file_path": ".harness/feature_list.json", "content": new_content},
+    })
+
+    assert out["permissionDecision"] == "allow", out

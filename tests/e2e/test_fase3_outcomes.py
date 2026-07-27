@@ -279,12 +279,13 @@ def _write_evidence(root: Path, fid: str, *, files: list[str] | None = None,
     evidence = {
         "feature_id": fid,
         "verify_cmd": verify_cmd,
+        "contract": SLUG,
         "recorded_at": recorded_at or datetime.now(timezone.utc).isoformat(),
         "exit_code": exit_code,
         "files_hash": files_hash if files_hash is not None
         else compute_files_hash(files or [], root),
     }
-    path = root / ".harness" / "evidence" / f"{fid}.json"
+    path = root / ".harness" / "evidence" / SLUG / f"{fid}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
     return path
@@ -318,13 +319,17 @@ def test_outcome1_verify_records_evidence_only_on_success(tmp_path: Path) -> Non
         )
         assert "verify-ok" in (project / "verify_ran.txt").read_text(encoding="utf-8")
 
-        evidence_path = project / ".harness" / "evidence" / "T-OK.json"
+        evidence_path = project / ".harness" / "evidence" / SLUG / "T-OK.json"
         assert evidence_path.is_file(), "sucesso não gravou .harness/evidence/T-OK.json"
         evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
         assert set(evidence.keys()) == {
-            "feature_id", "desc", "files", "verify_cmd", "recorded_at", "exit_code", "files_hash",
+            "feature_id", "contract", "desc", "files", "verify_cmd", "recorded_at",
+            "exit_code", "files_hash",
         }, f"schema da evidência divergiu do fixado em verify.py: {sorted(evidence)}"
         assert evidence["feature_id"] == "T-OK"
+        # Identidade da prova: sem `contract`, a evidência de um contrato
+        # anterior (todo contrato tem um T-01) destrava passes:true aqui.
+        assert evidence["contract"] == SLUG
         assert evidence["verify_cmd"] == "echo verify-ok > verify_ran.txt"
         assert evidence["exit_code"] == 0
         # recorded_at ISO8601 parseável
@@ -356,7 +361,7 @@ def test_outcome1_verify_records_evidence_only_on_success(tmp_path: Path) -> Non
         assert proc.returncode == 7, (
             f"exit code do verify_cmd (7) não propagou: obtido {proc.returncode}"
         )
-        assert not (project / ".harness" / "evidence" / "T-FAIL.json").exists(), (
+        assert not (project / ".harness" / "evidence" / SLUG / "T-FAIL.json").exists(), (
             "verify_cmd falhou e MESMO ASSIM gravou evidência"
         )
         proof.append(
@@ -644,7 +649,7 @@ def test_outcome4_stop_hook_detects_unverified_in_progress(tmp_path: Path) -> No
             APP_PY + "\n# trabalho em andamento\n", encoding="utf-8"
         )
         assert is_feature_in_progress(feat_t01, project) is True
-        assert needs_verification(feat_t01, project) is True
+        assert needs_verification(feat_t01, project, SLUG) is True
         assert is_feature_in_progress(feat_t02, project) is False
         out = _run_stop_hook(hook, {"cwd": str(project)})
         assert out is not None, "hook Stop silenciou com feature em progresso sem evidência"
@@ -662,7 +667,7 @@ def test_outcome4_stop_hook_detects_unverified_in_progress(tmp_path: Path) -> No
 
         # (c) evidência com files_hash ATUAL: verificado, hook silencia
         _write_evidence(project, "T-01", files=["src/app.py"])
-        assert needs_verification(feat_t01, project) is False
+        assert needs_verification(feat_t01, project, SLUG) is False
         assert _run_stop_hook(hook, {"cwd": str(project)}) is None, (
             "hook Stop sinalizou mesmo com evidência atualizada (hash batendo)"
         )
@@ -676,7 +681,7 @@ def test_outcome4_stop_hook_detects_unverified_in_progress(tmp_path: Path) -> No
         (project / "src" / "app.py").write_text(
             APP_PY + "\n# mudou depois da verificacao\n", encoding="utf-8"
         )
-        assert needs_verification(feat_t01, project) is True
+        assert needs_verification(feat_t01, project, SLUG) is True
         out = _run_stop_hook(hook, {"cwd": str(project)})
         assert out is not None and "T-01" in out["additionalContext"]
         proof.append(
@@ -690,7 +695,7 @@ def test_outcome4_stop_hook_detects_unverified_in_progress(tmp_path: Path) -> No
         assert is_feature_in_progress(passed, project) is False
         no_files = _feature("T-03", [], "echo ok")
         assert is_feature_in_progress(no_files, project) is False
-        assert needs_verification(no_files, project) is False
+        assert needs_verification(no_files, project, SLUG) is False
         proof.append(
             "`passes: true` nunca é 'em progresso' (mesmo com diff pendente); "
             "feature sem files[] nunca é 'em progresso' (sem pathspec não há "
@@ -789,7 +794,8 @@ def test_outcome5_runtime_audit_invariants_agree_with_stop_hook(tmp_path: Path) 
         (project / "src").mkdir(parents=True)
         (project / "src" / "a.py").write_text("A = 1\n", encoding="utf-8")
         (project / "src" / "b.py").write_text("B = 2\n", encoding="utf-8")
-        (project / "claude-progress.md").write_text("# progresso\n", encoding="utf-8")
+        (project / ".harness").mkdir(parents=True, exist_ok=True)
+        (project / ".harness/progress.md").write_text("# progresso\n", encoding="utf-8")
         feat_a = _feature("T-01", ["src/a.py"], "echo ok")
         feat_b = _feature("T-02", ["src/b.py"], "echo ok")
         _write_feature_list(project, [feat_a, feat_b])
@@ -866,8 +872,8 @@ def test_outcome5_runtime_audit_invariants_agree_with_stop_hook(tmp_path: Path) 
         proc = _run_cli(["audit-runtime", "--dir", str(project)], cwd=project)
         assert proc.returncode == 0, proc.stderr
         assert json.loads(proc.stdout)["score"] == 100
-        (project / ".harness" / "evidence" / "T-02.json").unlink()
-        (project / "claude-progress.md").unlink()
+        (project / ".harness" / "evidence" / SLUG / "T-02.json").unlink()
+        (project / ".harness/progress.md").unlink()
         proc = _run_cli(["audit-runtime", "--dir", str(project)], cwd=project)
         assert proc.returncode == 1, (proc.returncode, proc.stdout)
         broken = json.loads(proc.stdout)
@@ -876,7 +882,7 @@ def test_outcome5_runtime_audit_invariants_agree_with_stop_hook(tmp_path: Path) 
         assert "missing_evidence" in codes and "missing_progress_file" in codes, codes
         proof.append(
             "CLI `harness audit-runtime`: exit 0 com score 100 no estado sadio; "
-            "apagando a evidência de T-02 e o claude-progress.md -> exit 1 com "
+            "apagando a evidência de T-02 e o .harness/progress.md -> exit 1 com "
             f"score {broken['score']} (<60) e findings JSON parseáveis "
             f"({sorted(codes)})."
         )

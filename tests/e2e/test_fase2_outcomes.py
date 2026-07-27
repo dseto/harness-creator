@@ -41,7 +41,7 @@ Outcomes verificados (extraídos da seção "Fase 2" do ROADMAP.md, linhas
        `AGENTS.md` (delimitadores próprios), coexistindo com o bloco do
        `compiler.py` e com texto humano, com progressive disclosure para
        `.harness/LIFECYCLE.md`.
-    7. Templates gerados do contrato/profile: `claude-progress.md` (uma linha
+    7. Templates gerados do contrato/profile: `.harness/progress.md` (uma linha
        por feature, NUNCA sobrescrito se já existir) e `init.sh`/`init.ps1`
        (determinísticos, regenerados quando o profile muda).
     8. Hook `SessionStart` injeta contexto real (feature pendente, progresso,
@@ -212,7 +212,7 @@ _OUTCOME_TITLES = {
     4: "arquivo que casa test_glob só é editável se declarado em files[] do contrato",
     5: "compile-session remove o hook legado guard_tests.py sem tocar outros hooks",
     6: "lifecycle de 17 passos como bloco gerenciado idempotente no AGENTS.md + .harness/LIFECYCLE.md",
-    7: "templates do contrato/profile: claude-progress.md nunca sobrescrito; init.* regenerados",
+    7: "templates do contrato/profile: .harness/progress.md nunca sobrescrito; init.* regenerados",
     8: "hook SessionStart injeta contexto real e não quebra sem git/sem contrato",
 }
 
@@ -755,12 +755,12 @@ def test_outcome6_lifecycle_block_idempotent_and_coexistent(tmp_path: Path) -> N
         steps = re.findall(r"^\d+\. ", block, re.MULTILINE)
         assert len(steps) == 17, f"bloco do lifecycle tem {len(steps)} passos, esperado 17"
         assert ".harness/LIFECYCLE.md" in block, "bloco fino não aponta para o detalhe"
-        for marker in ("exatamente UMA feature pendente", "claude-progress.md",
+        for marker in ("exatamente UMA feature pendente", ".harness/progress.md",
                        "feature_list.json", "git log", "aprovação humana"):
             assert marker in block, f"passo esperado ausente do bloco: {marker!r}"
         proof.append(
             "Bloco do lifecycle: 17 passos numerados (1 linha por passo), citando "
-            "init/claude-progress.md/feature_list.json/git log/'exatamente UMA "
+            "init/.harness/progress.md/feature_list.json/git log/'exatamente UMA "
             "feature pendente'/gate de aprovação humana antes do commit, com "
             "ponteiro de progressive disclosure para `.harness/LIFECYCLE.md`."
         )
@@ -797,39 +797,44 @@ def test_outcome7_templates_progress_preserved_init_regenerated(tmp_path: Path) 
         proc = _run_cli(["compile-session", "--dir", str(project)], cwd=project)
         assert proc.returncode == 0, proc.stderr
 
-        # claude-progress.md gerado DO CONTRATO (uma linha por feature, pending)
-        progress = (project / "claude-progress.md").read_text(encoding="utf-8")
+        # .harness/progress.md gerado DO CONTRATO (uma linha por feature, pending)
+        progress = (project / ".harness/progress.md").read_text(encoding="utf-8")
         assert f"Contrato: `{SLUG}`" in progress
         assert "| T-01 | Implementar health check | pending |" in progress
         assert "| T-02 | Implementar util de soma | pending |" in progress
         proof.append(
-            "`claude-progress.md` gerado do contrato compilado: cabeçalho com o "
+            "`.harness/progress.md` gerado do contrato compilado: cabeçalho com o "
             "slug e uma linha por feature (T-01/T-02, status pending)."
         )
 
         # init.sh / init.ps1 gerados DO PROFILE (npm ci + test_command)
-        init_sh = (project / "init.sh").read_text(encoding="utf-8")
-        init_ps1 = (project / "init.ps1").read_text(encoding="utf-8")
+        init_sh = (project / ".harness/init.sh").read_text(encoding="utf-8")
+        init_ps1 = (project / ".harness/init.ps1").read_text(encoding="utf-8")
         assert "npm ci" in init_sh and "pytest tests -q" in init_sh
         assert init_sh.startswith("#!/usr/bin/env bash")
         assert "npm ci" in init_ps1 and "pytest tests -q" in init_ps1
         assert "$ErrorActionPreference = 'Stop'" in init_ps1
+        # Item 6 do laudo de footprint: nada de init.* na raiz do alvo.
+        assert not (project / "init.sh").exists()
+        assert not (project / "init.ps1").exists()
+        assert not (project / "claude-progress.md").exists()
         proof.append(
-            "`init.sh`/`init.ps1` gerados do profile: instalação (`npm ci` do "
-            "package_manager) + health check (`pytest tests -q` do test_command), "
-            "mesmo conteúdo semântico nas duas linguagens."
+            "`.harness/init.sh`/`.harness/init.ps1` gerados do profile: instalação "
+            "(`npm ci` do package_manager) + health check (`pytest tests -q` do "
+            "test_command), mesmo conteúdo semântico nas duas linguagens; a raiz do "
+            "projeto-alvo ficou sem `init.*` e sem `claude-progress.md`."
         )
 
         # progresso REAL nunca é sobrescrito por recompilação
         sentinel = "# PROGRESSO REAL DA SESSÃO — sobrescrever isto é perder trabalho\n"
-        (project / "claude-progress.md").write_text(sentinel, encoding="utf-8")
+        (project / ".harness/progress.md").write_text(sentinel, encoding="utf-8")
         proc = _run_cli(["compile-session", "--dir", str(project)], cwd=project)
         assert proc.returncode == 0, proc.stderr
-        assert (project / "claude-progress.md").read_text(encoding="utf-8") == sentinel, (
-            "recompilar SOBRESCREVEU claude-progress.md — progresso real perdido"
+        assert (project / ".harness/progress.md").read_text(encoding="utf-8") == sentinel, (
+            "recompilar SOBRESCREVEU .harness/progress.md — progresso real perdido"
         )
         proof.append(
-            "`claude-progress.md` substituído por progresso real e `compile-session` "
+            "`.harness/progress.md` substituído por progresso real e `compile-session` "
             "re-rodado: o arquivo permaneceu byte a byte igual (nunca sobrescrito)."
         )
 
@@ -837,7 +842,7 @@ def test_outcome7_templates_progress_preserved_init_regenerated(tmp_path: Path) 
         _write_profile(project, package_manager="pnpm")
         proc = _run_cli(["compile-session", "--dir", str(project)], cwd=project)
         assert proc.returncode == 0, proc.stderr
-        init_sh2 = (project / "init.sh").read_text(encoding="utf-8")
+        init_sh2 = (project / ".harness/init.sh").read_text(encoding="utf-8")
         assert "pnpm install --frozen-lockfile" in init_sh2
         assert "npm ci" not in init_sh2
         allow = _load_settings(project)["permissions"]["allow"]
@@ -892,13 +897,13 @@ def test_outcome8_session_start_injects_state_and_survives_no_git(tmp_path: Path
         assert out["hookEventName"] == "SessionStart", out
         context = out["additionalContext"]
         assert "Feature ativa/pendente: T-01" in context, context
-        assert "Progresso recente (claude-progress.md)" in context, context
+        assert "Progresso recente (.harness/progress.md)" in context, context
         assert "git log -n 5 --oneline" in context, context
         assert "estado inicial da cobaia fase2" in context, context
         proof.append(
             "Hook invocado com payload real: `additionalContext` contém a feature "
             "pendente (`Feature ativa/pendente: T-01`), o tail do "
-            "claude-progress.md e o `git log` real (commit 'estado inicial da "
+            ".harness/progress.md e o `git log` real (commit 'estado inicial da "
             "cobaia fase2') — a sessão nasce sabendo onde parou."
         )
 

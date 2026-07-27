@@ -64,6 +64,11 @@ HARNESS_GITIGNORE_LINES: tuple[str, ...] = (
 #: `agents/` e `skills/` são saída versionada de `harness team generate`.
 CLAUDE_GITIGNORE_LINES: tuple[str, ...] = ("settings.local.json",)
 
+#: Área de artefato temporário de verificação (screenshot, dump de rede, HTML
+#: de debug). Auto-ignorada: `*` + `!.gitignore`.
+SCRATCH_DIR = f"{HARNESS_DIR}/scratch"
+_SCRATCH_GITIGNORE_CONTENT = "*\n!.gitignore\n"
+
 
 # ---------------------------------------------------------------------------
 # paths
@@ -124,18 +129,45 @@ def ensure_machine_local_gitignores(target_dir: Path | str) -> list[Path]:
 # ponto único de acesso dos escritores
 # ---------------------------------------------------------------------------
 
+def ensure_scratch_surface(target_dir: Path | str) -> Path:
+    """Garante `.harness/scratch/` com `.gitignore` auto-contido.
+
+    A pasta se ignora sozinha (`*` + `!.gitignore`), sem tocar no `.gitignore`
+    da raiz do usuário: o `git status` fica limpo mesmo que o agente esqueça
+    screenshot ou dump de rede lá. Um `.gitignore` já existente nunca é
+    sobrescrito — pode ter sido customizado.
+
+    Retorna o path do diretório.
+    """
+    target_dir = Path(target_dir)
+    scratch_dir = target_dir / SCRATCH_DIR
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    gitignore = scratch_dir / ".gitignore"
+    if not gitignore.is_file():
+        gitignore.write_text(_SCRATCH_GITIGNORE_CONTENT, encoding="utf-8")
+    return scratch_dir
+
+
 def prepare_managed_settings(target_dir: Path | str) -> tuple[Path, dict[str, Any]]:
     """Devolve `(path do settings.local.json, conteúdo atual)`, garantindo
-    antes os `.gitignore` tool-owned.
+    antes os `.gitignore` tool-owned e a superfície de scratch.
 
     Todo escritor de settings passa por aqui: é o que impede a fronteira de
     valer em quatro módulos e não no quinto. JSON inválido no arquivo
     gerenciado PROPAGA o erro (é output nosso — sobrescrever calado apagaria
     o registro do que está ativo na sessão, incluindo as aprovações
     interativas que o Claude Code guarda no mesmo arquivo).
+
+    `ensure_scratch_surface` entrou aqui, e não só em `install_boundary_guard`,
+    porque o bloco gerenciado que `harness compile` escreve no `AGENTS.md`
+    manda salvar artefato temporário em `.harness/scratch/` — mas a pasta só
+    nascia no `compile-session`. Entre um comando e outro a instrução apontava
+    para um diretório inexistente. Amarrar as duas coisas ao mesmo ponto único
+    é o que impede a assimetria de voltar.
     """
     target_dir = Path(target_dir)
     ensure_machine_local_gitignores(target_dir)
+    ensure_scratch_surface(target_dir)
 
     path = managed_settings_path(target_dir)
     settings: dict[str, Any] = {}

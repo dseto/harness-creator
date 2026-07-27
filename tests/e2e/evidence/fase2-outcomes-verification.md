@@ -94,17 +94,17 @@ Segunda rodada de `compile-session`: uma única entrada do boundary_guard (idemp
 Veredito: **ATINGIDO**
 
 AGENTS.md após `compile` (mecanismo antigo) + `compile-session`: texto humano preservado, bloco `<!-- harness:begin -->` do compiler.py byte a byte intacto, bloco `<!-- harness:lifecycle:begin -->` adicionado.
-Bloco do lifecycle: 17 passos numerados (1 linha por passo), citando init/claude-progress.md/feature_list.json/git log/'exatamente UMA feature pendente'/gate de aprovação humana antes do commit, com ponteiro de progressive disclosure para `.harness/LIFECYCLE.md`.
+Bloco do lifecycle: 17 passos numerados (1 linha por passo), citando init/.harness/progress.md/feature_list.json/git log/'exatamente UMA feature pendente'/gate de aprovação humana antes do commit, com ponteiro de progressive disclosure para `.harness/LIFECYCLE.md`.
 `.harness/LIFECYCLE.md` existe com os 17 passos detalhados (um parágrafo por passo).
 Segunda rodada: um único bloco lifecycle (substituído in-place), bloco do compiler e texto humano seguem intactos.
 
-## Outcome 7 — templates do contrato/profile: claude-progress.md nunca sobrescrito; init.* regenerados
+## Outcome 7 — templates do contrato/profile: .harness/progress.md nunca sobrescrito; init.* regenerados
 
 Veredito: **ATINGIDO**
 
-`claude-progress.md` gerado do contrato compilado: cabeçalho com o slug e uma linha por feature (T-01/T-02, status pending).
-`init.sh`/`init.ps1` gerados do profile: instalação (`npm ci` do package_manager) + health check (`pytest tests -q` do test_command), mesmo conteúdo semântico nas duas linguagens.
-`claude-progress.md` substituído por progresso real e `compile-session` re-rodado: o arquivo permaneceu byte a byte igual (nunca sobrescrito).
+`.harness/progress.md` gerado do contrato compilado: cabeçalho com o slug e uma linha por feature (T-01/T-02, status pending).
+`.harness/init.sh`/`.harness/init.ps1` gerados do profile: instalação (`npm ci` do package_manager) + health check (`pytest tests -q` do test_command), mesmo conteúdo semântico nas duas linguagens; a raiz do projeto-alvo ficou sem `init.*` e sem `claude-progress.md`.
+`.harness/progress.md` substituído por progresso real e `compile-session` re-rodado: o arquivo permaneceu byte a byte igual (nunca sobrescrito).
 Profile mudado (npm -> pnpm) e recompilado: `init.sh` regenerado com `pnpm install --frozen-lockfile` (sem resto de `npm ci`), e a regra de instalação no allow acompanhou a troca.
 
 ## Outcome 8 — hook SessionStart injeta contexto real e não quebra sem git/sem contrato
@@ -112,7 +112,7 @@ Profile mudado (npm -> pnpm) e recompilado: `init.sh` regenerado com `pnpm insta
 Veredito: **ATINGIDO**
 
 `compile-session` instalou `.harness/hooks/session_start.py` e registrou UMA entrada em hooks.SessionStart (matcher `*`).
-Hook invocado com payload real: `additionalContext` contém a feature pendente (`Feature ativa/pendente: T-01`), o tail do claude-progress.md e o `git log` real (commit 'estado inicial da cobaia fase2') — a sessão nasce sabendo onde parou.
+Hook invocado com payload real: `additionalContext` contém a feature pendente (`Feature ativa/pendente: T-01`), o tail do .harness/progress.md e o `git log` real (commit 'estado inicial da cobaia fase2') — a sessão nasce sabendo onde parou.
 Segunda rodada de `compile-session`: continua UMA entrada em hooks.SessionStart (idempotente).
 Hook apontado (via payload cwd) para diretório sem git e sem `.harness/`: exit 0, JSON válido, contexto degrada com elegância ('Nenhum contrato ativo') — não quebra a sessão.
 

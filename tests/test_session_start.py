@@ -98,7 +98,8 @@ def test_empty_feature_list_says_no_pending_feature(tmp_path: Path) -> None:
 
 
 def test_progress_file_content_appears_in_context(tmp_path: Path) -> None:
-    progress_path = tmp_path / "claude-progress.md"
+    progress_path = tmp_path / ".harness/progress.md"
+    progress_path.parent.mkdir(parents=True, exist_ok=True)
     progress_path.write_text(
         "# Progresso\n" + "\n".join(f"linha {i}" for i in range(30)) + "\nMARCA-UNICA-XYZ",
         encoding="utf-8",

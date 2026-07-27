@@ -551,7 +551,7 @@ def install_team_manifest(
     (`pattern`, `mode`, `roles: list[str]`, `max_review_iterations: int`,
     `generated_at`). Cria os diretórios necessários. SEMPRE sobrescreve —
     este arquivo é determinístico a partir do padrão escolhido (mesma
-    natureza de `init.sh`/`init.ps1` em `templates.py`), nunca é editado
+    natureza de `.harness/init.sh`/`.harness/init.ps1` em `templates.py`), nunca é editado
     manualmente pelo agente.
     """
     manifest_path = target_dir / TEAM_MANIFEST_PATH

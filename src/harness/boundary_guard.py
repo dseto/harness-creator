@@ -133,9 +133,9 @@ Quatro garantias, nesta ordem, sempre:
    AGENTS.md gerado por `compiler._render_agents_block`, Passo 8 do plan
    SKILL.md, e a deny message de superfície de `_evaluate_file`, que
    agora aponta `.harness/scratch/` como destino de artefato temporário).
-   `claude-progress.md` (raiz do repo) é igualmente sempre gravável
+   `.harness/progress.md` é igualmente sempre gravável
    (`_is_progress_file_path`, match EXATO pós-normalização,
-   case-insensitive — um `claude-progress.md` em subdiretório NÃO casa):
+   case-insensitive — um `progress.md` em subdiretório NÃO casa):
    é bookkeeping do PRÓPRIO harness — o lifecycle (passo 12) manda o
    agente atualizá-lo a cada sessão e o `runtime_audit` dá warning se
    ausente, mas a superfície negava a escrita (contradição interna,
@@ -300,6 +300,7 @@ from harness.config import HarnessConfig
 from harness.killswitch import DISABLED_CHECK_SRC
 from harness.review import ReviewError, is_test_diff, load_review
 from harness.settings_paths import prepare_managed_settings, write_managed_settings
+from harness.templates import PROGRESS_FILE as PROGRESS_FILE_PATH
 
 HOOKS_DIR = ".harness/hooks"
 BOUNDARY_HOOK_FILENAME = "boundary_guard.py"
@@ -603,23 +604,22 @@ def _is_scratch_surface_path(path: str) -> bool:
     return normalized.startswith(SCRATCH_DIR_PREFIX)
 
 
-PROGRESS_FILE_NAME = "claude-progress.md"
-
-
 def _is_progress_file_path(path: str) -> bool:
-    """True se `path` (já `/`-separado) é o `claude-progress.md` da RAIZ do
-    repo — bookkeeping do próprio harness (o lifecycle, passo 12, manda o
-    agente atualizá-lo a cada sessão; `runtime_audit` dá warning se ausente),
-    sempre gravável. Match EXATO pós-`posixpath.normpath`, case-insensitive
-    (filesystem Windows): um `claude-progress.md` dentro de subdiretório NÃO
-    casa — só o canônico da raiz; a normalização cobre variantes como
-    `docs/../claude-progress.md`. Correção do issue 3 do dogfood
-    aegis_rpa_suite (guard negava escrita no arquivo que o próprio harness
-    manda manter)."""
+    """True se `path` (já `/`-separado) é EXATAMENTE o `.harness/progress.md`
+    canônico do repo — bookkeeping do próprio harness (o lifecycle, passo 12,
+    manda o agente atualizá-lo a cada sessão; `runtime_audit` dá warning se
+    ausente), sempre gravável. Match EXATO pós-`posixpath.normpath`,
+    case-insensitive (filesystem Windows): um `progress.md` em qualquer outro
+    diretório NÃO casa — nem em subdiretório de `.harness/`; a normalização
+    cobre variantes como `docs/../.harness/progress.md`. Correção do issue 3
+    do dogfood aegis_rpa_suite (guard negava escrita no arquivo que o próprio
+    harness manda manter); a não-recursividade é deliberada e sobreviveu à
+    mudança de caminho do item 6 — sem ela, qualquer `progress.md` plantado
+    em subdiretório viraria buraco na superfície de escrita."""
     import posixpath
 
     normalized = posixpath.normpath(path or "")
-    return normalized.lower() == PROGRESS_FILE_NAME
+    return normalized.lower() == PROGRESS_FILE_PATH
 
 
 def _is_claude_memory_path(path: str) -> bool:
@@ -878,6 +878,7 @@ def _resolve_repo_root_anchor(script_file: Path | str) -> str | None:
 # ---------------------------------------------------------------------------
 FEATURE_LIST_RELATIVE_PATH = ".harness/feature_list.json"
 EVIDENCE_DIR_NAME = ".harness/evidence"
+UNSCOPED_EVIDENCE_DIR_NAME = "_sem-contrato"
 TEAM_MANIFEST_RELATIVE_PATH = ".harness/team/manifest.json"
 
 
@@ -954,23 +955,37 @@ def _transitions_to_true(old_data: Any, new_data: Any) -> list[Any]:
 
 
 def _evidence_freshness_problem(
-    cwd: Path | str | None, feature_id: Any, commit_ts: str | None
+    cwd: Path | str | None, feature_id: Any, commit_ts: str | None, contract: str = ""
 ) -> tuple[str | None, dict[str, Any] | None]:
-    """`(None, evidence)` se a evidência de `feature_id` existe, é válida e
-    (quando `commit_ts` fornecido) mais nova que ele; senão, `(problema,
-    None)` descrevendo o problema. O dict de evidência é devolvido junto
-    (mesmo objeto já parseado, sem reler o arquivo) para o chamador reusar na
-    checagem do veto do revisor (comparação contra `evidencia.recorded_at`)."""
+    """`(None, evidence)` se a evidência de `feature_id` existe, é DO CONTRATO
+    ativo, é válida e (quando `commit_ts` fornecido) mais nova que ele; senão,
+    `(problema, None)` descrevendo o problema. O dict de evidência é devolvido
+    junto (mesmo objeto já parseado, sem reler o arquivo) para o chamador
+    reusar na checagem do veto do revisor (comparação contra
+    `evidencia.recorded_at`).
+
+    A checagem de contrato é o que impede a prova de um contrato ANTERIOR de
+    destravar `passes:true` numa tarefa nunca verificada — todo contrato tem
+    um `T-01`. Antes existia só o frescor contra o último commit, que é defesa
+    temporal: só funciona se houver um commit entre os dois contratos."""
     base = Path(cwd) if cwd else Path(".")
-    evidence_path = base / EVIDENCE_DIR_NAME / f"{feature_id}.json"
+    slug = (str(contract or "").strip() or UNSCOPED_EVIDENCE_DIR_NAME)
+    relative = f"{EVIDENCE_DIR_NAME}/{slug}/{feature_id}.json"
+    evidence_path = base / EVIDENCE_DIR_NAME / slug / f"{feature_id}.json"
     if not evidence_path.is_file():
-        return f"{feature_id}: sem evidência (.harness/evidence/{feature_id}.json não existe)", None
+        return f"{feature_id}: sem evidência ({relative} não existe)", None
     try:
         evidence = json.loads(evidence_path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError):
         return f"{feature_id}: evidência inválida (JSON malformado)", None
     if not isinstance(evidence, dict) or evidence.get("feature_id") != feature_id:
         return f"{feature_id}: evidência inválida (feature_id não corresponde)", None
+    evidence_contract = str(evidence.get("contract") or "")
+    if contract and evidence_contract != contract:
+        return (
+            f"{feature_id}: evidência é do contrato "
+            f"'{evidence_contract or '(ausente)'}', não do contrato ativo '{contract}'"
+        ), None
     recorded_dt = _parse_iso8601(evidence.get("recorded_at"))
     if recorded_dt is None:
         return f"{feature_id}: evidência inválida (recorded_at ausente ou não-ISO8601)", None
@@ -1137,7 +1152,9 @@ def evaluate_feature_list_edit(
     problems: list[str] = []
     evidence_by_id: dict[Any, dict[str, Any]] = {}
     for fid in transitioned:
-        problem, evidence = _evidence_freshness_problem(base, fid, commit_ts)
+        problem, evidence = _evidence_freshness_problem(
+            base, fid, commit_ts, str(new_data.get("contract") or "")
+        )
         if problem:
             problems.append(problem)
         else:
@@ -1304,7 +1321,7 @@ def render_boundary_guard(
         f"SCRATCH_DIR_PREFIX = {SCRATCH_DIR_PREFIX!r}",
         inspect.getsource(_is_work_surface_path),
         inspect.getsource(_is_scratch_surface_path),
-        f"PROGRESS_FILE_NAME = {PROGRESS_FILE_NAME!r}",
+        f"PROGRESS_FILE_PATH = {PROGRESS_FILE_PATH!r}",
         inspect.getsource(_is_progress_file_path),
         inspect.getsource(_is_claude_memory_path),
         f"READONLY_SHELL_UTILITIES = {set(READONLY_SHELL_UTILITIES)!r}",
@@ -1325,6 +1342,7 @@ def render_boundary_guard(
         inspect.getsource(_contract_fully_passed),
         inspect.getsource(_transitions_to_true),
         inspect.getsource(_read_last_commit_timestamp),
+        f"UNSCOPED_EVIDENCE_DIR_NAME = {UNSCOPED_EVIDENCE_DIR_NAME!r}",
         inspect.getsource(_evidence_freshness_problem),
         inspect.getsource(_read_team_manifest),
         inspect.getsource(_manifest_requires_review),
@@ -1439,6 +1457,7 @@ def _protected_branch_commit_problem(command, cwd):
 FEATURE_LIST_PATH = ".harness/feature_list.json"
 PROFILE_PATH = ".harness/repo-profile.json"
 EVIDENCE_DIR_NAME = ".harness/evidence"
+UNSCOPED_EVIDENCE_DIR_NAME = "_sem-contrato"
 TEAM_MANIFEST_RELATIVE_PATH = ".harness/team/manifest.json"
 REVIEW_DIR = ".harness/review"
 # WORK_DIR_PREFIX (area de autoria de contrato) e SCRATCH_DIR_PREFIX (area de
@@ -1761,7 +1780,9 @@ def _evaluate_feature_list_edit(tool_name, tool_input, cwd):
     problems = []
     evidence_by_id = {}
     for fid in transitioned:
-        problem, evidence = _evidence_freshness_problem(cwd, fid, commit_ts)
+        problem, evidence = _evidence_freshness_problem(
+            cwd, fid, commit_ts, str(new_data.get("contract") or "")
+        )
         if problem:
             problems.append(problem)
         else:
@@ -1837,7 +1858,7 @@ def _evaluate_file(path, cwd):
 
     if _is_progress_file_path(path):
         return "allow", (
-            "claude-progress.md e bookkeeping do proprio harness (o lifecycle "
+            ".harness/progress.md e bookkeeping do proprio harness (o lifecycle "
             "manda atualiza-lo a cada sessao) - sempre gravavel, mesmo padrao "
             "de .harness/work/** e docs/**"
         )
@@ -2218,6 +2239,19 @@ def main() -> None:
                 "ferramenta read-only/utilitaria conhecida, fora do escopo de "
                 "escrita do boundary_guard"
             )
+            # AVISO, nao bloqueio: o floor de segredo e de ESCRITA (decisao
+            # explicita de projeto). Ler .env costuma ser legitimo
+            # (.env.example, conferir uma chave de config), mas o conteudo
+            # entra no contexto do agente - entao a leitura fica registrada
+            # na razao em vez de passar muda.
+            raw_path = tool_input.get("file_path") or tool_input.get("path") or ""
+            if raw_path and is_floor_secret_path(_resolve_path(raw_path, cwd)):
+                reason += (
+                    " | AVISO: o alvo tem nome de arquivo de segredo "
+                    "(.env/.pem/id_rsa/credentials) - leitura NAO e bloqueada "
+                    "pelo floor (que e de escrita), mas o conteudo entra no "
+                    "contexto da sessao"
+                )
         else:
             if _UNKNOWN_WRITE_NAME_PATTERN.search(tool_name):
                 decision, reason = "deny", (
@@ -2311,21 +2345,11 @@ def install_boundary_guard(target_dir: Path) -> Path:
         encoding="utf-8",
     )
 
-    # Garantia 4 (superfície de scratch): cria .harness/scratch/ com
-    # .gitignore auto-contido (`*` + `!.gitignore`) — a pasta se ignora
-    # sozinha, sem tocar no .gitignore da raiz do usuário; git status fica
-    # limpo mesmo que o agente esqueça screenshots/dumps lá. Não sobrescreve
-    # um .gitignore já existente (o usuário pode ter customizado).
-    scratch_dir = target_dir / SCRATCH_DIR_PREFIX.rstrip("/")
-    scratch_dir.mkdir(parents=True, exist_ok=True)
-    scratch_gitignore = scratch_dir / ".gitignore"
-    if not scratch_gitignore.is_file():
-        scratch_gitignore.write_text("*\n!.gitignore\n", encoding="utf-8")
-
     command = f'python "{script_path}"'
 
     # Destino machine-local + `.gitignore` tool-owned (`.harness/` e
-    # `.claude/`) + migração one-shot do alvo já instalado. `.harness/` NÃO é
+    # `.claude/`) + a superfície de scratch (Garantia 4), tudo pelo ponto
+    # único de `settings_paths`. `.harness/` NÃO é
     # versionado por inteiro: `work/`, `feature_list.json` e `evidence/` viajam
     # pra branch, mas `hooks/`, `compiled-state*.json` e o sentinel do
     # kill-switch carregam path absoluto/estado de sessão desta máquina — por

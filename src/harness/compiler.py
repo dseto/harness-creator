@@ -319,7 +319,37 @@ def compile_project(target_dir: Path) -> CompileResult:
         raise FileNotFoundError(
             f"{yaml_path} não existe — rode a skill /harness-creator:init primeiro."
         )
-    raw: dict[str, Any] = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+    try:
+        loaded = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+    except (yaml.YAMLError, ValueError) as exc:
+        # Único caminho do CLI que vazava traceback do PyYAML. `ValueError`
+        # entra junto porque o resolver de data levanta ValueError CRU (não
+        # YAMLError) quando os componentes não formam data real.
+        raise ValueError(
+            f"{yaml_path}: YAML inválido — {exc}\n"
+            "       corrija a sintaxe ou rode a skill /harness-creator:init "
+            "para regenerar o arquivo."
+        ) from exc
+
+    if loaded is None:
+        # `harness.yaml` vazio caía em `{}` e compilava os defaults do
+        # `HarnessConfig` — que são Python (`pytest`, `tests/**/*.py`). Num
+        # repo Angular/.NET isso protege um diretório inexistente e DEIXA DE
+        # proteger os testes reais: governança degradada em silêncio, com
+        # exit 0. A spec é a entrada do compilador; vazia, não há o que
+        # compilar.
+        raise ValueError(
+            f"{yaml_path} está vazio — não há governança para compilar. "
+            "Rode a skill /harness-creator:init para preencher a spec "
+            "(os defaults do schema são Python e não servem para todo repo)."
+        )
+    if not isinstance(loaded, dict):
+        raise ValueError(
+            f"{yaml_path}: o topo do YAML precisa ser um mapeamento "
+            f"(chaves `governance:`/`verification:`), não {type(loaded).__name__}."
+        )
+
+    raw: dict[str, Any] = loaded
     config = HarnessConfig.model_validate(raw)
     artifacts = render(config, target_dir, raw_keys=set(raw))
 
@@ -376,8 +406,7 @@ def _merge_settings(target_dir: Path, artifacts: Artifacts) -> Path:
     # Destino machine-local (`.claude/settings.local.json`): as entradas
     # abaixo carregam o path ABSOLUTO desta máquina no comando do hook, então
     # não podem nascer no `settings.json` que o time versiona. `prepare_*`
-    # também garante os .gitignore tool-owned e roda a migração one-shot do
-    # alvo já instalado — ver `harness.settings_paths`.
+    # também garante os .gitignore tool-owned — ver `harness.settings_paths`.
     settings_path, settings = prepare_managed_settings(target_dir)
 
     previous = _load_state(target_dir)

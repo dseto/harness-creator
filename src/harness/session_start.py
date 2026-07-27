@@ -2,7 +2,7 @@
 
 Fase 2 do roadmap ("Execução Autônoma no Raio de Impacto" — ver docs/project/ROADMAP.md,
 linhas ~193-199, "Hook SessionStart"): a sessão nasce sabendo onde parou —
-resumo do progresso (`claude-progress.md`), a feature ativa/pendente
+resumo do progresso (`.harness/progress.md`), a feature ativa/pendente
 (`.harness/feature_list.json`) e o `git log` recente — sem o humano precisar
 recontar contexto a cada handoff.
 
@@ -69,7 +69,7 @@ def render_session_start_hook() -> str:
     return '''"""Hook SessionStart gerado pelo harness-creator — NAO editar a mao.
 
 Injeta contexto no inicio da sessao: resumo do progresso
-(claude-progress.md), a feature ativa/pendente (.harness/feature_list.json)
+(.harness/progress.md), a feature ativa/pendente (.harness/feature_list.json)
 e o `git log` recente, para o agente nascer sabendo onde parou.
 
 Schema de saida: hookSpecificOutput.additionalContext (SessionStart nao
@@ -110,7 +110,7 @@ def _read_feature_summary(cwd: Path) -> str:
 
 
 def _read_progress(cwd: Path) -> str | None:
-    path = cwd / "claude-progress.md"
+    path = cwd / ".harness" / "progress.md"
     if not path.is_file():
         return None
     try:
@@ -146,7 +146,7 @@ def build_context(cwd: Path) -> str:
 
     progress = _read_progress(cwd)
     if progress:
-        parts.append("### Progresso recente (claude-progress.md)\\n" + progress)
+        parts.append("### Progresso recente (.harness/progress.md)\\n" + progress)
 
     git_log = _read_git_log(cwd)
     if git_log:

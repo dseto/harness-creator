@@ -10,6 +10,62 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
+
+#: Erro de USO (não de execução) — mesmo código que o argparse já usa quando o
+#: comando não existe ou falta argumento. Distinto de `1`, que os subcomandos
+#: reservam para "rodou e o resultado é ruim" (audit com critical, doctor com
+#: issue): um `--dir` errado não é um achado sobre o projeto.
+USAGE_ERROR_EXIT = 2
+
+
+def _validated_target_dir(raw: str) -> Path:
+    """`--dir` só pode apontar para um diretório que JÁ existe.
+
+    Sem esta guarda, `harness analyze --dir <path errado>` criava a árvore
+    inteira e gravava um `repo-profile.json` vazio com exit 0 — um erro de
+    digitação materializava um projeto fantasma, e no caso real observado
+    (path mutilado pelo shell) a escrita caiu DENTRO da raiz do repo-alvo,
+    exatamente o que o produto promete nunca fazer. `harness audit` tinha a
+    variante silenciosa: devolvia score 60 e "rode `/harness-creator:init`"
+    sobre um caminho inexistente — um laudo plausível sobre nada.
+
+    A validação vive aqui, no CLI, e não em cada função de biblioteca: elas
+    recebem `Path` de quem já resolveu o alvo, e `mkdir(parents=True)` é
+    legítimo dentro de um projeto que existe (é assim que `.harness/` nasce).
+    O que não pode existir é o comando ESCOLHER a raiz.
+    """
+    path = Path(raw)
+    if not path.is_dir():
+        print(
+            f"erro: --dir aponta para um caminho que não existe (ou não é "
+            f"diretório): {path}\n"
+            "       nenhum arquivo foi escrito. Confira o caminho — em Git Bash, "
+            "prefira aspas simples para path do Windows ('C:\\Projetos\\alvo').",
+            file=sys.stderr,
+        )
+        raise SystemExit(USAGE_ERROR_EXIT)
+    return path
+
+
+def _audit_exit_code(report: Any) -> int:
+    """Exit code dos três comandos de auditoria (`audit`, `audit-runtime`,
+    `audit-team`).
+
+    Era `0 if score >= 60 else 1`, e isso contradizia a própria
+    `skills/audit/SKILL.md` ("Exit code 1 = estrutura comprometida (algum
+    finding crítico)") num caso nada raro: UM critical custa 40 pontos, deixa
+    o score em exatamente 60, e o comando saía 0. Um repositório sem harness
+    nenhum passava por qualquer gate de CI que olhasse o exit code.
+
+    A regra agora é a que o documento sempre prometeu — qualquer `critical`
+    sai 1 —, mantendo o piso de score para o caso de acúmulo de findings
+    menores (quatro `warning` também comprometem a estrutura, sem nenhum
+    critical).
+    """
+    if any(f.severity == "critical" for f in report.findings):
+        return 1
+    return 0 if report.score >= 60 else 1
 
 
 def main() -> None:
@@ -157,6 +213,12 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    # Um ponto só para os 18 subcomandos que aceitam `--dir` — validar em cada
+    # branch do dispatch é o tipo de coisa que fica pela metade (foi assim que
+    # `compile` acertava e `analyze`/`audit` erravam).
+    if getattr(args, "dir", None) is not None:
+        args.dir = str(_validated_target_dir(args.dir))
+
     if args.command == "compile":
         from harness.compiler import compile_project
 
@@ -178,16 +240,14 @@ def main() -> None:
 
         report = audit_project(Path(args.dir))
         print(report.to_json())
-        # score < 60 = estrutura comprometida (algum critical) -> exit 1
-        sys.exit(0 if report.score >= 60 else 1)
+        sys.exit(_audit_exit_code(report))
 
     if args.command == "audit-runtime":
         from harness.runtime_audit import audit_runtime
 
         report = audit_runtime(Path(args.dir))
         print(report.to_json())
-        # score < 60 = estrutura runtime comprometida (algum critical) -> exit 1
-        sys.exit(0 if report.score >= 60 else 1)
+        sys.exit(_audit_exit_code(report))
 
     if args.command == "analyze":
         from harness.analyzer import analyze_project, write_profile
@@ -309,7 +369,7 @@ def main() -> None:
         )
         from harness.session_start import install_session_start
         from harness.stop_hook import install_stop_hook
-        from harness.templates import install_templates
+        from harness.templates import install_templates, manual_init_scripts
 
         target_dir = Path(args.dir)
         resolved_dir = target_dir.resolve()
@@ -350,8 +410,20 @@ def main() -> None:
         boundary_guard_path = install_boundary_guard(target_dir)
         agents_path, lifecycle_detail_path = install_lifecycle(target_dir)
         templates_written = install_templates(target_dir, feature_list, profile)
+        # `init.*` sem o marcador gerenciado foi editado à mão e NÃO é
+        # regenerado (item 5 do laudo de footprint). Preservar em silêncio
+        # deixaria o script divergindo do profile sem sinal nenhum.
+        templates_preserved = manual_init_scripts(target_dir)
         session_start_path = install_session_start(target_dir)
         stop_hook_path = install_stop_hook(target_dir)
+
+        for path in templates_preserved:
+            print(
+                f"aviso: {path} foi editado à mão (sem o marcador do harness) — "
+                "preservado, NÃO regenerado a partir do repo-profile.json; "
+                "apague o arquivo e recompile para voltar ao script gerado",
+                file=sys.stderr,
+            )
 
         print(json.dumps({
             "settings": str(settings_path),
@@ -359,6 +431,7 @@ def main() -> None:
             "agents_md": str(agents_path),
             "lifecycle_detail": str(lifecycle_detail_path),
             "templates": [str(p) for p in templates_written],
+            "templates_preserved": [str(p) for p in templates_preserved],
             "session_start_hook": str(session_start_path),
             "stop_hook": str(stop_hook_path),
             "branch": branch,
@@ -499,7 +572,7 @@ def main() -> None:
 
         report = audit_team(Path(args.dir))
         print(report.to_json())
-        sys.exit(0 if report.score >= 60 else 1)
+        sys.exit(_audit_exit_code(report))
 
     if args.command == "disable":
         from harness.killswitch import disable, status

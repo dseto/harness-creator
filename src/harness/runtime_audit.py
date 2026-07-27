@@ -3,7 +3,7 @@
 Mecanismo DISTINTO de `harness.audit` (que faz diff byte-exato dos artefatos
 COMPILADOS/determinísticos contra o que `compiler.render` geraria). Este
 módulo audita os artefatos que MUDAM durante a execução autônoma da sessão:
-`claude-progress.md`, `.harness/feature_list.json` e `.harness/evidence/*.json`
+`.harness/progress.md`, `.harness/feature_list.json` e `.harness/evidence/*.json`
 — nunca diff byte-exato, sempre schema + frescor + invariantes de negócio.
 
 Invariantes verificados por `audit_runtime`:
@@ -11,7 +11,7 @@ Invariantes verificados por `audit_runtime`:
       esperado (`contract`, `compiled_at`, `features[]` com
       `id`/`desc`/`files`/`verify_cmd`/`depends`/`passes`) — ausência ou
       schema quebrado é `critical`.
-  (2) `claude-progress.md` existe — `warning` se ausente.
+  (2) `.harness/progress.md` existe — `warning` se ausente.
   (3) toda feature com `passes: true` tem evidência correspondente em
       `.harness/evidence/<id>.json`: arquivo existe, é JSON válido, tem
       `feature_id == id`, os campos obrigatórios do schema de
@@ -32,9 +32,10 @@ from typing import Any
 
 from harness.contract import FEATURE_LIST_FILE
 from harness.stop_hook import is_feature_in_progress
-from harness.verify import EVIDENCE_DIR
+from harness.templates import PROGRESS_FILE
+from harness.verify import EVIDENCE_DIR, evidence_path
 
-PROGRESS_FILE = "claude-progress.md"
+__all__ = ["PROGRESS_FILE", "RuntimeAuditReport", "RuntimeFinding", "audit_runtime"]
 
 _REQUIRED_FEATURE_FIELDS = ("id", "desc", "files", "verify_cmd", "depends", "passes")
 _REQUIRED_EVIDENCE_FIELDS = ("verify_cmd", "recorded_at", "exit_code", "files_hash")
@@ -78,7 +79,7 @@ def audit_runtime(target_dir: Path) -> RuntimeAuditReport:
     target_dir = target_dir.resolve()
     findings: list[RuntimeFinding] = []
 
-    # --- 1. claude-progress.md existe (warning se ausente) ---
+    # --- 1. .harness/progress.md existe (warning se ausente) ---
     progress_path = target_dir / PROGRESS_FILE
     if not progress_path.is_file():
         findings.append(RuntimeFinding(
@@ -140,29 +141,30 @@ def audit_runtime(target_dir: Path) -> RuntimeAuditReport:
         valid_features.append(feature)
 
     # --- 3. toda feature com passes:true tem evidência válida e exit_code == 0 ---
+    contract = str(data.get("contract") or "")
     for feature in valid_features:
         if not feature.get("passes"):
             continue
 
         feature_id = feature["id"]
-        evidence_path = target_dir / EVIDENCE_DIR / f"{feature_id}.json"
+        path = evidence_path(target_dir, contract, feature_id)
+        relative = f"{EVIDENCE_DIR}/{contract}/{feature_id}.json"
 
-        if not evidence_path.is_file():
+        if not path.is_file():
             findings.append(RuntimeFinding(
                 "critical", "missing_evidence",
                 f"Feature '{feature_id}' marcada passes:true mas sem evidência em "
-                f"{EVIDENCE_DIR}/{feature_id}.json.",
+                f"{relative}.",
                 f"Rode `harness verify {feature_id}` para gerar a evidência.",
             ))
             continue
 
         try:
-            evidence = json.loads(evidence_path.read_text(encoding="utf-8-sig"))
+            evidence = json.loads(path.read_text(encoding="utf-8-sig"))
         except json.JSONDecodeError as exc:
             findings.append(RuntimeFinding(
                 "critical", "invalid_evidence_json",
-                f"Evidência de '{feature_id}' ({EVIDENCE_DIR}/{feature_id}.json) "
-                f"não é JSON válido: {exc}",
+                f"Evidência de '{feature_id}' ({relative}) não é JSON válido: {exc}",
                 f"Rode `harness verify {feature_id}` novamente para regravar a evidência.",
             ))
             continue
@@ -178,9 +180,24 @@ def audit_runtime(target_dir: Path) -> RuntimeAuditReport:
         if evidence.get("feature_id") != feature_id:
             findings.append(RuntimeFinding(
                 "critical", "evidence_feature_id_mismatch",
-                f"Evidência em {EVIDENCE_DIR}/{feature_id}.json tem feature_id "
+                f"Evidência em {relative} tem feature_id "
                 f"'{evidence.get('feature_id')}', esperado '{feature_id}'.",
                 f"Rode `harness verify {feature_id}` novamente para regravar a evidência.",
+            ))
+            continue
+
+        # Identidade de contrato: sem isto, a prova de um contrato anterior
+        # (mesmo id `T-01`, que todo contrato tem) valida uma tarefa que nunca
+        # foi verificada. O caminho escopado já separa os arquivos; este check
+        # pega o caso do arquivo movido/copiado à mão.
+        evidence_contract = str(evidence.get("contract") or "")
+        if contract and evidence_contract != contract:
+            findings.append(RuntimeFinding(
+                "critical", "evidence_contract_mismatch",
+                f"Evidência de '{feature_id}' é do contrato "
+                f"'{evidence_contract or '(ausente)'}', mas o contrato ativo é "
+                f"'{contract}' — prova de outro contrato não vale.",
+                f"Rode `harness verify {feature_id}` para gerar a evidência deste contrato.",
             ))
             continue
 
