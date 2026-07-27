@@ -9,6 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from harness.boundary_guard import (
     BOUNDARY_HOOK_FILENAME,
     BOUNDARY_HOOK_MATCHER,
@@ -159,6 +161,77 @@ def test_no_feature_list_denies_edit_by_default(tmp_path: Path) -> None:
     out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
                               "tool_input": {"file_path": "src/main.py"}})
     assert out["permissionDecision"] == "deny"
+    assert "nenhum contrato ativo" in out["permissionDecisionReason"].lower()
+
+
+# ---------------- bootstrap: sem contrato, superfície mínima de COMANDO ----
+#
+# O default-deny do issue #35 vale para a superfície de ESCRITA. Para a
+# superfície de COMANDO ele travava a própria sequência que CRIA o contrato
+# (analyze -> compile -> commit -> compile-contract -> compile-session), e
+# como `harness disable` é floor, o agente ficava sem saída. Os testes abaixo
+# travam a superfície de bootstrap: git local, subcomandos do harness e
+# utilitários read-only passam; o resto continua deny.
+
+@pytest.mark.parametrize("command", [
+    "git status",
+    "git commit -m \"wip\"",
+    "git diff",
+    "harness analyze --dir .",
+    "harness compile-contract --dir . --slug demo",
+    "python -m harness.cli compile-session --dir .",
+    "harness --help",
+    "harness doctor --dir .",
+    "echo hello",
+    "ls -la",
+])
+def test_bootstrap_surface_allows_contract_creation_path(
+    tmp_path: Path, command: str
+) -> None:
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": command}})
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_bootstrap_denies_command_outside_minimal_surface(tmp_path: Path) -> None:
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "rm -rf build"}})
+    assert out["permissionDecision"] == "deny", out
+    reason = out["permissionDecisionReason"].lower()
+    assert "nenhum contrato ativo" in reason
+    # A mensagem de bootstrap não pode sugerir `harness task add-file`: sem
+    # contrato não há tarefa a ampliar, e apontar um escape inexistente foi
+    # justamente o que fez o agente concluir que estava preso.
+    assert "task add-file" not in reason
+
+
+def test_bootstrap_still_denies_push_by_floor(tmp_path: Path) -> None:
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "git push origin main"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "runtime floor" in out["permissionDecisionReason"]
+
+
+def test_bootstrap_still_denies_self_disable(tmp_path: Path) -> None:
+    """`harness disable` continua floor mesmo em bootstrap — a saída do
+    deadlock é compilar o contrato, não o agente se autodesativar."""
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "harness disable"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "runtime floor" in out["permissionDecisionReason"]
+
+
+def test_bootstrap_powershell_write_target_still_denied(tmp_path: Path) -> None:
+    """PowerShell com alvo de escrita cai em _evaluate_file — que continua
+    negando sem contrato. A inversão do issue #35 fica intacta."""
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": "Set-Content src/app.py 'x'"}})
+    assert out["permissionDecision"] == "deny", out
     assert "nenhum contrato ativo" in out["permissionDecisionReason"].lower()
 
 
@@ -1636,14 +1709,31 @@ def test_powershell_unrelated_command_denies(tmp_path: Path) -> None:
     assert out["permissionDecision"] == "deny", out
 
 
-def test_powershell_no_contract_denies_by_default(tmp_path: Path) -> None:
-    """Fase 2: default-deny sem contrato ativo. PowerShell commands fora de
-    verify_cmd/extra_allowed_commands e não-read-only são negadas."""
+def test_powershell_no_contract_denies_outside_bootstrap_surface(tmp_path: Path) -> None:
+    """Sem contrato ativo, PowerShell fora da superfície de bootstrap
+    (git local / harness / read-only) é negado."""
     script = _script(tmp_path)
     out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                              "tool_input": {"command": "Get-ChildItem"}})
+                              "tool_input": {"command": "Remove-Item -Recurse -Force src"}})
     assert out["permissionDecision"] == "deny", out
     assert "nenhum contrato ativo" in out["permissionDecisionReason"].lower()
+
+
+@pytest.mark.parametrize("command", [
+    "git status",
+    "git commit -m \"wip\"",
+    "harness compile-contract --dir . --slug demo",
+    "harness --help",
+])
+def test_powershell_no_contract_allows_bootstrap_surface(
+    tmp_path: Path, command: str
+) -> None:
+    """Contrapartida do teste acima: o caminho PowerShell também precisa
+    conseguir CRIAR o contrato — git local e subcomandos do harness passam."""
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": command}})
+    assert out["permissionDecision"] == "allow", out
 
 
 def test_is_floor_powershell_network_importable() -> None:
@@ -3710,6 +3800,113 @@ def test_powershell_pipeline_with_readonly_cmdlet_allows(tmp_path: Path) -> None
         out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
                                   "tool_input": {"command": command}})
         assert out["permissionDecision"] == "allow", (command, out)
+
+
+@pytest.mark.parametrize("command", [
+    "Get-ChildItem",
+    "Get-ChildItem -Recurse src",
+    "ls src",
+    "dir",
+    "Get-Content src/main.py",
+    "cat src/main.py",
+    "type src/main.py",
+    "gc src/main.py | Select-Object -First 20",
+    "Select-String -Pattern TODO -Path src/main.py",
+    "sls TODO src/main.py",
+    "Write-Output hello",
+    "echo hello",
+    "Get-Location",
+    "pwd",
+    "Get-Item src/main.py",
+    "Test-Path src/main.py",
+])
+def test_powershell_readonly_source_cmdlets_allow(tmp_path: Path, command: str) -> None:
+    """Correção da assimetria entre os dois caminhos: o Bash tinha
+    `cat`/`ls`/`grep`/`echo` liberados por `READONLY_SHELL_UTILITIES`, mas o
+    PowerShell não tinha os equivalentes — `Get-ChildItem` era deny mesmo COM
+    contrato ativo. Quem só tem PowerShell 5.1 não conseguia nem listar um
+    diretório sem declarar o comando no contrato."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": command}})
+    assert out["permissionDecision"] == "allow", (command, out)
+
+
+@pytest.mark.parametrize("command", [
+    "Get-ChildItem",
+    "Get-Content src/main.py",
+    "Test-Path src/main.py",
+])
+def test_powershell_readonly_source_cmdlets_allow_in_bootstrap(
+    tmp_path: Path, command: str
+) -> None:
+    """Mesma allowlist vale sem contrato: inspecionar o repo é pré-requisito
+    para planejar o contrato, não consequência dele."""
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": command}})
+    assert out["permissionDecision"] == "allow", (command, out)
+
+
+@pytest.mark.parametrize("command", [
+    # redirecionamento transforma leitura em escrita: cai em _evaluate_file
+    "Get-Content src/main.py > src/other.py",
+    "Get-ChildItem >> listing.txt",
+    # escrita explícita nunca entrou e continua fora
+    "Set-Content src/other.py 'x'",
+    "Out-File -FilePath src/other.py",
+    "Add-Content src/other.py 'x'",
+    "Remove-Item -Recurse -Force src",
+    "New-Item -ItemType File src/other.py",
+])
+def test_powershell_write_cmdlets_still_denied(tmp_path: Path, command: str) -> None:
+    """A allowlist de leitura não abre nenhuma porta de escrita: alvo fora de
+    `files[]` continua deny, com ou sem redirecionamento."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": command}})
+    assert out["permissionDecision"] == "deny", (command, out)
+
+
+def test_powershell_redirect_target_is_the_destination_not_the_source(
+    tmp_path: Path
+) -> None:
+    """Escape de superfície de escrita achado ao corrigir a assimetria:
+    `_extract_powershell_write_target` devolvia o PRIMEIRO token com cara de
+    path, que num redirecionamento é a ORIGEM. Com `src/main.py` em `files[]`,
+    `... src/main.py > src/other.py` era avaliado contra `src/main.py` e a
+    escrita em `src/other.py` (fora do contrato) passava. O alvo agora é o
+    token depois do último `>`."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": "Get-Content src/main.py > src/other.py"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "fora da superficie" in out["permissionDecisionReason"], out
+
+    # o caminho inverso continua allow: destino DENTRO do contrato
+    ok = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                             "tool_input": {"command": "Get-Content src/other.py > src/main.py"}})
+    assert ok["permissionDecision"] == "allow", ok
+
+
+def test_powershell_readonly_source_cmdlet_secret_still_floor(tmp_path: Path) -> None:
+    """Ler é liberado, escrever em segredo não — o floor continua acima de
+    tudo. `Get-Content .env` (leitura) passa; redirecionar PARA `.env` não."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+
+    read = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                               "tool_input": {"command": "Get-Content .env"}})
+    assert read["permissionDecision"] == "allow", read
+
+    write = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                                "tool_input": {"command": "Write-Output x > .env"}})
+    assert write["permissionDecision"] == "deny", write
+    assert "runtime floor" in write["permissionDecisionReason"], write
 
 
 def test_powershell_foreach_object_still_denied(tmp_path: Path) -> None:

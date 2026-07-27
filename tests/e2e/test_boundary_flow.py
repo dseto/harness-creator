@@ -139,7 +139,10 @@ def test_boundary_flow_end_to_end(tmp_path: Path) -> None:
     assert feature_list["features"][0]["verify_cmd"] == "pytest tests/test_app.py -q"
 
     # ---- (3) CENÁRIO ADICIONAL: colisão com o mecanismo antigo ----
-    # `compile --dir` (harness.yaml mínimo) registra o hook guard_tests.py.
+    # `compile --dir` (harness.yaml mínimo) ainda GERA o script guard_tests.py,
+    # mas desde v0.22.0 o próprio `compile` instala o boundary_guard em
+    # seguida — que já desregistra a entrada legada. A colisão portanto se
+    # resolve aqui, não mais só no `compile-session` do passo (4).
     (project / ".harness" / "harness.yaml").write_text(LEGACY_HARNESS_YAML, encoding="utf-8")
     legacy_compile_proc = _run_cli(["compile", "--dir", str(project)], cwd=project)
     assert legacy_compile_proc.returncode == 0, legacy_compile_proc.stderr
@@ -147,7 +150,9 @@ def test_boundary_flow_end_to_end(tmp_path: Path) -> None:
     settings_path = project / ".claude" / "settings.local.json"
     settings = json.loads(settings_path.read_text(encoding="utf-8"))
     pre_tool_use_after_legacy = json.dumps(settings["hooks"]["PreToolUse"])
-    assert "guard_tests.py" in pre_tool_use_after_legacy
+    assert (project / ".harness" / "hooks" / "guard_tests.py").is_file()
+    assert "guard_tests.py" not in pre_tool_use_after_legacy
+    assert "boundary_guard.py" in pre_tool_use_after_legacy
 
     # ---- (4) compile-session --dir: settings/boundary_guard coerentes ----
     compile_session_proc = _run_cli(["compile-session", "--dir", str(project)], cwd=project)

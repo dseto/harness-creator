@@ -1,5 +1,79 @@
 # Changelog
 
+## v0.22.1 — deadlock de bootstrap do boundary_guard
+
+Correção de três problemas encontrados ao rodar a v0.22.0 num projeto real.
+
+### Corrigido — o default-deny sem contrato travava a criação do contrato
+
+O v0.22.0 inverteu o `boundary_guard` para default-deny quando não há
+`.harness/feature_list.json` (issue #35). A intenção estava certa, mas o
+`return "deny"` ficou **antes** da montagem de `allowed_sequences` em
+`_evaluate_bash` e `_evaluate_powershell` — então nenhuma allowlist valia sem
+contrato. Reproduzido ao vivo: `echo hello`, `git status` e `harness --help`
+eram todos negados. Isso tornava impossível a própria sequência documentada
+aqui como correta (`analyze → compile → commit → compile-contract →
+compile-session`), e como `harness disable` é floor (o agente não se
+autodesativa, por design), não havia caminho de volta sem um humano intervir
+fora do Claude Code.
+
+A superfície de **comando** sem contrato deixa de ser deny total e passa a ser
+um mínimo de **bootstrap**: runtime floor (inalterado, avaliado antes) +
+`FIXED_GIT_SEQUENCES` (status/log/diff/add/commit) + `FIXED_HARNESS_SEQUENCES`
++ `governance.extra_allowed_commands` + os escapes read-only já existentes
+(utilitários, cmdlets de pipeline, `cd` intra-repo). O que estiver fora
+continua deny, com uma razão específica que diz o que JÁ está liberado e como
+sair do estado — não mais a dica de `harness task add-file`, inútil quando não
+existe tarefa alguma.
+
+A superfície de **escrita** não mudou: `_evaluate_file` continua negando sem
+contrato, e o caminho PowerShell com alvo de escrita continua delegando a ele.
+A garantia do issue #35 fica intacta.
+
+`FIXED_HARNESS_SEQUENCES` também passou a cobrir `--help`/`-h`/`--version` e
+os subcomandos read-only `doctor`/`status`. `harness` sozinho **não** entrou
+(viraria prefixo de `run`, que fala com a API), nem `enable`/`disable`.
+
+### Corrigido — PowerShell não tinha os equivalentes read-only do Bash
+
+O caminho Bash liberava `cat`/`head`/`tail`/`wc`/`grep`/`rg`/`ls`/`echo`/`find`
+por `READONLY_SHELL_UTILITIES`, mas `READONLY_PS_CMDLETS` só tinha cmdlets de
+**pipeline** (`Select-Object`, `Where-Object`, `Format-Table`...). Resultado:
+`Get-ChildItem` era deny mesmo **com** contrato ativo — quem só tem PowerShell
+5.1 não conseguia nem listar um diretório sem declarar o comando no contrato.
+
+`READONLY_PS_CMDLETS` ganhou o grupo de cmdlets de **origem**, espelhando um a
+um o conjunto do Bash: `Get-Content` (`gc`/`cat`/`type`), `Get-ChildItem`
+(`gci`/`ls`/`dir`), `Select-String` (`sls`), `Write-Output` (`write`/`echo`),
+`Get-Location` (`gl`/`pwd`), `Get-Item` (`gi`) e `Test-Path`. Continuam fora
+todo `Set-*`/`New-*`/`Remove-*`/`Add-*`/`Out-File`, `ForEach-Object`,
+`Invoke-Expression` e atribuição a `$env:*`.
+
+### Corrigido — redirecionamento PowerShell era avaliado contra a origem
+
+Achado ao cobrir o item acima com teste. `_extract_powershell_write_target`
+devolvia o **primeiro** token com cara de path, que num redirecionamento é a
+**origem**, não o destino. Com `src/main.py` declarado em `files[]`,
+`Get-Content src/main.py > src/other.py` era avaliado contra `src/main.py` e a
+escrita em `src/other.py` — fora do contrato — passava. Escape de superfície
+de escrita, presente desde antes desta versão e independente da allowlist de
+leitura. O alvo agora é o token depois do último `>`.
+
+### Corrigido — documentação sobre quando os hooks passam a valer
+
+As skills `init` e `compile` afirmavam que permissions e hooks só valem na
+próxima sessão do Claude Code. Os hooks `PreToolUse` valem imediatamente — foi
+assim que o deadlock acima apareceu sem aviso. O texto agora separa as duas
+coisas: hook vale já; `permissions` enumeradas podem exigir sessão nova.
+
+### Nota sobre os testes E2E
+
+Três testes E2E já falhavam na v0.22.0 lançada (`test_boundary_flow`,
+`test_fase2_outcomes` outcomes 2 e 5) — afirmavam o comportamento anterior à
+inversão do issue #35 e o momento em que `harness compile` desregistra o
+`guard_tests.py` legado (agora no próprio `compile`, não mais só no
+`compile-session`). Atualizados para o estado real; a suíte fecha em 925 verde.
+
 ## Não lançado
 
 Correções achadas durante o dogfood do próprio harness-creator (contrato

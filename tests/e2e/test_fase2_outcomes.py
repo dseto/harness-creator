@@ -606,9 +606,11 @@ def test_outcome2_runtime_floor_never_becomes_allow(tmp_path: Path) -> None:
             "escrito — não existe política compilada sem contrato aprovado."
         )
 
-        # (d) contrato ABANDONADO depois da instalação: floor continua deny,
-        # arquivo comum volta a allow (guard não gateia fora de sessão de
-        # contrato, mas o floor é incondicional).
+        # (d) contrato ABANDONADO depois da instalação: floor continua deny e
+        # arquivo comum TAMBÉM é deny (default-deny sem contrato, issue #35).
+        # O caminho de volta é comando, não escrita: `git status` e os
+        # subcomandos do próprio harness permanecem liberados para recompilar
+        # o contrato (superfície de bootstrap).
         (hostile / ".harness" / "feature_list.json").unlink()
         push2 = _run_hook(guard, {
             "tool_name": "Bash", "cwd": str(hostile),
@@ -624,13 +626,21 @@ def test_outcome2_runtime_floor_never_becomes_allow(tmp_path: Path) -> None:
             "tool_name": "Edit", "cwd": str(hostile),
             "tool_input": {"file_path": "src/app.py"},
         })
-        assert common["permissionDecision"] == "allow", common
-        assert "sem contrato ativo" in common["permissionDecisionReason"]
+        assert common["permissionDecision"] == "deny", common
+        assert "nenhum contrato ativo" in common["permissionDecisionReason"]
+        bootstrap = _run_hook(guard, {
+            "tool_name": "Bash", "cwd": str(hostile),
+            "tool_input": {"command": "git status"},
+        })
+        assert bootstrap["permissionDecision"] == "allow", bootstrap
         proof.append(
             "Contrato abandonado (feature_list.json removido após a instalação): "
             "`git push` e Write em `.env` continuam DENY (floor incondicional, "
-            "avaliado ANTES da checagem de contrato), enquanto Edit em arquivo "
-            "comum volta a allow ('sem contrato ativo')."
+            "avaliado ANTES da checagem de contrato); Edit em arquivo comum "
+            "TAMBÉM é DENY ('nenhum contrato ativo') — default-deny sem "
+            "contrato. `git status` permanece allow: a superfície de bootstrap "
+            "(git local + subcomandos do harness + utilitários read-only) é o "
+            "caminho de volta para recompilar o contrato sem intervenção humana."
         )
         achieved = True
     finally:
@@ -762,20 +772,33 @@ def test_outcome5_legacy_guard_tests_removed_others_preserved(tmp_path: Path) ->
     try:
         project = _setup_project(tmp_path / "demo")
 
-        # Mecanismo antigo com enforce_tdd LIGADO: instala guard_tests.py
-        # (Write|Edit) E guard_test_runner.py (Bash).
+        # Mecanismo antigo com enforce_tdd LIGADO: o compiler ainda GERA
+        # guard_tests.py (Write|Edit) e guard_test_runner.py (Bash), mas desde
+        # v0.22.0 o próprio `harness compile` instala o boundary_guard logo em
+        # seguida — e a instalação já remove a entrada legada do guard_tests.
+        # A remoção portanto acontece um passo antes do que acontecia até
+        # v0.21 (era só no `compile-session`); o estado final é o mesmo.
         (project / ".harness" / "harness.yaml").write_text(
             LEGACY_HARNESS_YAML_TDD, encoding="utf-8"
         )
         proc = _run_cli(["compile", "--dir", str(project)], cwd=project)
         assert proc.returncode == 0, proc.stderr
+        assert (project / ".harness" / "hooks" / "guard_tests.py").exists(), (
+            "cenário legado não gerou o script guard_tests.py"
+        )
         pre = json.dumps(_load_settings(project)["hooks"]["PreToolUse"])
-        assert "guard_tests.py" in pre, "cenário legado não instalou guard_tests.py"
+        assert "guard_tests.py" not in pre, (
+            "`harness compile` deixou o guard_tests.py legado registrado ao lado "
+            "do boundary_guard — duplo-gate sobre Edit de teste"
+        )
         assert "guard_test_runner.py" in pre, "cenário legado não instalou guard_test_runner.py"
+        assert "boundary_guard.py" in pre, "compile não registrou o boundary_guard"
         proof.append(
-            "Mecanismo antigo (`harness compile`, enforce_tdd: true) instalou "
-            "`guard_tests.py` (Write|Edit) E `guard_test_runner.py` (Bash) em "
-            "hooks.PreToolUse."
+            "Mecanismo antigo (`harness compile`, enforce_tdd: true): o script "
+            "`guard_tests.py` é gerado em `.harness/hooks/`, mas NÃO fica "
+            "registrado em hooks.PreToolUse — o `boundary_guard.py` instalado "
+            "pelo próprio `compile` já o substitui. `guard_test_runner.py` "
+            "(Bash) permanece intacto."
         )
 
         proc = _run_cli(["compile-session", "--dir", str(project)], cwd=project)
@@ -796,7 +819,7 @@ def test_outcome5_legacy_guard_tests_removed_others_preserved(tmp_path: Path) ->
         # "Edit|Write|Bash".
         assert matchers == ["*", "Bash"], matchers
         proof.append(
-            "Após `compile-session`: `guard_tests.py` REMOVIDO de hooks.PreToolUse "
+            "Após `compile-session`: `guard_tests.py` continua FORA de hooks.PreToolUse "
             "(a proteção de teste agora é por-tarefa no boundary_guard), "
             "`guard_test_runner.py` PRESERVADO intacto, `boundary_guard.py` "
             f"registrado. Matchers finais: {matchers}."
