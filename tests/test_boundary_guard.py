@@ -9,6 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from harness.boundary_guard import (
     BOUNDARY_HOOK_FILENAME,
     BOUNDARY_HOOK_MATCHER,
@@ -159,6 +161,77 @@ def test_no_feature_list_denies_edit_by_default(tmp_path: Path) -> None:
     out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
                               "tool_input": {"file_path": "src/main.py"}})
     assert out["permissionDecision"] == "deny"
+    assert "nenhum contrato ativo" in out["permissionDecisionReason"].lower()
+
+
+# ---------------- bootstrap: sem contrato, superfície mínima de COMANDO ----
+#
+# O default-deny do issue #35 vale para a superfície de ESCRITA. Para a
+# superfície de COMANDO ele travava a própria sequência que CRIA o contrato
+# (analyze -> compile -> commit -> compile-contract -> compile-session), e
+# como `harness disable` é floor, o agente ficava sem saída. Os testes abaixo
+# travam a superfície de bootstrap: git local, subcomandos do harness e
+# utilitários read-only passam; o resto continua deny.
+
+@pytest.mark.parametrize("command", [
+    "git status",
+    "git commit -m \"wip\"",
+    "git diff",
+    "harness analyze --dir .",
+    "harness compile-contract --dir . --slug demo",
+    "python -m harness.cli compile-session --dir .",
+    "harness --help",
+    "harness doctor --dir .",
+    "echo hello",
+    "ls -la",
+])
+def test_bootstrap_surface_allows_contract_creation_path(
+    tmp_path: Path, command: str
+) -> None:
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": command}})
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_bootstrap_denies_command_outside_minimal_surface(tmp_path: Path) -> None:
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "rm -rf build"}})
+    assert out["permissionDecision"] == "deny", out
+    reason = out["permissionDecisionReason"].lower()
+    assert "nenhum contrato ativo" in reason
+    # A mensagem de bootstrap não pode sugerir `harness task add-file`: sem
+    # contrato não há tarefa a ampliar, e apontar um escape inexistente foi
+    # justamente o que fez o agente concluir que estava preso.
+    assert "task add-file" not in reason
+
+
+def test_bootstrap_still_denies_push_by_floor(tmp_path: Path) -> None:
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "git push origin main"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "runtime floor" in out["permissionDecisionReason"]
+
+
+def test_bootstrap_still_denies_self_disable(tmp_path: Path) -> None:
+    """`harness disable` continua floor mesmo em bootstrap — a saída do
+    deadlock é compilar o contrato, não o agente se autodesativar."""
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "harness disable"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "runtime floor" in out["permissionDecisionReason"]
+
+
+def test_bootstrap_powershell_write_target_still_denied(tmp_path: Path) -> None:
+    """PowerShell com alvo de escrita cai em _evaluate_file — que continua
+    negando sem contrato. A inversão do issue #35 fica intacta."""
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": "Set-Content src/app.py 'x'"}})
+    assert out["permissionDecision"] == "deny", out
     assert "nenhum contrato ativo" in out["permissionDecisionReason"].lower()
 
 
@@ -1636,14 +1709,31 @@ def test_powershell_unrelated_command_denies(tmp_path: Path) -> None:
     assert out["permissionDecision"] == "deny", out
 
 
-def test_powershell_no_contract_denies_by_default(tmp_path: Path) -> None:
-    """Fase 2: default-deny sem contrato ativo. PowerShell commands fora de
-    verify_cmd/extra_allowed_commands e não-read-only são negadas."""
+def test_powershell_no_contract_denies_outside_bootstrap_surface(tmp_path: Path) -> None:
+    """Sem contrato ativo, PowerShell fora da superfície de bootstrap
+    (git local / harness / read-only) é negado."""
     script = _script(tmp_path)
     out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                              "tool_input": {"command": "Get-ChildItem"}})
+                              "tool_input": {"command": "Remove-Item -Recurse -Force src"}})
     assert out["permissionDecision"] == "deny", out
     assert "nenhum contrato ativo" in out["permissionDecisionReason"].lower()
+
+
+@pytest.mark.parametrize("command", [
+    "git status",
+    "git commit -m \"wip\"",
+    "harness compile-contract --dir . --slug demo",
+    "harness --help",
+])
+def test_powershell_no_contract_allows_bootstrap_surface(
+    tmp_path: Path, command: str
+) -> None:
+    """Contrapartida do teste acima: o caminho PowerShell também precisa
+    conseguir CRIAR o contrato — git local e subcomandos do harness passam."""
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": command}})
+    assert out["permissionDecision"] == "allow", out
 
 
 def test_is_floor_powershell_network_importable() -> None:

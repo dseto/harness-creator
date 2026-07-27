@@ -76,8 +76,14 @@ Saída JSON lista settings.local.json, hooks e AGENTS.md gerados. Se der
 
 1. Mostre ao usuário O QUE foi gerado (permissions ask/allow, hooks, bloco do
    AGENTS.md) e o porquê em 1 frase cada.
-2. **Avise**: permissions e hooks passam a valer na PRÓXIMA sessão do Claude
-   Code aberta nesse projeto (a sessão atual não recarrega settings).
+2. **Avise**: os hooks `PreToolUse` (entre eles o `boundary_guard.py`) podem
+   passar a valer IMEDIATAMENTE, ainda nesta sessão — não conte com uma
+   janela livre até reiniciar. As regras de `permissions` enumeradas em
+   `.claude/settings.local.json` é que podem só ser lidas na próxima sessão.
+   Diga também que, enquanto não houver contrato compilado, a superfície de
+   ESCRITA fica fechada (default-deny) e a de COMANDO fica no mínimo de
+   bootstrap: git local, subcomandos do próprio `harness` e utilitários
+   read-only — o suficiente para rodar `/harness-creator:plan` em seguida.
 3. Sugira rodar `/harness-creator:audit` depois para validar.
 
 ## Regras

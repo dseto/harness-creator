@@ -2057,6 +2057,12 @@ _HARNESS_SUBCOMMANDS = [
     "compile", "audit", "audit-runtime", "analyze", "preflight",
     "compile-contract", "compile-session", "verify", "team", "review",
     "supervise", "audit-team", "task",
+    # Formas de invocacao read-only: negar `harness --help` deixava o agente
+    # sem sequer descobrir os subcomandos disponiveis (relatado ao vivo no
+    # deadlock de bootstrap). 'doctor'/'status' sao read-only; 'enable' e
+    # 'disable' NAO entram (floor - o agente nao mexe no kill-switch), e
+    # 'harness' sozinho tambem nao, senao viraria prefixo de 'run' (API).
+    "doctor", "status", "--help", "-h", "--version",
 ]
 FIXED_HARNESS_SEQUENCES = (
     [["harness", sub] for sub in _HARNESS_SUBCOMMANDS]
@@ -2606,6 +2612,25 @@ def _evaluate_file(path, cwd):
     )
 
 
+def _no_contract_command_deny(command):
+    """Mensagem de deny do modo bootstrap (sem contrato compilado).
+
+    Distinta de `command_escape_hint`, que aponta `harness task add-file` -
+    inutil quando nao ha tarefa nenhuma. Aqui o caminho de saida e compilar
+    um contrato, e a mensagem diz exatamente o que JA esta liberado para
+    chegar la, para o agente nao concluir que esta preso."""
+    return (
+        "nenhum contrato ativo no projeto: sem contrato so ficam liberados git "
+        "local (status/log/diff/add/commit), subcomandos do proprio harness, "
+        "utilitarios read-only e cd intra-repo. '" + (command or "")[:80] + "' "
+        "esta fora disso. Rode /harness-creator:plan (ou a sequencia harness "
+        "analyze -> harness compile -> harness compile-contract -> harness "
+        "compile-session) para compilar um contrato e autorizar a superficie; "
+        "artefatos temporarios (screenshot, dump, HTML de debug) podem ser "
+        "salvos em .harness/scratch/"
+    )
+
+
 def _evaluate_bash(command, cwd):
     if is_floor_bash_command(command):
         return "deny", (
@@ -2633,14 +2658,21 @@ def _evaluate_bash(command, cwd):
     if protected_problem:
         return "deny", protected_problem
 
+    # Modo bootstrap: sem contrato compilado, a superficie de COMANDO nao e
+    # deny total - e o minimo que permite CRIAR o contrato. Negar tudo aqui
+    # (v0.22.0) travava a propria sequencia documentada no CHANGELOG
+    # (analyze -> compile -> commit -> compile-contract -> compile-session):
+    # `git commit` e `harness compile-contract` caiam no deny, e como
+    # `harness disable` e floor, o agente ficava sem saida ate um humano
+    # intervir fora do Claude Code. A superficie de ESCRITA continua deny
+    # (_evaluate_file nao muda) - a inversao de seguranca do issue #35 fica
+    # intacta; o que se libera aqui e floor + git local + subcomandos do
+    # proprio harness + utilitarios read-only.
     feature_list = _load_json(cwd, FEATURE_LIST_PATH)
-    if feature_list is None:
-        return "deny", (
-            "nenhum contrato ativo no projeto. Rode /harness-creator:plan para compilar "
-            "um contrato e autorizar a superfície de edição; artefatos temporários "
-            "(screenshot, dump, HTML de debug) podem ser salvos em .harness/scratch/"
-        )
-    if _contract_fully_passed(feature_list):
+    bootstrap = feature_list is None
+    if bootstrap:
+        feature_list = []
+    elif _contract_fully_passed(feature_list):
         return "allow", (
             "contrato concluido (todas as features com passes:true) - boundary_guard "
             "se aposenta da superficie de comando ate o proximo /harness-creator:plan; "
@@ -2653,8 +2685,13 @@ def _evaluate_bash(command, cwd):
             "sub-comando precisa ser declarado explicitamente na superficie do contrato"
         )
 
-    profile = _load_json(cwd, PROFILE_PATH)
-    allowed_commands = _collect_allowed_bash_commands(feature_list, profile)
+    # Em bootstrap nao ha contrato nem profile a consultar: a allowlist e so
+    # a fixa (git local + harness) mais o que o usuario declarou em
+    # governance.extra_allowed_commands.
+    allowed_commands = []
+    if not bootstrap:
+        profile = _load_json(cwd, PROFILE_PATH)
+        allowed_commands = _collect_allowed_bash_commands(feature_list, profile)
     allowed_sequences = (
         FIXED_GIT_SEQUENCES + FIXED_HARNESS_SEQUENCES
         + [_tokenize_command(c) for c in allowed_commands]
@@ -2686,6 +2723,8 @@ def _evaluate_bash(command, cwd):
             "utilitario read-only ou cd intra-repo"
         )
     if failing is not None:
+        if bootstrap:
+            return "deny", _no_contract_command_deny(failing)
         return "deny", (
             "segmento '" + failing[:80] + "' fora da superficie compilada do "
             "contrato (verify_cmd/lint/typecheck/build/install/git local) e "
@@ -2693,6 +2732,8 @@ def _evaluate_bash(command, cwd):
             "ls/echo/find sem redirecionamento de escrita) nem cd intra-repo. "
             + command_escape_hint(failing)
         )
+    if bootstrap:
+        return "deny", _no_contract_command_deny(command)
     return "deny", (
         "comando fora da superficie compilada do contrato "
         "(verify_cmd/lint/typecheck/build/install/git local). "
@@ -2776,14 +2817,14 @@ def _evaluate_powershell(command, cwd):
     if protected_problem:
         return "deny", protected_problem
 
+    # Mesmo modo bootstrap do _evaluate_bash: sem contrato, superficie minima
+    # de COMANDO em vez de deny total. Escrita continua fechada - o branch de
+    # write target abaixo delega a _evaluate_file, que nega sem contrato.
     feature_list = _load_json(cwd, FEATURE_LIST_PATH)
-    if feature_list is None:
-        return "deny", (
-            "nenhum contrato ativo no projeto. Rode /harness-creator:plan para compilar "
-            "um contrato e autorizar a superfície de edição; artefatos temporários "
-            "(screenshot, dump, HTML de debug) podem ser salvos em .harness/scratch/"
-        )
-    if _contract_fully_passed(feature_list):
+    bootstrap = feature_list is None
+    if bootstrap:
+        feature_list = []
+    elif _contract_fully_passed(feature_list):
         return "allow", (
             "contrato concluido (todas as features com passes:true) - boundary_guard "
             "se aposenta da superficie de comando ate o proximo /harness-creator:plan; "
@@ -2795,8 +2836,10 @@ def _evaluate_powershell(command, cwd):
         path = _resolve_path(target, cwd)
         return _evaluate_file(path, cwd)
 
-    profile = _load_json(cwd, PROFILE_PATH)
-    allowed_commands = _collect_allowed_bash_commands(feature_list, profile)
+    allowed_commands = []
+    if not bootstrap:
+        profile = _load_json(cwd, PROFILE_PATH)
+        allowed_commands = _collect_allowed_bash_commands(feature_list, profile)
     allowed_sequences = (
         FIXED_GIT_SEQUENCES + FIXED_HARNESS_SEQUENCES
         + [_tokenize_command(c) for c in allowed_commands]
@@ -2828,6 +2871,8 @@ def _evaluate_powershell(command, cwd):
             "read-only de pipeline, utilitario read-only ou cd intra-repo - PowerShell"
         )
     if failing is not None:
+        if bootstrap:
+            return "deny", _no_contract_command_deny(failing)
         return "deny", (
             "segmento '" + failing[:80] + "' fora da superficie compilada do "
             "contrato (PowerShell) e nao aceito como cmdlet read-only de "
@@ -2839,6 +2884,8 @@ def _evaluate_powershell(command, cwd):
             "guard reconhece como equivalente ao declarado. "
             + command_escape_hint(failing)
         )
+    if bootstrap:
+        return "deny", _no_contract_command_deny(command)
     return "deny", (
         "comando fora da superficie compilada do contrato (PowerShell). "
         + command_escape_hint(command)

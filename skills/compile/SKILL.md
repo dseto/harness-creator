@@ -21,7 +21,10 @@ disable-model-invocation: false
 3. Mostre o diff do `settings.local.json` (antes → depois) em termos humanos: quais
    regras de permissão entraram/saíram, quais hooks mudaram. Repasse também os
    `warnings` do JSON de saída (ex.: seções de execução ignoradas).
-4. Avise: mudanças valem na PRÓXIMA sessão do Claude Code nesse projeto.
+4. Avise: os hooks recompilados podem valer IMEDIATAMENTE, ainda nesta sessão
+   (o arquivo do hook é lido a cada tool call); as regras de `permissions`
+   enumeradas no `settings.local.json` é que podem só ser lidas na próxima
+   sessão do Claude Code nesse projeto.
 
 ## Regras
 
