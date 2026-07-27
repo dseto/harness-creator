@@ -6,6 +6,11 @@ dist/
 .pytest_cache/
 .ruff_cache/
 
+# Planos/backlogs de fases e dogfoods ja FECHADOS, retirados do controle de
+# versao em 2026-07-27 (ver docs/project/HANDOFF-2026-07-27-fechamento-dogfood-venv-windows.md,
+# Secao 4). Conteudo preservado em disco, so fora do git — nada foi apagado.
+_descarte/
+
 # .harness/ e .claude/ NAO aparecem aqui de proposito.
 #
 # A politica canonica de versionamento esta na Secao 3 de
