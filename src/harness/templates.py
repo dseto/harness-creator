@@ -47,6 +47,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from harness.install_command import install_command_for
+
 HARNESS_DIR = ".harness"
 
 PROGRESS_FILE = f"{HARNESS_DIR}/progress.md"
@@ -61,15 +63,9 @@ MANAGED_MARKER = (
     " - nao editar a mao"
 )
 
-# package_manager.value -> comando de instalação de dependências.
-_INSTALL_COMMANDS: dict[str, str] = {
-    "npm": "npm ci",
-    "pnpm": "pnpm install --frozen-lockfile",
-    "yarn": "yarn install --frozen-lockfile",
-    "uv": "uv sync",
-    "poetry": "poetry install",
-    "pip": "pip install -e .",
-}
+# O mapa `package_manager.value` -> comando de instalação vive em
+# `harness.install_command` (fonte única — ver o docstring de lá para o achado
+# F2 que motivou a unificação).
 
 # ASCII puro, como `MANAGED_MARKER` e pelo mesmo motivo: estes comentários saem
 # dentro do `init.ps1`, lido pelo PowerShell 5.1 — o travessão que estava aqui
@@ -135,10 +131,12 @@ def render_init_scripts(profile: dict[str, Any]) -> tuple[str, str]:
     Os dois carregam `MANAGED_MARKER` logo no topo (linha 2 no `.sh`, depois
     do shebang; linha 1 no `.ps1`) — é o que `install_templates` usa para
     saber que pode regenerar o arquivo sem apagar edição do usuário."""
-    package_manager = (profile.get("package_manager") or {}).get("value")
+    package_manager_entry = profile.get("package_manager") or {}
     test_command = (profile.get("test_command") or {}).get("value")
 
-    install_cmd = _INSTALL_COMMANDS.get(package_manager) if package_manager else None
+    install_cmd = install_command_for(
+        package_manager_entry.get("value"), package_manager_entry.get("evidence")
+    )
 
     sh_lines = ["#!/usr/bin/env bash", MANAGED_MARKER, "set -e", ""]
     if install_cmd:

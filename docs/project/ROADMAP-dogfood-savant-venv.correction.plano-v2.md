@@ -19,13 +19,67 @@ backlog; `U10` = seção "Decisão pendente"; `U11` = seção "Sequenciamento".
 | **0** | 0 | [PR #28](https://github.com/dseto/harness-creator/pull/28) | ✅ entregue |
 | **1** | 1b, 5 | PR #28 | ✅ entregue |
 | — | B1, B2, B3 (auditoria) | PR #28 | ✅ entregue |
-| **2** | 3, 4 | — | pendente |
-| **3** | 6, 8, contagem na CLI | — | pendente |
-| **4** | 7 | — | pendente |
-| **5** | decidir B vs C | — | pendente |
+| **2** | 3, 4 | branch `feat/savant-ondas-2-5` | ✅ entregue |
+| **3** | 6, 8, contagem na CLI | idem | ✅ entregue |
+| **4** | 7 | idem | ✅ entregue |
+| **5** | decidir B vs C | — | **gate instrumentado, decisão pendente** |
 
-Suíte: **732 testes** verdes (658 antes da linha), `ruff check src tests`
-limpo.
+Suíte: **840 testes** verdes (790 antes da linha), `ruff check src tests`
+limpo. (Falha pré-existente e não relacionada em
+`tests/e2e/test_contract_flow.py::test_contract_flow_end_to_end` — mojibake
+cp1252 no capture de subprocess, reproduz na `main` limpa.)
+
+### O que as ondas 2–4 entregaram, e as duas adaptações do parecer
+
+As duas adaptações que separavam `adaptar` de `implementar` foram cumpridas
+**antes** de implementar, não depois:
+
+- **U4 (1) — o floor avalia bruto E normalizado.** `is_floor_bash_command`
+  passou a casar também a forma normalizada em cada janela, então
+  `.venv/Scripts/git.exe push` e `.venv/Scripts/twine.exe upload` são deny.
+  Sem isso o Item 4 converteria um furo latente em furo alcançável.
+- **U4 (2) — `uv run --with` definido.** Decisão: **não normaliza**. Se o token
+  seguinte a `run` começa com `-`, a forma não é equivalente à nua (`--with`
+  traz instalação vinda da rede), então o comando cai no default-deny.
+- **U3 — cross-check de gramática.** `extra_allowed_commands_grammar_problem`
+  compara a leitura do pyyaml com a do parser mínimo, e `compile-session` avisa
+  em stderr (mais a chave `extra_allowed_commands_grammar_problem` no JSON).
+
+Escopo estendido além do texto dos itens, com razão registrada:
+
+- O Item 8 nomeia só o `verify_cmd`, mas lint/typecheck/build e o comando de
+  instalação têm o mesmo defeito de match exato. Corrigir um e deixar os outros
+  recriaria o bug pelo lado.
+- `source <venv>/activate && <cmd>` **continua deny** — o item o lista entre as
+  linhas a inverter, mas `source` executa o conteúdo de um arquivo no shell
+  corrente, o que não é forma de invocação de binário. Com a normalização, a
+  ativação deixou de ser necessária.
+- `harness profile set` **não** entrou em `_HARNESS_SUBCOMMANDS`: `test_command`
+  alimenta a superfície de comando compilada, então dar o comando ao agente
+  reabriria a rota de auto-ampliação que o Item 0 fechou.
+
+### Onda 5 — o gate, agora executável
+
+O que faltava para decidir B vs C não era desenho, era **dado**: quantos ciclos
+uma sessão real ainda gasta depois das ondas 2–4. Esse número passou a ser
+contado (`harness.metrics`, exposto em `harness status`), em vez de reconstruído
+à mão a partir de transcrição.
+
+Procedimento do gate:
+
+1. Instalar o harness num repo Python **com venv**, no Windows, e trabalhar um
+   contrato real de ponta a ponta.
+2. Ao fim, `harness status --dir <alvo>` e ler `friction.disable_enable_cycles`.
+3. **Zero ou perto de zero → postura C** (nenhuma CLI nova), e o Item 9 é
+   descartado em definitivo. Número que ainda incomoda → **postura B**
+   (`harness allow-command` rodável só pelo usuário, negada ao agente pelo
+   guard), com as mitigações do Item 9.
+
+A postura A permanece fora da mesa (§2). E vale reter a §7: a contagem que
+ORDENOU as ondas está possivelmente contaminada, porque não há registro de
+quantas tool calls passaram sem guard enquanto o fail-open do Item 1 podia estar
+ativo. A contagem nova não tem esse problema — é por isso que ela precede o
+gate, e não o contrário.
 
 ---
 
@@ -228,13 +282,13 @@ Item 0, e instrumentar contagem antes do gate de decisão.
 | **0** (novo) | — | **implementar, P0** | ✅ entregue (PR #28) |
 | 1 | `adaptar` | `adaptar` — confirmado | ✅ entregue (#27 + 1b no #28) |
 | 2 | `adaptar` | **`implementar`** — objeção sem objeto; resíduo virou B3 | ✅ entregue (#27 + B3 no #28) |
-| 3 | `adaptar` | `adaptar` + **desbloqueado** | pendente |
-| 4 | `adaptar` | `adaptar`, **escopo reduzido** | pendente |
+| 3 | `adaptar` | `adaptar` + **desbloqueado** | ✅ entregue (onda 2, com o cross-check de gramática) |
+| 4 | `adaptar` | `adaptar`, **escopo reduzido** | ✅ entregue (onda 2, com o floor sobre a forma normalizada) |
 | 5 | `implementar` | `implementar` — **promovido à onda 1** | ✅ entregue (PR #28) |
-| 6 | `implementar` | `implementar` | pendente |
-| 7 | `adaptar` | `adaptar` | pendente |
-| 8 | `implementar` | `implementar`, **depende do 1b** | pendente |
-| 9 | `rejeitar` (condicional) | **`rejeitar` (incondicional)** | encerrado |
+| 6 | `implementar` | `implementar` | ✅ entregue (onda 3) |
+| 7 | `adaptar` | `adaptar` | ✅ entregue (onda 4) |
+| 8 | `implementar` | `implementar`, **depende do 1b** | ✅ entregue (onda 3, estendido a lint/build/install) |
+| 9 | `rejeitar` (condicional) | **`rejeitar` (incondicional)** | encerrado — o que resta é B vs C, no gate da onda 5 |
 
 O `rejeitar` do Item 9 deixa de ser condicional: as duas evidências que o
 parecer nomeou como falsificadoras foram procuradas. P1 **não** falsificou (o

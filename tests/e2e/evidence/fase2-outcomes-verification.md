@@ -6,7 +6,7 @@ Gerado por `tests/e2e/test_fase2_outcomes.py` (repos sintéticos em tmp_path via
 
 Veredito: **ATINGIDO**
 
-`compile-session` num settings virgem compilou `permissions.allow` EXATAMENTE igual à superfície enumerada (41 regras: Edit/Write dos files[] das 2 tarefas sem duplicar `src/app.py`, os 2 verify_cmd distintos, lint/typecheck/build do profile, `npm ci` do package_manager, git local do ritual). Nenhum wildcard genérico.
+`compile-session` num settings virgem compilou `permissions.allow` EXATAMENTE igual à superfície enumerada (47 regras: Edit/Write dos files[] das 2 tarefas sem duplicar `src/app.py`, os 2 verify_cmd distintos, lint/typecheck/build do profile, `npm ci` do package_manager, git local do ritual). Nenhum wildcard genérico.
 
 ```json
 [
@@ -17,11 +17,17 @@ Veredito: **ATINGIDO**
   "Edit(src/util.py)",
   "Write(src/util.py)",
   "Bash(pytest tests/test_app.py -q)",
+  "Bash(pytest tests/test_app.py -q:*)",
   "Bash(pytest tests -q)",
+  "Bash(pytest tests -q:*)",
   "Bash(ruff check .)",
+  "Bash(ruff check .:*)",
   "Bash(mypy src)",
+  "Bash(mypy src:*)",
   "Bash(npm run build)",
+  "Bash(npm run build:*)",
   "Bash(npm ci)",
+  "Bash(npm ci:*)",
   "Bash(git status)",
   "Bash(git log*)",
   "Bash(git diff*)",
@@ -71,7 +77,7 @@ Contrato abandonado (feature_list.json removido após a instalação): `git push
 Veredito: **ATINGIDO**
 
 Edit em `src/nao_declarado.py` (fora de files[]) -> deny com razão legível que orienta o replanejamento: `arquivo fora da superficie do contrato ativo (nenhuma tarefa declara este path em files[]); artefato temporario de verificacao (screenshot, dump, HTML de debug)? salve em .harness/scratch/ ; se este arquivo PERTENCE ao escopo ja aprovado, o escape barato e `harness task add-file T-01 src/nao_declarado.py` (um comando, sem replanejar - ja liberado no guard); replaneje via /harness-creator:plan so se o ESCOPO mudou de verdade`
-Bash `python scripts/deploy.py --prod` (fora de verify/lint/typecheck/build/install/git-local) -> deny com razão: `segmento 'python scripts/deploy.py --prod' fora da superficie compilada do contrato (verify_cmd/lint/typecheck/build/install/git local) e nao aceito como utilitario read-only (cat/head/tail/wc/grep/rg/ls/echo/find sem redirecionamento de escrita) nem cd intra-repo. Escapes, do mais barato ao mais caro: (1) se o comando ja e equivalente a um declarado, use a forma EXATA do verify_cmd/lint do contrato; (2) se o repo precisa deste comando de forma permanente, PECA AO USUARIO para adiciona-lo em governance.extra_allowed_commands do .harness/harness.yaml (terminal dele, fora do Claude Code) e rodar `harness compile-session`; (3) replaneje via /harness-creator:plan so se o ESCOPO da tarefa mudou.`
+Bash `python scripts/deploy.py --prod` (fora de verify/lint/typecheck/build/install/git-local) -> deny com razão: `segmento 'python scripts/deploy.py --prod' fora da superficie compilada do contrato (verify_cmd/lint/typecheck/build/install/git local) e nao aceito como utilitario read-only (cat/head/tail/wc/grep/rg/ls/echo/find sem redirecionamento de escrita) nem cd intra-repo. Escapes, do mais barato ao mais caro: (1) o guard ja reconhece as formas EQUIVALENTES do comando declarado - `python -m <bin>`, `.venv/Scripts/<bin>` (ou `.venv/bin/<bin>`) e `uv run <bin>` valem tanto quanto o binario nu, entao NAO ha o que descobrir por tentativa e erro; (2) se o repo precisa de um comando NOVO de forma permanente, PECA AO USUARIO para adiciona-lo em governance.extra_allowed_commands do .harness/harness.yaml (terminal dele, fora do Claude Code) - o guard le esse arquivo a cada tool call, entao vale na hora, sem recompilar; (3) replaneje via /harness-creator:plan so se o ESCOPO da tarefa mudou.`
 Dentro do raio, tudo allow sem prompt: Edit em files[], verify_cmd, lint/typecheck/build do profile, `git status`/`git commit` do ritual.
 
 ## Outcome 4 — arquivo que casa test_glob só é editável se declarado em files[] do contrato

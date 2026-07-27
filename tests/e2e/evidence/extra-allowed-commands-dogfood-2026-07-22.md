@@ -46,7 +46,7 @@ qualquer comando.
 {
   "hookEventName": "PreToolUse",
   "permissionDecision": "deny",
-  "permissionDecisionReason": "segmento 'algum-cli-nao-declarado --flag' fora da superficie compilada do contrato (verify_cmd/lint/typecheck/build/install/git local) e nao aceito como utilitario read-only (cat/head/tail/wc/grep/rg/ls/echo/find sem redirecionamento de escrita) nem cd intra-repo. Escapes, do mais barato ao mais caro: (1) se o comando ja e equivalente a um declarado, use a forma EXATA do verify_cmd/lint do contrato; (2) se o repo precisa deste comando de forma permanente, PECA AO USUARIO para adiciona-lo em governance.extra_allowed_commands do .harness/harness.yaml (terminal dele, fora do Claude Code) e rodar `harness compile-session`; (3) replaneje via /harness-creator:plan so se o ESCOPO da tarefa mudou."
+  "permissionDecisionReason": "segmento 'algum-cli-nao-declarado --flag' fora da superficie compilada do contrato (verify_cmd/lint/typecheck/build/install/git local) e nao aceito como utilitario read-only (cat/head/tail/wc/grep/rg/ls/echo/find sem redirecionamento de escrita) nem cd intra-repo. Escapes, do mais barato ao mais caro: (1) o guard ja reconhece as formas EQUIVALENTES do comando declarado - `python -m <bin>`, `.venv/Scripts/<bin>` (ou `.venv/bin/<bin>`) e `uv run <bin>` valem tanto quanto o binario nu, entao NAO ha o que descobrir por tentativa e erro; (2) se o repo precisa de um comando NOVO de forma permanente, PECA AO USUARIO para adiciona-lo em governance.extra_allowed_commands do .harness/harness.yaml (terminal dele, fora do Claude Code) - o guard le esse arquivo a cada tool call, entao vale na hora, sem recompilar; (3) replaneje via /harness-creator:plan so se o ESCOPO da tarefa mudou."
 }
 ```
 

@@ -85,11 +85,7 @@ def ensure_contract_branch(target_dir: Path, contract: str) -> str:
     if status.returncode != 0:
         raise BranchingError(f"git status falhou: {status.stderr.strip()[:200]}")
     if status.stdout.strip():
-        raise BranchingError(
-            "working tree suja (tracked modificado/staged) — commit ou stash "
-            "antes de compilar a sessão; criar a branch de contrato com "
-            "sujeira misturaria trabalho de outro contexto"
-        )
+        raise BranchingError(_dirty_tree_problem(status.stdout, branch))
 
     exists = _git(target_dir, "rev-parse", "--verify", f"refs/heads/{branch}")
     if exists.returncode == 0:
@@ -101,6 +97,42 @@ def ensure_contract_branch(target_dir: Path, contract: str) -> str:
             f"git switch para {branch} falhou: {switched.stderr.strip()[:200]}"
         )
     return branch
+
+
+#: Quantos arquivos sujos a mensagem nomeia antes de resumir. Listar tudo num
+#: repo com dezenas de modificações vira parede de texto e some com a saída.
+_DIRTY_SAMPLE = 5
+
+
+def _dirty_tree_problem(porcelain: str, branch: str) -> str:
+    """Razão de recusa da árvore suja, nomeando os arquivos e as saídas.
+
+    Achado F6 do dogfood no MiojoSimulator 3.0: a mensagem antiga dizia
+    "commit ou stash antes de compilar a sessão" e parava aí. No alvo real, os
+    arquivos modificados **eram** os `files[]` do próprio contrato — o trabalho
+    já estava em andamento quando o harness foi instalado, que é o caso mais
+    provável de quem adota a ferramenta num projeto vivo, e não o de quem
+    começa do zero. Mandar "stashear" ali é conselho ruim: o stash esconde
+    exatamente o que o contrato existe para governar. Dizer QUAIS arquivos e
+    QUAIS são as três saídas custa nada e evita a decisão errada."""
+    files = [
+        line[3:].strip() for line in (porcelain or "").splitlines() if len(line) > 3
+    ]
+    listed = ", ".join(files[:_DIRTY_SAMPLE])
+    if len(files) > _DIRTY_SAMPLE:
+        listed += f" (+{len(files) - _DIRTY_SAMPLE})"
+    return (
+        "working tree suja (tracked modificado/staged) — criar a branch de "
+        f"contrato com sujeira misturaria trabalho de outro contexto. Sujo: {listed}. "
+        "Três saídas, e a escolha depende de o trabalho pendente PERTENCER ou "
+        "não a este contrato: (1) se pertence — caso comum de quem instala o "
+        "harness no meio de uma feature —, commite AGORA, na branch atual, e "
+        f"rode de novo: o `git switch -c {branch}` leva o commit junto, sem "
+        "perder nada; (2) se é de outro contexto, `git stash` e retome depois; "
+        "(3) se este repo não quer branch por contrato, desligue em "
+        "`governance.branch_per_contract` do .harness/harness.yaml. NÃO stashe "
+        "trabalho que é deste contrato — é justamente o que ele vai governar."
+    )
 
 
 def _has_git_root(target_dir: Path) -> bool:

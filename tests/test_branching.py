@@ -174,6 +174,48 @@ def test_load_protected_branches_defaults_without_yaml(tmp_path: Path) -> None:
     assert load_protected_branches(tmp_path) == ["main", "homolog", "develop"]
 
 
+def test_dirty_tree_message_names_the_files_and_the_three_ways_out(
+    tmp_path: Path,
+) -> None:
+    """Achado F6 do dogfood no MiojoSimulator 3.0. A mensagem antiga dizia
+    "commit ou stash antes de compilar a sessão" e parava aí. No alvo real os
+    arquivos sujos ERAM os `files[]` do próprio contrato — o trabalho já estava
+    em andamento quando o harness foi instalado, que é o caso de quem adota a
+    ferramenta num projeto vivo. Mandar "stashear" ali é conselho ruim: o stash
+    esconde exatamente o que o contrato existe para governar."""
+    _init_repo(tmp_path)
+    (tmp_path / "README.md").write_text("modificado", encoding="utf-8")
+
+    with pytest.raises(BranchingError) as exc_info:
+        ensure_contract_branch(tmp_path, "exemplo-feature")
+
+    message = str(exc_info.value)
+    assert "README.md" in message                      # nomeia o que está sujo
+    assert "commite AGORA" in message                  # saída 1: pertence ao contrato
+    assert "git stash" in message                      # saída 2: é de outro contexto
+    assert "branch_per_contract" in message            # saída 3: desligar a regra
+    assert "contract/exemplo-feature" in message       # o switch leva o commit junto
+    assert "NÃO stashe" in message
+
+
+def test_dirty_tree_message_truncates_a_long_file_list(tmp_path: Path) -> None:
+    """Listar tudo num repo com dezenas de modificações vira parede de texto e
+    some com a saída — o resumo mantém a mensagem legível."""
+    _init_repo(tmp_path)
+    for i in range(9):
+        path = tmp_path / f"arquivo{i}.txt"
+        path.write_text("original", encoding="utf-8")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-m", "base")
+    for i in range(9):
+        (tmp_path / f"arquivo{i}.txt").write_text("modificado", encoding="utf-8")
+
+    with pytest.raises(BranchingError) as exc_info:
+        ensure_contract_branch(tmp_path, "exemplo-feature")
+
+    assert "(+4)" in str(exc_info.value)
+
+
 def test_load_protected_branches_reads_override(tmp_path: Path) -> None:
     yaml_path = tmp_path / ".harness" / "harness.yaml"
     yaml_path.parent.mkdir(parents=True, exist_ok=True)

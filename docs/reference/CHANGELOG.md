@@ -5,7 +5,172 @@
 Correções achadas durante o dogfood do próprio harness-creator (contrato
 `hook-reasons-progress-sync` e achados A/B/C do backlog de fricção de
 dogfood 2026-07-22), mais o backlog **inteiro** (P0, P1 e P2) do laudo de
-footprint `docs/project/AUDIT-footprint-raiz-e-versionamento-2026-07-26.md`.
+footprint `docs/project/AUDIT-footprint-raiz-e-versionamento-2026-07-26.md`,
+mais as **ondas 2 a 4** do plano v2 do dogfood
+`Savant.Backend.APP-15167` (`docs/project/ROADMAP-dogfood-savant-venv.correction.plano-v2.md`).
+
+### Adicionado (ondas 2–4 do plano v2 — a fricção do venv Windows)
+
+Uma sessão real gastou ~13 ciclos de `disable` → editar → `compile-session` →
+`enable` e terminou com o harness abandonado. As quatro causas foram atacadas
+juntas porque compõem: cada uma sozinha ainda deixava o ciclo de pé.
+
+- **A FORMA de invocar deixa de ser adivinhação (Item 4 — o maior volume).**
+  O match de superfície é por prefixo de tokens, então `verify_cmd: "pytest -q"`
+  liberava só o comando que começa literalmente com `pytest` — e num venv
+  Windows a forma que funciona na Bash tool é `.venv/Scripts/pytest.exe -q`,
+  exatamente a que o guard negava. Três formas passam a reduzir à mesma forma
+  canônica, **nos dois lados da comparação**: `python -m <mod>`,
+  `<venv>/{Scripts,bin}/<bin>[.exe]` e `uv run <bin>`. É equivalência de forma,
+  não ampliação de escopo — `python -m pip install evil` normaliza para
+  `pip install evil`, que continua não prefixando `pip install -e .`.
+  - Fora do escopo por decisão explícita, cada uma com teste: `python -c`
+    (executa string arbitrária), `python <script.py>`, `uv run --with <pacote>`
+    (instala da rede antes de rodar, e rede sempre pede aprovação), prefixo de
+    diretório genérico (`./scripts/deploy.sh` **não** vira `deploy.sh`) e
+    `source <venv>/activate && …` (`source` executa o conteúdo de um arquivo no
+    shell corrente; com a normalização, ativar deixou de ser necessário).
+  - **O floor passa a avaliar as duas formas, bruta e normalizada.** Sem isso o
+    item transformaria um furo latente em furo alcançável: as formas prefixadas
+    por caminho já atravessavam o floor (`.venv/Scripts/git.exe push` não
+    contém o token `git`) e morriam só no default-deny da allowlist — com a
+    normalização, passariam a casar a allowlist. Adaptação exigida pelo parecer
+    MAR (U4), e a razão de o floor deixar de ver *apenas* o comando bruto.
+- **`extra_allowed_commands` é lido em RUNTIME (Item 3).** A allowlist era
+  bakeada no script gerado, então mudá-la exigia `compile-session` — inclusive
+  quando quem editava era o usuário no terminal próprio, onde nenhum hook
+  intercepta. O bake nunca teve razão de performance: o guard já lê dois JSONs
+  do disco a cada tool call. O script standalone é stdlib-only por design, então
+  a leitura usa um parser mínimo restrito a essa sublista, que entende lista de
+  bloco e de fluxo, com ou sem aspas, e ignora comentário. **Fail-safe
+  inegociável**: o que ele não entende degrada para lista vazia — fecha, nunca
+  abre. A constante bakeada foi removida (regressão estrutural fixada por
+  teste), então tirar um comando do YAML também vale na hora.
+  - **`compile-session` avisa quando os dois parsers divergem.** Adaptação
+    exigida pelo parecer MAR (U3): sem ela, uma entrada em sintaxe não suportada
+    viraria deny silencioso com o `settings.json` afirmando o contrário — e
+    "declarei e continua negado" é a classe de fricção opaca que este backlog
+    existe para matar.
+- **`harness profile set <chave> <valor>` (Item 6).** Não havia forma suportada
+  de corrigir o `repo-profile.json`: ele é gerado por `analyze`, que só infere,
+  e escrever em `.harness/**` é deny incondicional. No caso real o proxy
+  corporativo derrubou o TLS do `uv` e foi preciso trocar para `pip`, embora o
+  lockfile continuasse apontando `uv` — a única saída era o ciclo completo.
+  Enumeração fechada de chaves de **ambiente** (`package_manager`,
+  `test_command`, `lint_command`, `typecheck_command`, `build_command`), valor
+  sujeito ao mesmo runtime floor, `unknowns` correspondente limpo junto.
+  `test_glob` fica de fora: decide o que conta como teste protegido, que é
+  governança. **`profile` não entra em `_HARNESS_SUBCOMMANDS`** — é decisão de
+  segurança, não omissão: `test_command` alimenta a superfície de comando
+  compilada, então um agente capaz de gravar ali ampliaria a própria superfície,
+  a mesma rota que o Item 0 fechou.
+- **PowerShell deixa de ser cidadão de segunda (Item 7).** `_evaluate_powershell`
+  exigia que TODO segmento prefixasse uma sequência permitida, e pipeline é a
+  forma idiomática da linguagem — `Select-Object` nunca vai prefixar uma
+  allowlist derivada de `verify_cmd`. Na prática o caminho PowerShell era
+  inutilizável sob contrato ativo, o que empurrava tudo para a Bash tool, que é
+  justamente a que não enxerga o venv Windows. Agora um segmento passa se for
+  cmdlet read-only de pipeline (`Select-Object`, `Where-Object`,
+  `Measure-Object`, `Sort-Object`, `Format-Table`, `Format-List`, `Out-String`,
+  mais os aliases), utilitário read-only ou `cd` intra-repo — os mesmos escapes
+  que o Bash tem desde `76ab4a6`. `ForEach-Object` fica **fora** (executa
+  scriptblock arbitrário) e atribuição a `$env:*` também: liberá-la reabriria
+  por outra porta o problema de PATH que o Item 4 resolve de forma controlada.
+- **Contagem de ciclos de fricção (`harness.metrics`).** O gate da onda 5
+  (postura B vs C) depende de um número que ninguém tem: quantos ciclos uma
+  sessão real ainda gasta *depois* destas correções. Os ~13 da sessão original
+  foram contados à mão relendo transcrição. Os contadores vivem em
+  `disable`/`enable`/`compile-session`, na CLI — **não em hook**: os ciclos
+  ocorrem com o harness desligado, então um contador em hook mediria zero
+  exatamente durante o fenômeno de interesse. `harness status` reporta o
+  resumo; `.harness/metrics.json` é machine-local.
+
+### Corrigido (ondas 2–4 do plano v2)
+
+- **`verify_cmd` passa a ser emitido também na forma prefixada (Item 8).**
+  `Bash(<cmd>)` sem wildcard casa o comando **exato** (confirmado na doc oficial
+  de permissions). Todas as outras regras já eram prefixadas; só os comandos
+  derivados do contrato/profile ficaram exatos, então
+  `pytest -q tests/test_api.py` — que o `boundary_guard` **libera** — caía no
+  fluxo de permissão e virava prompt. Fadiga silenciosa: não é deny, é atrito,
+  e por isso nunca apareceu em relato de fricção. As **duas** formas são
+  emitidas, porque o sufixo `:*` exige algo depois do prefixo e o comando nu é
+  justamente o canônico do contrato. Estendido a lint/typecheck/build e ao
+  comando de instalação, que tinham o mesmo defeito pelo mesmo motivo.
+- **O filtro de runtime floor passa a tratar o sufixo `:*`.** Ele fazia strip só
+  do `*` final; com a forma nova sobrava um `:` pendurado (`git push:`), que a
+  tokenização não reduz a `push` — e uma entrada de floor sobreviveria ao filtro
+  justamente pela forma que o Item 8 introduziu.
+- **`requirements.txt` passa a provar Python** (achado F1 do dogfood, e a
+  causa-raiz de outros dois). O analyzer era dirigido a manifesto e só
+  reconhecia Python por `pyproject.toml`/`setup.py`; um serviço FastAPI real
+  saía com `languages: []` e tudo em `unknowns`. A cascata era pior que a
+  detecção faltando: `preflight` devolvia NOT_READY num repo perfeitamente
+  governável, `_is_test_diff` ficava inerte sem `test_glob`, e o check de
+  **sombra de venv** nunca disparava, porque depende de haver um `test_command`
+  inferido — um achado mascarando o outro. O runner ganhou dois detectores:
+  `conftest.py` (que é prova — o arquivo só existe para o pytest) e `pytest`
+  declarado em `requirements*.txt`, casando o NOME do pacote e não substring.
+  Repo com manifesto de pacote continua provando por ele.
+- **O comando de instalação passa a considerar a evidência** (achado F2). O mapa
+  dizia `pip -> "pip install -e ."`, que exige um pacote instalável; a maioria
+  dos serviços Python declara dependências em `requirements.txt` e não é um
+  pacote — nesses repos o comando certo é `pip install -r requirements.txt`, e
+  ele caía no default-deny do guard enquanto o comando emitido falharia se
+  alguém o rodasse. O mapa estava **triplicado** em `boundary_guard`,
+  `session_permissions` e `templates`, cada cópia com o mesmo defeito; agora
+  vive em `harness/install_command.py` e os três importam de lá, o hook
+  standalone inclusive. A decisão é por `package_manager.evidence` — um valor
+  novo de `package_manager` vazaria detalhe de layout para uma enumeração que
+  descreve ferramenta.
+- **`preflight` passa a respeitar a correção manual do profile** (achado F3).
+  Ele re-inferia tudo e ignorava o `repo-profile.json`, então depois de
+  `harness profile set` o laudo repetia o mesmo FAIL **com a instrução de fix
+  que já tinha sido aplicada**. Só vence a re-inferência a entrada marcada como
+  correção humana; inferência velha em disco continua descartada. Segue
+  read-only.
+- **A recusa de árvore suja diz o que fazer** (achado F6). No alvo real os
+  arquivos sujos **eram** os `files[]` do próprio contrato — o caso de quem
+  adota o harness num projeto vivo —, e a mensagem dizia "commit ou stash" e
+  parava aí. Agora nomeia os arquivos, enumera as três saídas e diz
+  explicitamente para **não** stashear trabalho que pertence ao contrato: o
+  stash esconde exatamente o que ele existe para governar.
+- **`test_glob` deixa de ter duas fontes** (achado F7). O do `harness.yaml`
+  alimentava o `guard_tests`; o do `repo-profile.json` alimentava o gate de diff
+  de teste da revisão — no alvo real um valia `tests/**/*.py` e o outro era
+  `null`, o mesmo conceito protegido numa camada e inerte na outra.
+  `compile-session` passa a reconciliar, com a **governança vencendo por
+  escrita**: o `test_glob` decide o que conta como teste protegido, que é
+  política aprovada — é por isso que `harness profile set` recusa essa chave.
+- **Os hooks de `harness compile` deixam de lançar `python` nu** (achado F8 do
+  dogfood no MiojoSimulator 3.0 — `docs/project/DOGFOOD-miojo-simulator-2026-07-27.md`).
+  O Item 1/1b bakeou o interpretador absoluto e o sufixo `|| exit 2` nos três
+  hooks do `compile-session`, mas `compiler.py` continuou montando
+  `python "<script>"` à mão para `guard_tests.py` e `guard_test_runner.py` — e
+  esse é o caminho por onde **toda** instalação passa primeiro, antes de existir
+  contrato. Interpretador irresolúvel ⇒ processo morre com código != 2 ⇒ a doc
+  do Claude Code manda a tool call passar: os guards de TDD falhavam ABERTO.
+  Pior, `harness doctor` não olhava para eles (`MANAGED_HOOK_FILENAMES` listava
+  só os de sessão), então o laudo de um alvo vulnerável devolvia `"hooks": []`.
+  A suíte seguiu verde depois da troca — a mesma lacuna que o B2 fechou para os
+  hooks de sessão —, então entraram os três testes que faltavam: instalação,
+  **desfecho** (script corrompido por erro de sintaxe → o comando gravado sai 2)
+  e cobertura do `doctor`. As mensagens de `interpreter_problem`/
+  `fail_closed_problem` também pararam de mandar rodar `compile-session`, que
+  não regrava estes dois hooks.
+- **A nota do `harness profile set` deixou de prometer efeito inexistente**
+  (achado F4 do mesmo dogfood). Ela dizia, para toda chave, "rode
+  `compile-session` para a mudança chegar ao settings.json e ao boundary_guard".
+  Falso para `test_command`: `_collect_allowed_bash_commands` lê `verify_cmd` +
+  extras + instalação, nunca o `test_command` do profile. Manter `test_command`
+  fora da superfície é a decisão certa — quem manda lá é o `verify_cmd` do
+  contrato aprovado; o que estava errado era a frase. A nota passou a ser por
+  chave, com trava estrutural em teste ligando as chaves aos leitores reais.
+- **A mensagem de deny de comando parou de mandar recompilar.** Ela dizia para
+  pedir ao usuário que editasse o YAML *e rodasse `compile-session`*; com o
+  Item 3 isso deixou de ser necessário. E agora ela começa dizendo que as formas
+  equivalentes já são reconhecidas — a versão anterior induzia exatamente a
+  tentativa-e-erro que o Item 4 elimina.
 
 ### Corrigido (achados da 3ª rodada de teste isento)
 

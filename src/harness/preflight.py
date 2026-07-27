@@ -25,7 +25,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from harness.analyzer import RepoProfile, analyze_project
+from harness.analyzer import (
+    MANUAL_EVIDENCE,
+    REPO_PROFILE_PATH,
+    Finding,
+    RepoProfile,
+    analyze_project,
+)
 
 # Timeout (s) para cada subprocess git. Generoso: um `git status` num repo
 # gigante raramente passa disso; se estourar, vira um check FAIL com a mensagem
@@ -764,6 +770,67 @@ def _check_lint(profile: RepoProfile, target_dir: Path) -> PreflightCategory:
     )
 
 
+def _with_manual_overrides(profile: RepoProfile, target_dir: Path) -> RepoProfile:
+    """Aplica sobre `profile` (recém-inferido) as entradas que um humano
+    corrigiu à mão com `harness profile set`.
+
+    Achado F3 do dogfood no MiojoSimulator 3.0: o preflight re-inferia tudo e
+    ignorava o `repo-profile.json` do disco. Depois de o usuário corrigir o
+    `test_command`, o laudo repetia `test_runner_detected: FAIL` **com a mesma
+    instrução de fix que ele acabara de aplicar** — dois comandos do mesmo
+    produto discordando sobre o mesmo fato, e um laço para quem seguir a
+    instrução ao pé da letra.
+
+    A regra é estreita de propósito: só vence a re-inferência a entrada marcada
+    com `MANUAL_EVIDENCE`, que é decisão humana sobre o AMBIENTE. Todo o resto
+    do arquivo em disco é inferência velha e continua sendo descartado — se o
+    repo mudou, quem manda é a análise de agora. Continua read-only: lê o
+    arquivo, não escreve nada.
+    """
+    path = target_dir / REPO_PROFILE_PATH
+    if not path.is_file():
+        return profile
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return profile
+    if not isinstance(data, dict):
+        return profile
+
+    for key in ("package_manager", "test_command"):
+        entry = data.get(key)
+        if isinstance(entry, dict) and entry.get("evidence") == MANUAL_EVIDENCE:
+            setattr(profile, key, Finding.from_dict(entry))
+
+    extras = data.get("extras")
+    if isinstance(extras, dict):
+        for key, entry in extras.items():
+            if isinstance(entry, dict) and entry.get("evidence") == MANUAL_EVIDENCE:
+                profile.extras[key] = Finding.from_dict(entry)
+
+    profile.unknowns = [
+        item for item in profile.unknowns
+        if not (isinstance(item, str) and item.split(":", 1)[0] in _MANUALLY_SET_KEYS(data))
+    ]
+    return profile
+
+
+def _MANUALLY_SET_KEYS(data: dict) -> set[str]:  # noqa: N802
+    """Chaves do profile em disco marcadas como correção manual."""
+    keys = {
+        key for key in ("package_manager", "test_command")
+        if isinstance(data.get(key), dict)
+        and data[key].get("evidence") == MANUAL_EVIDENCE
+    }
+    extras = data.get("extras")
+    if isinstance(extras, dict):
+        keys |= {
+            key for key, entry in extras.items()
+            if isinstance(entry, dict) and entry.get("evidence") == MANUAL_EVIDENCE
+        }
+    return keys
+
+
 def run_preflight(target_dir: Path) -> PreflightReport:
     """Função pública única: avalia o alvo e monta o laudo de prontidão.
 
@@ -781,7 +848,7 @@ def run_preflight(target_dir: Path) -> PreflightReport:
     if not target_dir.is_dir():
         raise PreflightError(f"alvo não é um diretório: {target_dir}")
 
-    profile = analyze_project(target_dir)
+    profile = _with_manual_overrides(analyze_project(target_dir), target_dir)
 
     categories = [
         _check_git(target_dir),

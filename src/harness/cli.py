@@ -126,6 +126,21 @@ def main() -> None:
         help="Repassado para a recompilação — ver `compile-contract --dry-run-verify`",
     )
 
+    prof = sub.add_parser(
+        "profile",
+        help="Correcao pontual do .harness/repo-profile.json — rodar no terminal do USUARIO",
+    )
+    prof_sub = prof.add_subparsers(dest="profile_command", required=True)
+
+    prof_set = prof_sub.add_parser(
+        "set",
+        help="Grava uma chave de AMBIENTE do profile (package_manager, "
+        "test_command, lint_command, typecheck_command, build_command)",
+    )
+    prof_set.add_argument("key", help="Chave a ajustar (enumeração fechada)")
+    prof_set.add_argument("value", help="Novo valor")
+    prof_set.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+
     cs = sub.add_parser(
         "compile-session",
         help="Compila a sessão autônoma (Fase 2): permissions, boundary guard, lifecycle, templates, SessionStart",
@@ -213,7 +228,7 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # Um ponto só para os 18 subcomandos que aceitam `--dir` — validar em cada
+    # Um ponto só para os 19 subcomandos que aceitam `--dir` — validar em cada
     # branch do dispatch é o tipo de coisa que fica pela metade (foi assim que
     # `compile` acertava e `analyze`/`audit` erravam).
     if getattr(args, "dir", None) is not None:
@@ -353,6 +368,23 @@ def main() -> None:
         }, indent=2, ensure_ascii=False))
         sys.exit(0)
 
+    if args.command == "profile" and args.profile_command == "set":
+        from harness.profile_edit import ProfileEditError, next_step_note, set_profile_value
+
+        try:
+            profile_path = set_profile_value(Path(args.dir), args.key, args.value)
+        except ProfileEditError as exc:
+            print(f"erro: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        print(json.dumps({
+            "profile": str(profile_path),
+            "key": args.key,
+            "value": args.value,
+            "note": next_step_note(args.key),
+        }, indent=2, ensure_ascii=False))
+        sys.exit(0)
+
     if args.command == "compile-session":
         from harness.boundary_guard import install_boundary_guard
         from harness.branching import (
@@ -362,6 +394,7 @@ def main() -> None:
             load_branch_per_contract,
         )
         from harness.lifecycle import install_lifecycle
+        from harness.metrics import record_event
         from harness.session_permissions import (
             FEATURE_LIST_FILE,
             REPO_PROFILE_FILE,
@@ -425,6 +458,27 @@ def main() -> None:
                 file=sys.stderr,
             )
 
+        # Item 3: a allowlist de comandos extras passou a ser lida em runtime
+        # por um parser stdlib deliberadamente burro. Se ele não entende o que
+        # o pyyaml entendeu, o comando vira deny silencioso — com o
+        # settings.json compilado logo acima afirmando o contrário.
+        from harness.boundary_guard import extra_allowed_commands_grammar_problem
+
+        grammar_problem = extra_allowed_commands_grammar_problem(target_dir)
+        if grammar_problem:
+            print(f"aviso: {grammar_problem}", file=sys.stderr)
+
+        # F7: o `test_glob` tinha duas fontes — a do `harness.yaml` alimentava o
+        # `guard_tests`, a do `repo-profile.json` alimentava o gate de diff de
+        # teste da revisão. Governança vence, e precisa chegar às duas.
+        from harness.profile_edit import reconcile_test_glob
+
+        test_glob_reconciled = reconcile_test_glob(target_dir)
+        if test_glob_reconciled:
+            print(f"aviso: {test_glob_reconciled}", file=sys.stderr)
+
+        record_event(target_dir, "compile-session")
+
         print(json.dumps({
             "settings": str(settings_path),
             "boundary_guard": str(boundary_guard_path),
@@ -435,6 +489,8 @@ def main() -> None:
             "session_start_hook": str(session_start_path),
             "stop_hook": str(stop_hook_path),
             "branch": branch,
+            "extra_allowed_commands_grammar_problem": grammar_problem,
+            "test_glob_reconciled": test_glob_reconciled,
         }, indent=2, ensure_ascii=False))
         sys.exit(0)
 
@@ -576,15 +632,19 @@ def main() -> None:
 
     if args.command == "disable":
         from harness.killswitch import disable, status
+        from harness.metrics import record_event
 
         disable(Path(args.dir), note=args.note)
+        record_event(Path(args.dir), "disable")
         print(json.dumps(status(Path(args.dir)), indent=2, ensure_ascii=False))
         sys.exit(0)
 
     if args.command == "enable":
         from harness.killswitch import enable, status
+        from harness.metrics import record_event
 
         removed = enable(Path(args.dir))
+        record_event(Path(args.dir), "enable")
         result = status(Path(args.dir))
         result["removed"] = removed
         print(json.dumps(result, indent=2, ensure_ascii=False))
@@ -592,8 +652,14 @@ def main() -> None:
 
     if args.command == "status":
         from harness.killswitch import status
+        from harness.metrics import friction_summary
 
-        print(json.dumps(status(Path(args.dir)), indent=2, ensure_ascii=False))
+        result = status(Path(args.dir))
+        # Instrumentação da onda 3: o gate da onda 5 (postura B vs C) precisa
+        # do número de ciclos que um dogfood real ainda gasta. `status` é o
+        # comando de leitura natural — o número aparece onde já se olha.
+        result["friction"] = friction_summary(Path(args.dir))
+        print(json.dumps(result, indent=2, ensure_ascii=False))
         sys.exit(0)
 
     if args.command == "doctor":

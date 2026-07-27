@@ -217,6 +217,62 @@ redirecionamento de shell (`>`, `>>`, `tee`) —, rede/publicação não planeja
 (`curl`, `wget`, `npm publish`, `pip upload`, `twine upload`, `gh release`) e
 `git push` continuam fora da superfície liberada, verificados
 incondicionalmente antes de qualquer outra checagem do `boundary_guard.py`.
+O floor avalia o comando bruto **e** a forma normalizada (abaixo), então
+`.venv/Scripts/git.exe push` é tão negado quanto `git push`.
+
+### Quando o guard atrapalha: três escapes, nenhum deles adivinhação
+
+Todos os três nasceram do dogfood `Savant.Backend.APP-15167` — uma API Python
+com venv, no Windows, atrás de proxy corporativo, onde descobrir a grafia que o
+guard aceitava consumiu cerca de treze ciclos de desligar e religar o harness.
+
+**1. A forma de invocação não importa.** `pytest -q`, `python -m pytest -q`,
+`.venv/Scripts/pytest.exe -q`, `.venv/bin/pytest -q` e `uv run pytest -q`
+invocam o mesmo binário, então o guard reduz os dois lados da comparação à
+mesma forma canônica antes de decidir. Não há grafia secreta a descobrir.
+Continuam **fora**, por decisão explícita: `python -c` (executa string
+arbitrária, não é invocação de binário), `uv run --with <pacote>` (instala da
+rede antes de rodar, e rede sempre pede aprovação) e prefixo de diretório que
+não seja de venv — `./scripts/deploy.sh` não vira `deploy.sh`, senão qualquer
+script homônimo casaria a allowlist alheia.
+
+**2. Comando novo e permanente: edite o YAML, e pronto.** O guard lê
+`governance.extra_allowed_commands` do `.harness/harness.yaml` **a cada tool
+call** — a mudança vale na tool call seguinte, sem `compile-session`. Só o
+usuário edita esse arquivo (o agente não escreve em `.harness/**`; é floor).
+
+> O parser que o hook usa para isso é mínimo e stdlib-only: entende lista de
+> bloco (`- item`) e de fluxo (`[a, b]`), com ou sem aspas, e ignora
+> comentário. Qualquer outra sintaxe YAML faz a lista degradar para **vazia** —
+> fecha, nunca abre. Para você não descobrir isso por tentativa e erro,
+> `harness compile-session` compara a leitura completa com a do hook e **avisa**
+> quando divergem. Se o aviso aparecer, reescreva a entrada numa das duas
+> formas. Uma ressalva honesta: o `settings.json` continua compilado, então um
+> comando adicionado sem recompilar passa no guard mas ainda pode gerar um
+> prompt de permissão do Claude Code — atrito, não bloqueio.
+
+**3. O profile inferido errou: `harness profile set`.** O `analyze` só infere,
+e às vezes o ambiente contradiz o repositório — no caso real, o proxy derrubou
+o TLS do `uv` e foi preciso usar `pip`, embora o lockfile continuasse apontando
+`uv`:
+
+```powershell
+harness profile set package_manager pip --dir C:\Projetos\meu-projeto
+harness compile-session --dir C:\Projetos\meu-projeto
+```
+
+As chaves ajustáveis são só as de **ambiente**: `package_manager`,
+`test_command`, `lint_command`, `typecheck_command`, `build_command`. O valor
+passa pelo mesmo runtime floor do resto. `test_glob` fica de fora de propósito
+— ele decide o que conta como arquivo de teste protegido, o que é governança
+(vive no `harness.yaml`, sob aprovação), não ambiente. E `profile` **não** é um
+comando do agente: `test_command` alimenta a superfície de comando compilada,
+então um agente capaz de gravar ali ampliaria a própria superfície. É comando
+seu, no seu terminal.
+
+Se ainda assim sobrar fricção, `harness status` mostra quantos ciclos
+`disable`/`enable` esta máquina já gastou — é o número que decide se o produto
+precisa de mais alguma porta ou se estas três bastam.
 
 **O floor de segredo é de escrita, não de leitura** — decisão explícita.
 `Read .env` e `cat .env` são liberados (ler `.env.example` ou conferir uma

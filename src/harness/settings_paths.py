@@ -59,6 +59,9 @@ HARNESS_GITIGNORE_LINES: tuple[str, ...] = (
     "compiled-state.json",
     "compiled-state-session.json",
     "hooks/",
+    # Contagem de ciclos de fricção (harness.metrics): conta operações DESTA
+    # máquina, não fato do repositório.
+    "metrics.json",
 )
 #: Linhas garantidas em `.claude/.gitignore`. Só o arquivo gerenciado —
 #: `agents/` e `skills/` são saída versionada de `harness team generate`.

@@ -76,6 +76,17 @@ _FALLBACK_INTERPRETER = "python"
 # fail-open" no docstring do módulo. Portátil entre `sh` e `cmd.exe`.
 FAIL_CLOSED_SUFFIX = "|| exit 2"
 
+# Instrução de correção comum aos problemas abaixo. Nomeia os DOIS comandos
+# porque os hooks gerenciados saem de dois lugares: `guard_tests`/
+# `guard_test_runner` vêm de `harness compile`, os outros três de
+# `compile-session`. A versão anterior citava só o segundo — e mandar o usuário
+# rodar um comando que não regrava o hook dele é a classe de instrução que
+# transforma um diagnóstico correto em laço de tentativa e erro.
+_REGRAVAR_HINT = (
+    "Rode `harness compile` (e `harness compile-session`, se houver contrato "
+    "ativo) para regravar o comando."
+)
+
 
 def resolve_interpreter() -> str:
     """Caminho absoluto do interpretador a bakear no comando do hook.
@@ -137,8 +148,7 @@ def fail_closed_problem(command: str) -> str | None:
     return (
         "o hook não tem o sufixo fail-closed `" + FAIL_CLOSED_SUFFIX + "` — se o "
         "processo do hook não iniciar (interpretador morto, script corrompido), ele "
-        "sai com código != 2 e a tool call PASSA sem o gate. Rode `harness "
-        "compile-session` para regravar o comando."
+        "sai com código != 2 e a tool call PASSA sem o gate. " + _REGRAVAR_HINT
     )
 
 
@@ -168,7 +178,7 @@ def interpreter_problem(command: str) -> str | None:
             f"o hook é registrado com o interpretador nu `{interpreter}`, resolvido pelo "
             "PATH só no momento da tool call — se não resolver ali, o hook não roda e a "
             "tool call PASSA sem o gate (a doc do Claude Code trata exit != 2 como erro "
-            "não-bloqueante). Rode `harness compile-session` para bakear o caminho absoluto."
+            "não-bloqueante). " + _REGRAVAR_HINT
         )
 
     path = Path(interpreter)
@@ -176,7 +186,7 @@ def interpreter_problem(command: str) -> str | None:
         return (
             f"o interpretador bakeado no hook não existe mais em disco (`{interpreter}`) — "
             "venv recriado, movido ou apagado. Enquanto isso, o hook não roda e a tool "
-            "call PASSA sem o gate. Rode `harness compile-session` para regravar."
+            "call PASSA sem o gate. " + _REGRAVAR_HINT
         )
     if not os.access(path, os.X_OK):
         return (

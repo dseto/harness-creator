@@ -34,6 +34,13 @@ from harness.patterns import _glob_to_regex
 
 REPO_PROFILE_PATH = ".harness/repo-profile.json"
 
+#: Marca, no campo `evidence`, o valor que veio de `harness profile set` — uma
+#: decisão HUMANA sobre o ambiente, não uma inferência. Mora aqui (e não em
+#: `profile_edit`) porque quem consome a marca são módulos que já dependem do
+#: analyzer e não podem depender do editor: `preflight` precisa saber que uma
+#: entrada assim vence a re-inferência.
+MANUAL_EVIDENCE = "harness profile set"
+
 # Diretórios de build/vendor ignorados na varredura (mesmo conjunto de
 # audit.py — não reimplementar, só espelhar o padrão já usado no repo).
 _SKIP_DIRS = {".harness", ".git", "__pycache__", ".venv", "node_modules",
@@ -41,7 +48,21 @@ _SKIP_DIRS = {".harness", ".git", "__pycache__", ".venv", "node_modules",
 
 # Manifest -> linguagem. package.json/pyproject.toml tratados à parte porque
 # geram mais de um Finding (javascript+typescript; python via dois nomes).
-_PYTHON_MANIFESTS = {"pyproject.toml", "setup.py"}
+# `requirements.txt` entrou no achado F1 do dogfood no MiojoSimulator 3.0. Um
+# repo Python com `requirements.txt` (e sem `pyproject.toml`/`setup.py`) saía do
+# analyzer com `languages: []` e TUDO em `unknowns` — e a cascata era pior que a
+# detecção faltando: `preflight` devolvia NOT_READY num repo perfeitamente
+# governável, `test_glob` ficava `null` (deixando `_is_test_diff` inerte, sem
+# sinal) e o check de sombra de venv nunca disparava, porque ele depende de haver
+# um `test_command` inferido. É o layout mais comum de serviço Python que não é
+# um pacote. Fica DEPOIS de pyproject/setup na ordenação (`_first` desempata por
+# profundidade e depois alfabeticamente), então um repo com os dois continua
+# provando a linguagem pelo manifesto mais forte.
+_PYTHON_MANIFESTS = {"pyproject.toml", "setup.py", "requirements.txt"}
+#: Manifestos que descrevem um pacote INSTALÁVEL (`pip install -e .` funciona).
+_PYTHON_PACKAGE_MANIFESTS = {"pyproject.toml", "setup.py"}
+#: Arquivo exclusivo do pytest: se existe, o runner é pytest, sem ambiguidade.
+_PYTEST_MARKER_FILENAME = "conftest.py"
 _NODE_MANIFEST = "package.json"
 _TS_MANIFEST = "tsconfig.json"
 _GO_MANIFEST = "go.mod"
@@ -318,6 +339,42 @@ def _detect_python_test_command(
     pytest_ini = _first(files, {"pytest.ini"})
     if pytest_ini is not None:
         return Finding("pytest", pytest_ini.as_posix(), 1.0)
+
+    # F1: os dois sinais que faltavam para o repo que declara dependências em
+    # `requirements*.txt`. `conftest.py` vem primeiro porque é PROVA — o arquivo
+    # só existe para o pytest, e existir num repo sem `pytest` declarado ainda
+    # significa que os testes são rodados com pytest.
+    conftest = next(
+        (rel for rel in files if rel.name == _PYTEST_MARKER_FILENAME), None
+    )
+    if conftest is not None:
+        return Finding("pytest", conftest.as_posix(), 1.0)
+
+    requirements = _requirements_mentioning_pytest(target_dir, files)
+    if requirements is not None:
+        return Finding("pytest", requirements.as_posix(), 1.0)
+    return None
+
+
+def _requirements_mentioning_pytest(target_dir: Path, files: list[Path]) -> Path | None:
+    """Primeiro `requirements*.txt` que declara `pytest` como dependência.
+
+    Casa o NOME do pacote, não substring: `pytest-asyncio` sozinho não prova
+    que a suíte roda com `pytest` nu (embora quase sempre role) — exigir o
+    pacote exato mantém a mesma régua de "achado com prova" do resto do módulo.
+    """
+    for rel in files:
+        name = rel.name.lower()
+        if not (name.startswith("requirements") and name.endswith(".txt")):
+            continue
+        try:
+            text = (target_dir / rel).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        for raw in text.splitlines():
+            line = raw.split("#", 1)[0].strip()
+            if line and _dep_name(line) == "pytest":
+                return rel
     return None
 
 

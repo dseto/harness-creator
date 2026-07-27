@@ -298,6 +298,10 @@ from pydantic import ValidationError
 
 from harness.config import HarnessConfig
 from harness.hook_launcher import hook_command
+from harness.install_command import (
+    INSTALL_COMMAND_BY_PACKAGE_MANAGER,
+    install_command_for,
+)
 from harness.killswitch import DISABLED_CHECK_SRC
 from harness.review import ReviewError, is_test_diff, load_review
 from harness.settings_paths import prepare_managed_settings, write_managed_settings
@@ -356,11 +360,153 @@ def _has_sequence(tokens: list[str], seq: list[str]) -> bool:
     return n > 0 and any(tokens[i:i + n] == seq for i in range(len(tokens) - n + 1))
 
 
+# ---------------------------------------------------------------------------
+# Normalização da FORMA de invocação (Python real, IMPORTÁVEL) — Item 4 do
+# backlog do dogfood `Savant.Backend.APP-15167`.
+#
+# O match de superfície é por PREFIXO de tokens, então `verify_cmd: "pytest -q"`
+# só liberava o comando que começa literalmente com `pytest`. Num venv Windows a
+# forma que de fato funciona na Bash tool é `.venv/Scripts/pytest.exe -q` — ou
+# seja, exatamente a que o guard negava. Descobrir a forma que passa é iterativo
+# por natureza, e cada tentativa custava um ciclo `disable`/edit/`compile-session`
+# /`enable` completo: foi o maior volume isolado de fricção da sessão real.
+#
+# A normalização reduz TRÊS formas de invocar o MESMO binário à mesma forma
+# canônica, e é aplicada nos DOIS lados da comparação (segmento avaliado e
+# entrada da allowlist) — é equivalência de forma, nunca ampliação de escopo:
+#   `python -m <mod> …`          -> `<mod> …`
+#   `<venv>/{Scripts,bin}/<bin>` -> `<bin> …`   (`.exe` removido)
+#   `uv run <bin> …`             -> `<bin> …`
+#
+# Fora do escopo, deliberadamente:
+#   - `python -c` / `python <script.py>` NÃO normalizam: não são invocação de
+#     binário, e `-c` executa string arbitrária.
+#   - `uv run --with <pkg> <bin>` NÃO normaliza (o token seguinte a `run` é uma
+#     flag): `--with` instala pacote arbitrário num ambiente efêmero antes de
+#     rodar, então a forma flagged não é equivalente à nua. Fica deny.
+#   - basename genérico NÃO normaliza (`./scripts/deploy.sh` continua
+#     `./scripts/deploy.sh`): só prefixo de venv, senão qualquer script no disco
+#     casaria a allowlist de um homônimo.
+#   - `source <venv>/activate && <cmd>` continua deny: `source` executa o
+#     conteúdo de um arquivo no shell corrente, o que não é forma de invocação
+#     de nada. Com a normalização a ativação deixa de ser necessária — a forma
+#     `.venv/Scripts/<bin>` passa direto.
+#
+# Invariante inegociável: normalizar nunca pode abrir caminho de fuga do floor.
+# Por isso `is_floor_bash_command` abaixo avalia as duas formas — a bruta E a
+# normalizada. Sem isso, o Item 4 tornaria `.venv/Scripts/git.exe push` (que
+# hoje já atravessa o floor e morre no default-deny da allowlist) um comando
+# efetivamente liberado, transformando um furo latente em furo alcançável.
+# ---------------------------------------------------------------------------
+VENV_DIR_NAMES = (".venv", "venv")
+VENV_BIN_DIR_NAMES = ("scripts", "bin")
+PYTHON_MODULE_HEADS = ("python", "python3", "py")
+#: Teto de passes do ponto-fixo de `normalize_invocation_tokens`. Três já cobre
+#: o pior caso real (`.venv/Scripts/python.exe -m ruff` = venv + `-m`); o teto
+#: existe só como backstop contra loop se alguma regra futura for cíclica.
+_MAX_NORMALIZATION_PASSES = 4
+
+
+def _strip_exe_suffix(token: str) -> str:
+    """Remove o sufixo `.exe` (case-insensitive) de `token`. `pytest.exe` ->
+    `pytest`; `arquivo.exemplo` intocado (match do sufixo inteiro, não de
+    substring)."""
+    if token.lower().endswith(".exe"):
+        return token[:-4]
+    return token
+
+
+def venv_prefixed_binary(token: str) -> str | None:
+    """`.venv/Scripts/pytest.exe` -> `pytest`; `None` se `token` não é um
+    binário sob o diretório de scripts de um venv.
+
+    O diretório precisa terminar EXATAMENTE nos dois segmentos
+    `{.venv,venv}/{Scripts,bin}` (comparação por segmento, case-insensitive,
+    aceitando `/` e `\\`), então tanto a forma relativa (`.venv/bin/ruff`)
+    quanto a absoluta (`C:/proj/.venv/Scripts/ruff.exe`) casam, enquanto
+    `meuvenv/bin/x` e `scripts/x` NÃO — comparar por `endswith` de string
+    casaria os dois e transformaria qualquer diretório terminado em `venv`
+    numa porta para a allowlist alheia."""
+    normalized = (token or "").replace("\\", "/")
+    if "/" not in normalized:
+        return None
+    dirname, _, base = normalized.rpartition("/")
+    parts = [p for p in dirname.split("/") if p and p != "."]
+    if len(parts) < 2:
+        return None
+    if parts[-1].lower() not in VENV_BIN_DIR_NAMES:
+        return None
+    if parts[-2].lower() not in VENV_DIR_NAMES:
+        return None
+    base = _strip_exe_suffix(base)
+    if not base or base.startswith("-"):
+        return None
+    return base
+
+
+def normalize_invocation_tokens(tokens: list[str]) -> list[str]:
+    """Reduz a FORMA de invocação no CABEÇA de `tokens` à forma canônica.
+
+    Aplica as três regras do bloco acima até o ponto fixo (teto
+    `_MAX_NORMALIZATION_PASSES`), porque elas compõem:
+    `.venv/Scripts/python.exe -m ruff check .` passa por venv-prefixo e depois
+    por `-m`, chegando em `ruff check .`. Devolve uma lista NOVA; não muta a
+    entrada. Lista vazia ou sem regra aplicável volta inalterada."""
+    current = list(tokens or [])
+    for _ in range(_MAX_NORMALIZATION_PASSES):
+        if not current:
+            return current
+        head = current[0]
+        venv_bin = venv_prefixed_binary(head)
+        if venv_bin is not None:
+            current = [venv_bin] + current[1:]
+            continue
+        base = _strip_exe_suffix(head).lower()
+        if base in PYTHON_MODULE_HEADS and len(current) >= 3 and current[1] == "-m":
+            current = current[2:]
+            continue
+        if (
+            base == "uv"
+            and len(current) >= 3
+            and current[1] == "run"
+            and not current[2].startswith("-")
+        ):
+            current = current[2:]
+            continue
+        return current
+    return current
+
+
+def _has_sequence_normalized(tokens: list[str], seq: list[str]) -> bool:
+    """`_has_sequence`, mas normalizando a forma de invocação em CADA janela.
+
+    O floor casa "aparece em qualquer posição" (não só no prefixo), então a
+    normalização também precisa ser tentada a partir de cada posição: em
+    `echo ok && .venv/bin/git push`, a forma prefixada por caminho só aparece
+    no token 2."""
+    n = len(seq)
+    if n <= 0:
+        return False
+    for i in range(len(tokens)):
+        if normalize_invocation_tokens(tokens[i:])[:n] == seq:
+            return True
+    return False
+
+
 def is_floor_bash_command(command: str) -> bool:
     """True se `command` casa alguma sequência do runtime floor (git push,
-    curl, wget, npm publish, pip upload, twine upload, gh release)."""
+    curl, wget, npm publish, pip upload, twine upload, gh release).
+
+    Avalia a forma BRUTA e a NORMALIZADA (Item 4): sem a segunda,
+    `.venv/Scripts/git.exe push` e `.venv/Scripts/twine.exe upload` não seriam
+    reconhecidos, porque o token de cabeça deixa de ser `git`/`twine`. (As
+    formas `uv run twine upload` e `python -m twine upload` já caíam no floor
+    pela forma bruta — o match é por janela, não por prefixo.)"""
     tokens = _tokenize_command(command)
-    return any(_has_sequence(tokens, seq) for seq in FLOOR_BASH_SEQUENCES)
+    return any(
+        _has_sequence(tokens, seq) or _has_sequence_normalized(tokens, seq)
+        for seq in FLOOR_BASH_SEQUENCES
+    )
 
 
 def _current_git_branch(cwd: str) -> str | None:
@@ -853,6 +999,47 @@ def _is_readonly_shell_segment(segment: str) -> bool:
     return True
 
 
+# ---------------------------------------------------------------------------
+# Cmdlets read-only de pipeline (Python real, IMPORTÁVEL) — Item 7 do backlog
+# do dogfood `Savant.Backend.APP-15167`. `_evaluate_powershell` exigia que TODO
+# segmento prefixasse alguma sequência permitida, e pipeline é a forma
+# idiomática de PowerShell: `Select-Object`/`Where-Object` nunca vão prefixar
+# uma allowlist derivada de `verify_cmd`. Na prática o caminho PowerShell era
+# inutilizável sob contrato ativo — o que empurrava tudo para a Bash tool, que
+# é justamente a que não enxerga o venv Windows.
+#
+# `ForEach-Object` (e os aliases `%`/`foreach`) fica DE FORA: executa
+# scriptblock arbitrário, é execução, não formatação. `Invoke-Expression`/`iex`
+# idem, pelo mesmo motivo, e nem se cogita. Atribuição a `$env:*` também fica
+# de fora: muda o ambiente de execução dos comandos seguintes, e liberá-la
+# reabriria por outra porta o problema de PATH que o Item 4 resolve de forma
+# controlada (normalizando a FORMA de invocação, sem mexer no ambiente).
+# ---------------------------------------------------------------------------
+READONLY_PS_CMDLETS = frozenset({
+    "select-object", "select",
+    "where-object", "where", "?",
+    "measure-object", "measure",
+    "sort-object", "sort",
+    "format-table", "ft",
+    "format-list", "fl",
+    "out-string",
+})
+
+
+def _is_readonly_ps_cmdlet_segment(segment: str) -> bool:
+    """True se o segmento é um cmdlet de pipeline read-only da allowlist
+    (`READONLY_PS_CMDLETS`), sem redirecionamento de escrita. Mesma postura de
+    `_is_readonly_shell_segment`: allowlist de nome + denylist de escrita, não
+    prova universal de inocuidade."""
+    seg = segment or ""
+    tokens = _tokenize_command(seg)
+    if not tokens:
+        return False
+    if tokens[0].lower() not in READONLY_PS_CMDLETS:
+        return False
+    return not _segment_has_file_redirect(seg)
+
+
 def _is_safe_cd_segment(segment: str, repo_root: str) -> bool:
     """True se o segmento é `cd <alvo>` com alvo que resolve para DENTRO de
     `repo_root`. Conservador: sem âncora de raiz, alvo vazio, `cd -`, ou
@@ -1312,12 +1499,215 @@ def evaluate_feature_list_edit(
 # peças acima, este bloco PRECISA importar `yaml`/`harness.config` — só é
 # seguro porque roda em código REAL do pacote (aqui e em
 # `install_boundary_guard`), nunca embutido no script standalone gerado
-# (que continua stdlib-only). O valor lido vira uma constante Python
-# literal (`EXTRA_ALLOWED_COMMANDS`) baked no script por `render_boundary_guard`
-# — mesmo padrão de `FIXED_GIT_SEQUENCES`/`FIXED_HARNESS_SEQUENCES` — em vez
-# de o hook reler o YAML em runtime.
+# (que continua stdlib-only). Desde o Item 3 esta leitura NÃO alimenta mais o
+# hook (que lê o YAML em runtime, ver bloco logo abaixo) — ela sobrou para o
+# `session_permissions.py`, que compila o `settings.json`, e para o
+# cross-check de gramática de `compile-session`.
 # ---------------------------------------------------------------------------
 HARNESS_YAML_RELATIVE_PATH = ".harness/harness.yaml"
+
+# ---------------------------------------------------------------------------
+# Leitura em RUNTIME de governance.extra_allowed_commands (Item 3 do backlog do
+# dogfood `Savant.Backend.APP-15167`).
+#
+# A allowlist era BAKEADA no script gerado, então mudá-la exigia
+# `compile-session` — mesmo quando quem editava era o USUÁRIO no terminal
+# próprio, onde nenhum hook intercepta. Era 1 das 3 operações de cada ciclo de
+# fricção. O bake nunca teve razão de performance: o guard já lê dois JSONs do
+# disco a cada tool call (`feature_list.json`, `repo-profile.json`).
+#
+# O obstáculo real é que o script standalone é stdlib-only por design — não
+# pode `import yaml`. A saída escolhida (opção 2 do item; a opção 1, gravar a
+# lista normalizada no `compiled-state-session.json`, foi descartada por ainda
+# exigir `compile-session`, isto é, por não resolver o item) é um parser MÍNIMO
+# e PROPOSITALMENTE BURRO, restrito à sublista `governance.extra_allowed_commands`.
+#
+# O custo honesto disso é um SEGUNDO parser de YAML, que entende menos que o
+# primeiro. Duas contenções:
+#   1. Fail-safe inegociável: o que ele não entende vira lista VAZIA, nunca
+#      lixo aceito. Erro de leitura/parse só REDUZ superfície.
+#   2. `harness compile-session` compara o que o pyyaml lê com o que este
+#      parser lê (`extra_allowed_commands_grammar_problem`) e AVISA quando
+#      divergem — sem isso, uma entrada em sintaxe não suportada viraria um
+#      deny silencioso em runtime, com o `settings.json` afirmando o contrário.
+# ---------------------------------------------------------------------------
+#: Indicadores de YAML que este parser não trata (âncora, alias, tag, escalar
+#: de bloco, coleção de fluxo, chave explícita, reservados). Um item começando
+#: por qualquer um deles derruba a lista inteira para vazia — degradar é a
+#: única saída correta, porque interpretá-los pela metade seria aceitar lixo.
+_YAML_UNSUPPORTED_ITEM_PREFIXES = ("&", "*", "!", "|", ">", "[", "{", "?", "%", "@", "`")
+
+
+def _yaml_strip_inline_comment(raw: str) -> str:
+    """Remove comentário inline de um escalar YAML não citado.
+
+    Só corta em `#` PRECEDIDO de espaço (regra do YAML) e fora de aspas —
+    `curl -H 'X#Y'` e `pytest -k a#b` preservam o `#`."""
+    in_single = False
+    in_double = False
+    for i, ch in enumerate(raw):
+        if ch == "'" and not in_double:
+            in_single = not in_single
+        elif ch == '"' and not in_single:
+            in_double = not in_double
+        elif ch == "#" and not in_single and not in_double and i > 0 and raw[i - 1].isspace():
+            return raw[:i]
+    return raw
+
+
+def _yaml_scalar_item(raw: str) -> str | None:
+    """Normaliza UM item de lista YAML. Devolve `None` se a sintaxe está fora
+    do que este parser aceita — o chamador trata isso como "não entendi o
+    arquivo" e devolve lista vazia inteira, nunca um item silenciosamente
+    perdido no meio de uma lista aceita."""
+    value = raw.strip()
+    if not value:
+        return None
+    if value[0] in ("'", '"'):
+        # Aspas internas exigiriam tratar escape/duplicação — fora do escopo.
+        if len(value) < 2 or value[-1] != value[0] or value[0] in value[1:-1] or "\\" in value:
+            return None
+        return value[1:-1].strip() or None
+    if value.startswith(_YAML_UNSUPPORTED_ITEM_PREFIXES):
+        return None
+    value = _yaml_strip_inline_comment(value).strip()
+    if not value:
+        return None
+    if ": " in value or value.endswith(":"):
+        # `: ` num escalar nu é ambíguo em YAML (poderia ser mapeamento). Um
+        # `:` colado NÃO é (`pytest tests/a.py::test_b` é escalar válido).
+        return None
+    return value
+
+
+def _yaml_split_flow_items(body: str) -> list[str] | None:
+    """Divide o corpo de uma sequência de fluxo (`[a, "b c"]`) por vírgulas
+    fora de aspas. `None` se houver aninhamento (`[`/`{`) ou aspas
+    desbalanceadas."""
+    items: list[str] = []
+    current: list[str] = []
+    in_single = False
+    in_double = False
+    for ch in body:
+        if ch == "'" and not in_double:
+            in_single = not in_single
+            current.append(ch)
+        elif ch == '"' and not in_single:
+            in_double = not in_double
+            current.append(ch)
+        elif ch in ("[", "]", "{", "}") and not in_single and not in_double:
+            return None
+        elif ch == "," and not in_single and not in_double:
+            items.append("".join(current))
+            current = []
+        else:
+            current.append(ch)
+    if in_single or in_double:
+        return None
+    tail = "".join(current)
+    if tail.strip():
+        items.append(tail)
+    return items
+
+
+def _yaml_indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def parse_extra_allowed_commands_text(text: str) -> list[str]:
+    """Extrai `governance.extra_allowed_commands` de `text` com stdlib apenas.
+
+    Aceita as duas grafias que aparecem na prática — bloco (`- item`, com ou
+    sem aspas) e fluxo (`[a, "b c"]`) — e devolve `[]` para qualquer coisa
+    fora disso: tabulação, âncora/alias, escalar de bloco (`|`/`>`),
+    aninhamento, chave duplicada, aspas desbalanceadas. Não é um parser de
+    YAML e não pretende ser; é o mínimo que responde a UMA pergunta, com
+    degradação sempre para a lista vazia (nunca para uma lista maior).
+    """
+    if "\t" in (text or ""):
+        return []
+    lines = (text or "").splitlines()
+
+    governance_line = None
+    for index, line in enumerate(lines):
+        if _yaml_indent(line) != 0:
+            continue
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        if _yaml_strip_inline_comment(stripped).strip() == "governance:":
+            if governance_line is not None:
+                return []
+            governance_line = index
+    if governance_line is None:
+        return []
+
+    key_index = None
+    key_rest = ""
+    key_indent = 0
+    for index in range(governance_line + 1, len(lines)):
+        line = lines[index]
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = _yaml_indent(line)
+        if indent == 0:
+            break  # fim do bloco `governance:`
+        if not stripped.startswith("extra_allowed_commands:"):
+            continue
+        if key_index is not None:
+            return []  # chave duplicada — ambíguo, degrada
+        key_index = index
+        key_indent = indent
+        key_rest = stripped[len("extra_allowed_commands:"):]
+
+    if key_index is None:
+        return []
+
+    rest = _yaml_strip_inline_comment(key_rest).strip()
+    if rest:
+        if not (rest.startswith("[") and rest.endswith("]")):
+            return []
+        raw_items = _yaml_split_flow_items(rest[1:-1])
+        if raw_items is None:
+            return []
+        parsed = [_yaml_scalar_item(item) for item in raw_items]
+        return [] if any(item is None for item in parsed) else [item for item in parsed if item]
+
+    collected: list[str] = []
+    for index in range(key_index + 1, len(lines)):
+        line = lines[index]
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if _yaml_indent(line) <= key_indent:
+            break
+        if not stripped.startswith("- "):
+            return []
+        item = _yaml_scalar_item(stripped[2:])
+        if item is None:
+            return []
+        collected.append(item)
+    return collected
+
+
+def read_extra_allowed_commands_runtime(repo_root: Any) -> list[str]:
+    """Lê `governance.extra_allowed_commands` de `<repo_root>/.harness/harness.yaml`
+    com stdlib apenas — é ESTA a função embutida no hook standalone, chamada a
+    cada tool call. Qualquer falha (arquivo ausente, ilegível, sintaxe fora do
+    parser mínimo) devolve `[]`: o guard fecha, nunca abre."""
+    import os
+
+    try:
+        path = os.path.join(str(repo_root or "."), HARNESS_YAML_RELATIVE_PATH)
+        with open(path, "r", encoding="utf-8-sig") as handle:
+            text = handle.read()
+    except (OSError, ValueError):
+        return []
+    try:
+        return parse_extra_allowed_commands_text(text)
+    except Exception:
+        return []
 
 
 def load_extra_allowed_commands(target_dir: Path) -> list[str]:
@@ -1343,6 +1733,38 @@ def load_extra_allowed_commands(target_dir: Path) -> list[str]:
     except ValidationError:
         return []
     return list(config.governance.extra_allowed_commands)
+
+
+def extra_allowed_commands_grammar_problem(target_dir: Path) -> str | None:
+    """Divergência entre o que o pyyaml lê e o que o parser mínimo do hook lê.
+
+    Contrapartida obrigatória do Item 3: com a allowlist lida em runtime por um
+    parser deliberadamente burro, uma entrada escrita em sintaxe que ele não
+    entende viraria um **deny silencioso** — o `settings.json` compilado
+    (produzido pelo pyyaml, via `load_extra_allowed_commands`) afirmaria que o
+    comando é permitido, e o guard negaria. Pior ainda: o parser degrada a
+    lista INTEIRA para vazia, então uma entrada malformada derruba as boas
+    junto. `harness compile-session` chama isto e avisa em stderr.
+
+    Devolve `None` quando as duas leituras concordam."""
+    declared = load_extra_allowed_commands(target_dir)
+    understood = read_extra_allowed_commands_runtime(target_dir)
+    if declared == understood:
+        return None
+    ignored = [cmd for cmd in declared if cmd not in understood]
+    detail = (
+        "o hook NAO vai honrar: " + ", ".join(repr(c) for c in ignored)
+        if ignored
+        else f"o hook le uma lista diferente: {understood!r}"
+    )
+    return (
+        "governance.extra_allowed_commands esta em uma sintaxe que o parser "
+        "minimo do boundary_guard nao entende (ele e stdlib-only e aceita so "
+        "lista de bloco `- item` ou de fluxo `[a, b]`, sem ancora/alias, "
+        "escalar de bloco ou aninhamento) — " + detail + ". Reescreva as "
+        "entradas em uma dessas duas formas; do contrario o settings.json diz "
+        "que o comando e permitido e o guard nega em runtime"
+    )
 
 
 def load_protected_branches(target_dir: Path) -> list[str]:
@@ -1373,11 +1795,15 @@ def load_protected_branches(target_dir: Path) -> list[str]:
 # Render (puro) — devolve o CÓDIGO-FONTE do hook standalone
 # ---------------------------------------------------------------------------
 
-def render_boundary_guard(
-    extra_allowed_commands: list[str] | None = None,
-    protected_branches: list[str] | None = None,
-) -> str:
+def render_boundary_guard(protected_branches: list[str] | None = None) -> str:
     """Devolve o código-fonte (string) do hook `PreToolUse` standalone.
+
+    Não recebe mais `extra_allowed_commands` (Item 3): a allowlist de comandos
+    extras deixou de ser bakeada e passou a ser lida do `.harness/harness.yaml`
+    a cada tool call. `protected_branches` continua bakeado — mudá-lo é
+    decisão de governança rara, e o fail-safe dele é o oposto (um YAML ausente
+    ou malformado precisa PROTEGER, então ler em runtime com degradação para
+    lista vazia desligaria a regra "commit só via PR" pelo caminho errado).
 
     O script gerado lê o payload JSON do stdin e decide `allow`/`deny` para
     todo `tool_name` (matcher `"*"`), roteando explicitamente `Edit`/`Write`/
@@ -1409,6 +1835,14 @@ def render_boundary_guard(
         f"FLOOR_BASH_SEQUENCES = {FLOOR_BASH_SEQUENCES!r}",
         inspect.getsource(_tokenize_command),
         inspect.getsource(_has_sequence),
+        f"VENV_DIR_NAMES = {VENV_DIR_NAMES!r}",
+        f"VENV_BIN_DIR_NAMES = {VENV_BIN_DIR_NAMES!r}",
+        f"PYTHON_MODULE_HEADS = {PYTHON_MODULE_HEADS!r}",
+        f"_MAX_NORMALIZATION_PASSES = {_MAX_NORMALIZATION_PASSES!r}",
+        inspect.getsource(_strip_exe_suffix),
+        inspect.getsource(venv_prefixed_binary),
+        inspect.getsource(normalize_invocation_tokens),
+        inspect.getsource(_has_sequence_normalized),
         inspect.getsource(is_floor_bash_command),
         inspect.getsource(_current_git_branch),
         inspect.getsource(is_floor_secret_path),
@@ -1424,6 +1858,14 @@ def render_boundary_guard(
         f"_PS_WRITEALLTEXT_PATTERN = re.compile({_PS_WRITEALLTEXT_PATTERN.pattern!r})",
         inspect.getsource(is_floor_powershell_network),
         inspect.getsource(is_floor_powershell_secret_write),
+        f"HARNESS_YAML_RELATIVE_PATH = {HARNESS_YAML_RELATIVE_PATH!r}",
+        f"_YAML_UNSUPPORTED_ITEM_PREFIXES = {_YAML_UNSUPPORTED_ITEM_PREFIXES!r}",
+        inspect.getsource(_yaml_strip_inline_comment),
+        inspect.getsource(_yaml_scalar_item),
+        inspect.getsource(_yaml_split_flow_items),
+        inspect.getsource(_yaml_indent),
+        inspect.getsource(parse_extra_allowed_commands_text),
+        inspect.getsource(read_extra_allowed_commands_runtime),
         f"DOCS_SURFACE_DIR_PREFIX = {DOCS_SURFACE_DIR_PREFIX!r}",
         f"DOCS_SURFACE_EXCLUDED_BASENAMES = {set(DOCS_SURFACE_EXCLUDED_BASENAMES)!r}",
         f"DOCS_SURFACE_EXCLUDED_PATHS = {set(DOCS_SURFACE_EXCLUDED_PATHS)!r}",
@@ -1445,6 +1887,8 @@ def render_boundary_guard(
         inspect.getsource(_is_grep_exec_flag),
         inspect.getsource(_segment_has_file_redirect),
         inspect.getsource(_is_readonly_shell_segment),
+        f"READONLY_PS_CMDLETS = {set(READONLY_PS_CMDLETS)!r}",
+        inspect.getsource(_is_readonly_ps_cmdlet_segment),
         inspect.getsource(_is_safe_cd_segment),
         f"SESSION_STATE_FILE = {SESSION_STATE_FILE!r}",
         f"REPO_ROOT_STATE_KEY = {REPO_ROOT_STATE_KEY!r}",
@@ -1458,6 +1902,8 @@ def render_boundary_guard(
         inspect.getsource(_pending_task_id),
         inspect.getsource(_transitions_to_true),
         inspect.getsource(_read_last_commit_timestamp),
+        f"INSTALL_COMMAND_BY_PACKAGE_MANAGER = {INSTALL_COMMAND_BY_PACKAGE_MANAGER!r}",
+        inspect.getsource(install_command_for),
         f"UNSCOPED_EVIDENCE_DIR_NAME = {UNSCOPED_EVIDENCE_DIR_NAME!r}",
         inspect.getsource(_evidence_freshness_problem),
         inspect.getsource(_read_team_manifest),
@@ -1542,9 +1988,14 @@ FIXED_HARNESS_SEQUENCES = (
 )
 ''' + f"""
 # --- comandos extras declarados em governance.extra_allowed_commands
-# (.harness/harness.yaml) — bakeado no momento da instalacao, mesmo padrao
-# de FIXED_GIT_SEQUENCES/FIXED_HARNESS_SEQUENCES acima ---
-EXTRA_ALLOWED_COMMANDS = {list(extra_allowed_commands or [])!r}
+# (.harness/harness.yaml): NAO ha constante bakeada aqui. Item 3 do backlog do
+# dogfood Savant.Backend — a lista e lida do YAML a cada tool call por
+# read_extra_allowed_commands_runtime (faixa GERADA acima), ancorada no
+# repo_root, para que editar o arquivo baste e `compile-session` deixe de ser
+# obrigatorio a cada ajuste de allowlist. Ressalva honesta: o settings.json
+# (permissions nativas) continua compilado, entao um comando adicionado sem
+# recompilar passa no guard mas ainda pode cair no prompt de permissao do
+# Claude Code — atrito, nao bloqueio. ---
 
 # --- branches onde git commit direto e proibido (so via PR) — finding C do
 # dogfood 2026-07-22; governance.protected_branches do harness.yaml, bakeado
@@ -1582,11 +2033,14 @@ def _protected_branch_commit_problem(command, cwd):
 # escreve em .harness/** - floor do plano de controle). Dizer isso na hora do
 # deny evita o ciclo de tentativa-e-erro que a sessao real gastou.
 _COMMAND_ESCAPE_HINT = (
-    "Escapes, do mais barato ao mais caro: (1) se o comando ja e equivalente a "
-    "um declarado, use a forma EXATA do verify_cmd/lint do contrato; (2) se o "
-    "repo precisa deste comando de forma permanente, PECA AO USUARIO para "
-    "adiciona-lo em governance.extra_allowed_commands do .harness/harness.yaml "
-    "(terminal dele, fora do Claude Code) e rodar `harness compile-session`; "
+    "Escapes, do mais barato ao mais caro: (1) o guard ja reconhece as formas "
+    "EQUIVALENTES do comando declarado - `python -m <bin>`, "
+    "`.venv/Scripts/<bin>` (ou `.venv/bin/<bin>`) e `uv run <bin>` valem tanto "
+    "quanto o binario nu, entao NAO ha o que descobrir por tentativa e erro; "
+    "(2) se o repo precisa de um comando NOVO de forma permanente, PECA AO "
+    "USUARIO para adiciona-lo em governance.extra_allowed_commands do "
+    ".harness/harness.yaml (terminal dele, fora do Claude Code) - o guard le "
+    "esse arquivo a cada tool call, entao vale na hora, sem recompilar; "
     "(3) replaneje via /harness-creator:plan so se o ESCOPO da tarefa mudou."
 )
 
@@ -1601,18 +2055,9 @@ REVIEW_DIR = ".harness/review"
 # junto com _is_work_surface_path/_is_scratch_surface_path (normalizacao
 # anti-traversal) - fonte unica em harness.boundary_guard.
 
-# package_manager.value (analyzer.py) -> comando de instalação EXATO. Mesmo
-# mapeamento de harness.session_permissions/harness.templates: o valor bruto
-# do profile (ex.: "npm") NUNCA vira um comando permitido por si só - isso
-# liberaria qualquer subcomando ("npm run x", "npm exec"), nao so a instalacao.
-INSTALL_COMMAND_BY_PACKAGE_MANAGER = {
-    "npm": "npm ci",
-    "pnpm": "pnpm install --frozen-lockfile",
-    "yarn": "yarn install --frozen-lockfile",
-    "uv": "uv sync",
-    "poetry": "poetry install",
-    "pip": "pip install -e .",
-}
+# INSTALL_COMMAND_BY_PACKAGE_MANAGER e install_command_for vem da faixa GERADA
+# acima (fonte unica em harness.install_command) — a copia digitada a mao que
+# ficava aqui era uma das tres que carregavam o mesmo defeito do achado F2.
 
 
 def _glob_to_regex(glob):
@@ -1688,10 +2133,33 @@ def _split_shell_segments(command):
 
 def _segment_prefixes_any(seg_tokens, sequences):
     """True se os tokens do segmento PREFIXAM (tokens[:n] == seq, nao mais
-    'aparece em qualquer janela') alguma das sequencias permitidas."""
+    'aparece em qualquer janela') alguma das sequencias permitidas.
+
+    Item 4 do backlog do dogfood Savant.Backend: a comparacao roda tambem
+    sobre a FORMA NORMALIZADA de invocacao (normalize_invocation_tokens, faixa
+    GERADA acima) dos DOIS lados. Normalizar so o segmento nao resolveria o
+    caso simetrico - com `extra_allowed_commands: ["python -m ruff"]`, quem
+    precisa normalizar para `ruff` e a ENTRADA DA ALLOWLIST, para que
+    `ruff check .` passe. Como as duas pontas reduzem a mesma forma canonica,
+    isto e equivalencia de forma, nunca ampliacao de escopo:
+    `python -m pip install evil` normaliza para `pip install evil`, que
+    continua nao prefixando `pip install -e .`."""
+    candidates = [list(seg_tokens)]
+    normalized_seg = normalize_invocation_tokens(seg_tokens)
+    if normalized_seg != candidates[0]:
+        candidates.append(normalized_seg)
     for seq in sequences:
-        if seq and seg_tokens[:len(seq)] == seq:
-            return True
+        if not seq:
+            continue
+        variants = [seq]
+        normalized_seq = normalize_invocation_tokens(seq)
+        if normalized_seq and normalized_seq != seq:
+            variants.append(normalized_seq)
+        for variant in variants:
+            n = len(variant)
+            for candidate in candidates:
+                if candidate[:n] == variant:
+                    return True
     return False
 
 
@@ -1713,6 +2181,18 @@ def _profile_entry_value(profile, key):
     entry = profile.get(key)
     if isinstance(entry, dict):
         return entry.get("value")
+    return None
+
+
+def _profile_entry_evidence(profile, key):
+    """Campo `evidence` de uma entrada do profile — o arquivo que PROVOU o
+    achado. `install_command_for` usa o do `package_manager` para distinguir o
+    repo que e um pacote instalavel do que so declara requirements."""
+    if not isinstance(profile, dict):
+        return None
+    entry = profile.get(key)
+    if isinstance(entry, dict):
+        return entry.get("evidence")
     return None
 
 
@@ -1775,11 +2255,9 @@ def _collect_allowed_bash_commands(feature_list, profile):
         value = _profile_extra_value(profile, key)
         if value:
             commands.append(value)
-    package_manager_value = _profile_entry_value(profile, "package_manager")
-    install_cmd = (
-        INSTALL_COMMAND_BY_PACKAGE_MANAGER.get(package_manager_value)
-        if package_manager_value
-        else None
+    install_cmd = install_command_for(
+        _profile_entry_value(profile, "package_manager"),
+        _profile_entry_evidence(profile, "package_manager"),
     )
     if install_cmd:
         commands.append(install_cmd)
@@ -2103,7 +2581,7 @@ def _evaluate_bash(command, cwd):
     allowed_sequences = (
         FIXED_GIT_SEQUENCES + FIXED_HARNESS_SEQUENCES
         + [_tokenize_command(c) for c in allowed_commands]
-        + [_tokenize_command(c) for c in EXTRA_ALLOWED_COMMANDS]
+        + [_tokenize_command(c) for c in read_extra_allowed_commands_runtime(cwd)]
     )
 
     # Allow assimetrico ao floor: o floor casa 'aparece em qualquer janela'
@@ -2241,16 +2719,44 @@ def _evaluate_powershell(command, cwd):
     allowed_sequences = (
         FIXED_GIT_SEQUENCES + FIXED_HARNESS_SEQUENCES
         + [_tokenize_command(c) for c in allowed_commands]
-        + [_tokenize_command(c) for c in EXTRA_ALLOWED_COMMANDS]
+        + [_tokenize_command(c) for c in read_extra_allowed_commands_runtime(cwd)]
     )
 
+    # Item 7: mesma estrutura de escapes do _evaluate_bash - cada segmento
+    # passa se (1) prefixa alguma allowed_sequence, (2) e cmdlet read-only de
+    # pipeline, (3) e utilitario read-only, ou (4) e `cd` intra-repo. Sem
+    # isto, `pytest -q | Select-Object -First 5` era deny e o caminho
+    # PowerShell ficava inutilizavel sob contrato ativo.
     segments = _split_shell_segments(command)
-    if segments and all(
-        _segment_prefixes_any(_tokenize_command(seg), allowed_sequences) for seg in segments
-    ):
+    failing = None
+    for seg in segments:
+        if _segment_prefixes_any(_tokenize_command(seg), allowed_sequences):
+            continue
+        if _is_readonly_ps_cmdlet_segment(seg):
+            continue
+        if _is_readonly_shell_segment(seg):
+            continue
+        if _is_safe_cd_segment(seg, cwd):
+            continue
+        failing = seg
+        break
+    if segments and failing is None:
         return "allow", (
             "comando declarado na superficie compilada do contrato "
-            "(verify_cmd/lint/typecheck/build/install/git local) - PowerShell"
+            "(verify_cmd/lint/typecheck/build/install/git local), cmdlet "
+            "read-only de pipeline, utilitario read-only ou cd intra-repo - PowerShell"
+        )
+    if failing is not None:
+        return "deny", (
+            "segmento '" + failing[:80] + "' fora da superficie compilada do "
+            "contrato (PowerShell) e nao aceito como cmdlet read-only de "
+            "pipeline (Select-Object/Where-Object/Measure-Object/Sort-Object/"
+            "Format-Table/Format-List/Out-String; ForEach-Object NAO entra - "
+            "executa scriptblock arbitrario), utilitario read-only ou cd "
+            "intra-repo. Atribuicao a $env:* tambem nao entra: para invocar um "
+            "binario do venv, use a forma `.venv/Scripts/<bin>` direto, que o "
+            "guard reconhece como equivalente ao declarado. "
+            + _COMMAND_ESCAPE_HINT
         )
     return "deny", (
         "comando fora da superficie compilada do contrato (PowerShell). "
@@ -2489,10 +2995,9 @@ def install_boundary_guard(target_dir: Path) -> Path:
     hooks_dir = target_dir / HOOKS_DIR
     hooks_dir.mkdir(parents=True, exist_ok=True)
     script_path = hooks_dir / BOUNDARY_HOOK_FILENAME
-    extra_allowed_commands = load_extra_allowed_commands(target_dir)
     protected_branches = load_protected_branches(target_dir)
     script_path.write_text(
-        render_boundary_guard(extra_allowed_commands, protected_branches),
+        render_boundary_guard(protected_branches),
         encoding="utf-8",
     )
 

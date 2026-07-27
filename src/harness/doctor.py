@@ -65,7 +65,15 @@ _HOOK_SCRIPT_PATTERN = re.compile(r'"([^"]+\.py)"')
 # qualquer um deles é NOSSO e tem o interpretador verificado; hooks de
 # terceiros no mesmo arquivo são ignorados (não cabe ao `doctor` opinar sobre
 # eles).
-MANAGED_HOOK_FILENAMES = ("boundary_guard.py", "session_start.py", "stop_hook.py")
+# `guard_tests.py`/`guard_test_runner.py` entraram no achado F8 do dogfood do
+# MiojoSimulator: são gerados por `harness compile` (não por `compile-session`),
+# ficaram de fora do Item 1/1b, e o `doctor` também não os olhava — o laudo de um
+# alvo com os dois instalados e lançados por `python` nu devolvia `"hooks": []`,
+# um verde falso sobre o estado exatamente que o check existe para pegar.
+MANAGED_HOOK_FILENAMES = (
+    "boundary_guard.py", "session_start.py", "stop_hook.py",
+    "guard_tests.py", "guard_test_runner.py",
+)
 
 
 @dataclass
@@ -206,7 +214,8 @@ def _read_managed_hooks(target_dir: Path) -> list[dict]:
                 # não resolve (Item 1) e ausência do sufixo `|| exit 2`
                 # (Item 1b). Reportados juntos porque a consequência é a
                 # mesma — tool call passa sem gate — e a correção também
-                # (`harness compile-session`).
+                # (recompilar; qual dos dois comandos regrava depende de qual
+                # hook é, e a mensagem nomeia os dois).
                 problems = [
                     p for p in (interpreter_problem(command), fail_closed_problem(command))
                     if p is not None
