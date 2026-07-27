@@ -477,6 +477,80 @@ def normalize_invocation_tokens(tokens: list[str]) -> list[str]:
     return current
 
 
+def suggested_allowlist_entry(command: str) -> str | None:
+    """Entrada de `governance.extra_allowed_commands` que liberaria `command`.
+
+    Devolve a forma CANÔNICA (normalizada) e CURTA: binário + subcomando, ou só
+    o binário quando não há subcomando. `None` para comando vazio.
+
+    Duas escolhas de granularidade, ambas deliberadas:
+
+    - **Normalizada**, então `.venv/Scripts/alembic upgrade head` sugere
+      `alembic upgrade` — declarar a forma prefixada por caminho seria pior, e o
+      guard reconhece as três formas equivalentes de qualquer jeito (Item 4).
+    - **Dois tokens**, não a linha inteira. O casamento é por PREFIXO: declarar
+      `alembic upgrade` cobre `--sql`, `head`, `+1` e o resto dos argumentos,
+      que é o que o usuário quer ao liberar uma ferramenta. Declarar a linha
+      inteira obrigaria uma entrada nova a cada variação de argumento — a
+      fricção que o escape existe para remover. Declarar só `alembic` seria
+      largo demais: liberaria `alembic downgrade` junto.
+
+    Argumento que começa com `-` não entra (`ruff check .` → `ruff check`, mas
+    `ruff --fix` → `ruff`), porque flag não é subcomando e travar nela produz
+    uma entrada que não casa quase nada."""
+    tokens = normalize_invocation_tokens(_tokenize_command(command))
+    if not tokens:
+        return None
+    if len(tokens) >= 2 and not tokens[1].startswith("-"):
+        return " ".join(tokens[:2])
+    return tokens[0]
+
+
+def command_escape_hint(command: str) -> str:
+    """Razão de deny de comando, com o bloco YAML PRONTO PARA COLAR.
+
+    Postura C do Item 9 (decisão do dono do repo, 2026-07-27): não existe — e
+    não vai existir — uma CLI `harness allow-command`. O caminho é o usuário
+    editar `.harness/harness.yaml` no terminal dele. Essa decisão só se sustenta
+    se editar for **trivial**, e é isso que esta função entrega: em vez de
+    explicar onde fica a chave e torcer para a sintaxe sair certa, o deny já
+    devolve o bloco exato, com o comando preenchido, pronto para o agente
+    repassar e o usuário colar.
+
+    Isso resolve de quebra a armadilha que o Item 3 criou: o hook lê o YAML com
+    um parser mínimo que aceita só lista de bloco e de fluxo, e um usuário
+    escrevendo à mão pode acertar uma sintaxe válida que o parser não entende —
+    degradando a lista inteira para vazia. Um bloco ditado pelo produto sai
+    sempre na forma que o parser entende.
+
+    O objetivo declarado do harness é barrar o MÍNIMO: ele existe para o agente
+    rodar horas sem humano no meio, com segurança. Todo deny que o usuário não
+    consegue resolver em dez segundos é fricção que empurra para o kill-switch,
+    e o kill-switch é desproteção total."""
+    entry = suggested_allowlist_entry(command) or "<comando>"
+    # O bloco NAO repete `governance:`. Todo `.harness/harness.yaml` ja tem essa
+    # chave (o `init` a escreve e o `compile` recusa o arquivo sem ela), entao
+    # colar `governance:` de novo criaria chave DUPLICADA — e o parser minimo do
+    # hook degrada a lista inteira para vazia nesse caso. A instrucao mais
+    # obvia seria a que quebra.
+    return (
+        "Escapes, do mais barato ao mais caro. (1) O guard ja reconhece as "
+        "formas EQUIVALENTES do que esta declarado: `python -m <bin>`, "
+        "`.venv/Scripts/<bin>`, `.venv/bin/<bin>` e `uv run <bin>` valem tanto "
+        "quanto o binario nu — NAO ha grafia a descobrir por tentativa e erro. "
+        "(2) Se o repo precisa deste comando de forma PERMANENTE, peca ao "
+        "usuario para edita-lo no .harness/harness.yaml, no terminal DELE (fora "
+        "do Claude Code). Se `extra_allowed_commands` ainda nao existe, colar "
+        "estas duas linhas DENTRO do bloco `governance:` que ja esta la:\n\n"
+        "  extra_allowed_commands:\n    - " + entry + "\n\n"
+        "Se a chave ja existe, basta acrescentar a linha `    - " + entry + "` "
+        "na lista. Vale na tool call SEGUINTE — o guard le esse arquivo a cada "
+        "chamada, sem recompilar nada. E casa por PREFIXO: essa entrada libera "
+        "o comando com qualquer argumento depois dela. (3) Replaneje via "
+        "/harness-creator:plan so se o ESCOPO da tarefa mudou."
+    )
+
+
 def _has_sequence_normalized(tokens: list[str], seq: list[str]) -> bool:
     """`_has_sequence`, mas normalizando a forma de invocação em CADA janela.
 
@@ -1842,6 +1916,8 @@ def render_boundary_guard(protected_branches: list[str] | None = None) -> str:
         inspect.getsource(_strip_exe_suffix),
         inspect.getsource(venv_prefixed_binary),
         inspect.getsource(normalize_invocation_tokens),
+        inspect.getsource(suggested_allowlist_entry),
+        inspect.getsource(command_escape_hint),
         inspect.getsource(_has_sequence_normalized),
         inspect.getsource(is_floor_bash_command),
         inspect.getsource(_current_git_branch),
@@ -2032,17 +2108,10 @@ def _protected_branch_commit_problem(command, cwd):
 # ele so pode ser editado pelo usuario no terminal proprio (o agente nao
 # escreve em .harness/** - floor do plano de controle). Dizer isso na hora do
 # deny evita o ciclo de tentativa-e-erro que a sessao real gastou.
-_COMMAND_ESCAPE_HINT = (
-    "Escapes, do mais barato ao mais caro: (1) o guard ja reconhece as formas "
-    "EQUIVALENTES do comando declarado - `python -m <bin>`, "
-    "`.venv/Scripts/<bin>` (ou `.venv/bin/<bin>`) e `uv run <bin>` valem tanto "
-    "quanto o binario nu, entao NAO ha o que descobrir por tentativa e erro; "
-    "(2) se o repo precisa de um comando NOVO de forma permanente, PECA AO "
-    "USUARIO para adiciona-lo em governance.extra_allowed_commands do "
-    ".harness/harness.yaml (terminal dele, fora do Claude Code) - o guard le "
-    "esse arquivo a cada tool call, entao vale na hora, sem recompilar; "
-    "(3) replaneje via /harness-creator:plan so se o ESCOPO da tarefa mudou."
-)
+# `command_escape_hint(<comando negado>)` vem da faixa GERADA acima e monta a
+# razao de deny COM o bloco YAML pronto para colar. Postura C do Item 9: nao ha
+# CLI de allow-command; o caminho e o usuario editar o harness.yaml, e essa
+# decisao so se sustenta se editar for trivial.
 
 FEATURE_LIST_PATH = ".harness/feature_list.json"
 PROFILE_PATH = ".harness/repo-profile.json"
@@ -2614,12 +2683,12 @@ def _evaluate_bash(command, cwd):
             "contrato (verify_cmd/lint/typecheck/build/install/git local) e "
             "nao aceito como utilitario read-only (cat/head/tail/wc/grep/rg/"
             "ls/echo/find sem redirecionamento de escrita) nem cd intra-repo. "
-            + _COMMAND_ESCAPE_HINT
+            + command_escape_hint(failing)
         )
     return "deny", (
         "comando fora da superficie compilada do contrato "
         "(verify_cmd/lint/typecheck/build/install/git local). "
-        + _COMMAND_ESCAPE_HINT
+        + command_escape_hint(command)
     )
 
 
@@ -2756,11 +2825,11 @@ def _evaluate_powershell(command, cwd):
             "intra-repo. Atribuicao a $env:* tambem nao entra: para invocar um "
             "binario do venv, use a forma `.venv/Scripts/<bin>` direto, que o "
             "guard reconhece como equivalente ao declarado. "
-            + _COMMAND_ESCAPE_HINT
+            + command_escape_hint(failing)
         )
     return "deny", (
         "comando fora da superficie compilada do contrato (PowerShell). "
-        + _COMMAND_ESCAPE_HINT
+        + command_escape_hint(command)
     )
 
 

@@ -506,10 +506,17 @@ de `*` final, e `:*` deixa um `:` pendurado que a tokenização de
 
 ---
 
-## Item 9 — BLOQUEADO EM DECISÃO — `harness allow-command <cmd>`
+## Item 9 — ❌ ENCERRADO — `harness allow-command <cmd>`
 
-**Só implementar após a escolha A/B/C/D registrada acima.** Descrito aqui
-para a decisão ser tomada com o desenho na mão.
+> **DECIDIDO em 2026-07-27: postura C — não haverá CLI.** A postura A já estava
+> rejeitada (§2 do plano v2); B foi descartada pelo dono do repo. Liberar um
+> comando novo é editar `governance.extra_allowed_commands` do
+> `.harness/harness.yaml`, no terminal do usuário, e o produto passou a devolver
+> o bloco YAML **pronto para colar** na própria razão de deny. Ver a seção
+> "Onda 5" do plano v2 para a decisão, a condição anexada a ela e o que foi
+> entregue para sustentá-la. O desenho abaixo fica como registro histórico.
+
+**Descrito aqui para a decisão ter sido tomada com o desenho na mão.**
 
 **Achado:** não existe caminho suportado para ampliar a superfície de
 COMANDO. `harness task add-file` cobre a de ARQUIVO; a de comando exige

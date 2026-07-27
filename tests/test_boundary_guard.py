@@ -3430,6 +3430,102 @@ def test_normalized_floor_survives_declaration_in_yaml(tmp_path: Path) -> None:
 
 
 # ===========================================================================
+# Postura C do Item 9 — o escape de comando tem que ser trivial
+#
+# Decisão do dono do repo (2026-07-27): NÃO existe `harness allow-command`. O
+# caminho é o usuário editar `.harness/harness.yaml`. Essa decisão só se
+# sustenta se editar for trivial — o objetivo declarado do harness é barrar o
+# MÍNIMO, porque ele existe para o agente rodar horas sem humano no meio. Todo
+# deny que o usuário não resolve em dez segundos empurra para o kill-switch, e
+# o kill-switch é desproteção total.
+# ===========================================================================
+
+def test_suggested_allowlist_entry_is_canonical_and_two_tokens() -> None:
+    from harness.boundary_guard import suggested_allowlist_entry
+
+    # normalizada: a forma prefixada por caminho não vira a entrada declarada
+    assert suggested_allowlist_entry(".venv/Scripts/alembic.exe upgrade head") == (
+        "alembic upgrade"
+    )
+    assert suggested_allowlist_entry("python -m mypy src") == "mypy src"
+    # binário + subcomando, não a linha inteira: o match é por prefixo, e travar
+    # nos argumentos obrigaria uma entrada nova por variação
+    assert suggested_allowlist_entry("alembic upgrade head --sql") == "alembic upgrade"
+    # flag não é subcomando
+    assert suggested_allowlist_entry("ruff --fix .") == "ruff"
+    assert suggested_allowlist_entry("docker") == "docker"
+    assert suggested_allowlist_entry("") is None
+
+
+def test_deny_reason_carries_a_paste_ready_yaml_block(tmp_path: Path) -> None:
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "alembic upgrade head"}})
+    reason = out["permissionDecisionReason"]
+
+    assert out["permissionDecision"] == "deny", out
+    assert "extra_allowed_commands:\n    - alembic upgrade" in reason, reason
+    assert "sem recompilar" in reason, reason
+
+
+def test_deny_reason_does_not_tell_the_user_to_duplicate_the_governance_key(
+    tmp_path: Path,
+) -> None:
+    """A instrução mais óbvia seria a que quebra: todo `harness.yaml` já tem
+    `governance:`, e colar a chave de novo produz duplicata — que o parser
+    mínimo do hook trata degradando a lista INTEIRA para vazia. O bloco sugerido
+    começa em `extra_allowed_commands`, não em `governance`."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "alembic upgrade head"}})
+    reason = out["permissionDecisionReason"]
+
+    assert "\ngovernance:" not in reason, reason
+
+
+def test_the_suggested_entry_actually_unblocks_the_command(tmp_path: Path) -> None:
+    """O teste que fecha o ciclo: pega a entrada que a mensagem de deny sugeriu,
+    escreve no YAML exatamente como ela manda, e confirma que o comando passa.
+    Sem isto, a sugestão pode estar sintaticamente certa e semanticamente
+    inútil — que é o modo de falha que o Item 3 introduziu com o segundo parser."""
+    from harness.boundary_guard import suggested_allowlist_entry
+
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+    command = "alembic upgrade head --sql"
+
+    before = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                 "tool_input": {"command": command}})
+    assert before["permissionDecision"] == "deny", before
+
+    entry = suggested_allowlist_entry(command)
+    (tmp_path / ".harness" / "harness.yaml").write_text(
+        "governance:\n  approval_policy: auto\n"
+        f"  extra_allowed_commands:\n    - {entry}\n",
+        encoding="utf-8",
+    )
+
+    after = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                "tool_input": {"command": command}})
+    assert after["permissionDecision"] == "allow", after
+
+
+def test_powershell_deny_carries_the_same_block(tmp_path: Path) -> None:
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": "alembic upgrade head"}})
+
+    assert out["permissionDecision"] == "deny", out
+    assert "- alembic upgrade" in out["permissionDecisionReason"], out
+
+
+# ===========================================================================
 # Item 3 (dogfood venv-Windows) — extra_allowed_commands lido em RUNTIME
 # ===========================================================================
 
