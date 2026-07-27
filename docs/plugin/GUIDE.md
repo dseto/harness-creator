@@ -62,6 +62,13 @@ gerado:
 - `.harness/hooks/guard_tests.py` e `guard_test_runner.py`
 - bloco gerenciado em `AGENTS.md`
 
+O que de tudo isso entra no git segue uma regra única — *especificação,
+contrato e prova são versionados; saída de compilação que carrega dado de
+máquina é machine-local* —, cuja fonte canônica é a **Seção 3** de
+`docs/project/AUDIT-footprint-raiz-e-versionamento-2026-07-26.md`. O
+inventário artefato a artefato está em `docs/plugin/TUTORIAL.md`; `harness
+doctor` denuncia o clone que ainda não compilou.
+
 **Importante: feche e reabra a sessão do Claude Code nesse projeto.**
 o settings só é lido na inicialização — a sessão que rodou o `/init` não
 aplica as regras nela mesma.
@@ -156,6 +163,15 @@ Depois do contrato aprovado (seção anterior), rode:
 harness compile-session --dir <alvo>
 ```
 
+**Dois efeitos sobre o git que só este comando tem:** ele exige a working tree
+limpa (aborta com exit 1 e não escreve nada se houver tracked modificado ou
+staged) e **cria/troca para a branch `contract/<slug>`**. Um decorre do outro:
+criar a branch de contrato com sujeira misturaria trabalho de outro contexto.
+Desligue com `governance.branch_per_contract: false` no `.harness/harness.yaml`
+se o seu fluxo não quer branch por contrato. Depois de uma reinstalação do
+zero, commite antes — a reinstalação suja a árvore, e `LIFECYCLE.md` e
+`feature_list.json` só voltam por `compile-session`/`compile-contract`.
+
 Isso compila a **Fase 2** do roadmap (Execução Autônoma no Raio de Impacto):
 
 - **Permissions da sessão** (`session_permissions.py`) — `allow` enumerado
@@ -188,19 +204,26 @@ Isso compila a **Fase 2** do roadmap (Execução Autônoma no Raio de Impacto):
   (ler AGENTS.md → rodar `init.*` → ler progresso → escolher UMA feature →
   implementar → verificar → autocorrigir → registrar evidência → commit em
   estado retomável → deixar a working tree limpa).
-- **Templates de sessão** (`templates.py`) — `claude-progress.md` (esqueleto
-  runtime, gerado só se ainda não existir) e `init.sh`/`init.ps1`
+- **Templates de sessão** (`templates.py`) — `.harness/progress.md` (esqueleto
+  runtime, gerado só se ainda não existir) e `.harness/init.sh`/`.harness/init.ps1`
   (determinísticos a partir do `repo-profile.json`).
 - **Hook SessionStart** — injeta no início da sessão o resumo do progresso,
   a feature ativa e o `git log` recente, para a sessão nascer sabendo onde
   parou.
 
-**O runtime floor nunca vira `allow`**, com ou sem contrato ativo: leitura de
-segredos (`.env`, `.pem`, `id_rsa`, `*credentials*`), rede/publicação não
-planejada (`curl`, `wget`, `npm publish`, `pip upload`, `twine upload`, `gh
-release`) e `git push` continuam fora da superfície liberada — são
-verificados incondicionalmente, antes de qualquer outra checagem do
-`boundary_guard.py`.
+**O runtime floor nunca vira `allow`**, com ou sem contrato ativo: **escrita**
+em arquivo de segredo (`.env`, `.pem`, `id_rsa`, `*credentials*`) — incluindo
+redirecionamento de shell (`>`, `>>`, `tee`) —, rede/publicação não planejada
+(`curl`, `wget`, `npm publish`, `pip upload`, `twine upload`, `gh release`) e
+`git push` continuam fora da superfície liberada, verificados
+incondicionalmente antes de qualquer outra checagem do `boundary_guard.py`.
+
+**O floor de segredo é de escrita, não de leitura** — decisão explícita.
+`Read .env` e `cat .env` são liberados (ler `.env.example` ou conferir uma
+chave de config é rotina), mas o guard anexa um AVISO à razão da decisão,
+porque o conteúdo entra no contexto da sessão. Se o seu repositório não pode
+nem ser lido por um agente, isso é política de permissions
+(`approval_policy: paranoid`), não do floor.
 
 ## 7. Verificar a implementação (Fase 3 — loop de auto-verificação)
 
@@ -210,10 +233,14 @@ Depois de implementar uma feature do contrato ativo, rode:
 harness verify <feature-id> --dir <alvo>
 ```
 
-Isso roda o `verify_cmd` **real** daquela tarefa (o mesmo comando do
-contrato, validado contra o profile) — não é uma alegação do agente, é
-execução de fato. Só se passar é que grava
-`.harness/evidence/<feature-id>.json` (timestamp, comando, hash). É o passo
+Isso roda o `verify_cmd` **real** daquela tarefa — o mesmo comando que está no
+contrato aprovado, não uma alegação do agente. O comando é conferido contra o
+runtime floor antes de rodar (`verify: curl ...` ou `git push ...` sai com
+erro e **nunca** é executado, mesmo vindo de um contrato compilado), mas não é
+cruzado com o `repo-profile.json`: quem aprova o contrato é quem responde pelo
+comando declarado ali. Só se passar é que grava
+`.harness/evidence/<contrato>/<feature-id>.json` (contrato, timestamp, comando,
+hash). É o passo
 11 do lifecycle ("registra a prova").
 
 Marcar `passes: true` no `feature_list.json` **sem** evidência fresca (mais
@@ -228,7 +255,7 @@ carona numa edição em massa que aprova outra.
 Se `verify` falhar, o próprio agente corrige e roda de novo — sem envolver
 você — até passar ou até bater numa stop condition do `spec.md` (N falhas
 seguidas da mesma suíte, sinal de impossibilidade), caso em que ele para,
-registra o estado no `claude-progress.md` e devolve com diagnóstico.
+registra o estado no `.harness/progress.md` e devolve com diagnóstico.
 
 O hook **Stop** fecha o loop da sessão: se o agente tentar encerrar com uma
 feature `in_progress` cuja verificação nunca rodou ou está falhando, o
@@ -239,7 +266,7 @@ ritual de handoff. De novo, quem é avisado é o agente, não você.
 harness audit-runtime --dir <alvo>
 ```
 
-Audita os artefatos runtime-mutáveis (`claude-progress.md`,
+Audita os artefatos runtime-mutáveis (`.harness/progress.md`,
 `feature_list.json`, `evidence/`): schema, frescor e invariantes (1 feature
 `in_progress` por vez; todo `passes:true` com evidência válida). É uma
 máquina distinta do `/harness-creator:audit` (seção 9) — aquele faz diff

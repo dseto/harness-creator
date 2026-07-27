@@ -320,11 +320,20 @@ raio de impacto continua garantida pelos artefatos versionados (`harness.yaml`, 
 
 ## 5. Backlog priorizado
 
-**Status (2026-07-26, após a entrega do laudo): o P0 foi implementado.** A
-fronteira vive em `src/harness/settings_paths.py` (destino único +
-`.gitignore` tool-owned), cobertura em `tests/test_settings_paths.py` mais
-testes de integração em `test_compiler.py`, `test_boundary_guard.py` e
-`test_audit.py`. Itens 5–10 seguem abertos.
+**Status (2026-07-27): backlog inteiro entregue — P0, P1 e P2.** O P0 (itens
+1–4) foi implementado em 2026-07-26: a fronteira vive em
+`src/harness/settings_paths.py` (destino único + `.gitignore` tool-owned), com
+cobertura em `tests/test_settings_paths.py` e testes de integração em
+`test_compiler.py`, `test_boundary_guard.py` e `test_audit.py`. Os itens 5–10
+saíram em 2026-07-27, na sequência recomendada pelo handoff
+`HANDOFF-2026-07-26-p0-fronteira-machine-local.md`: 5+6 numa tarefa só, depois
+8, 10 e o resíduo de doc (7 e 9).
+
+**Delta do inventário:** a Seção 1 fotografa 31 artefatos no dia do laudo. O
+P0 acrescentou o 32º (`.claude/.gitignore`), e o item 6 mudou o caminho de
+três (`claude-progress.md` → `.harness/progress.md`, `init.sh`/`init.ps1` →
+`.harness/`). A tabela abaixo registra isso; o inventário vigente, com os 32
+caminhos atuais, está em `docs/plugin/TUTORIAL.md`.
 
 **Correção de premissa (mesma data, decisão do usuário):** o produto é
 **pré-produção** e a instalação é sempre feita do zero — não existe base
@@ -339,12 +348,12 @@ resolve apagando `.harness/` e `.claude/settings.json` e recompilando.
 | 2 ✅ | `.claude/.gitignore` com `settings.local.json` | `settings_paths.py` (chamado por `compiler.py` e `boundary_guard.py`) | **P0** | S | baixo | Arquivo machine-local nasce ignorado sem depender do gitignore global do usuário. |
 | 3 ✅ | `.harness/.gitignore` cobre `compiled-state*.json` e `hooks/` | `settings_paths.py::ensure_machine_local_gitignores` | **P0** | S | baixo | Fecha F2; estado de sessão de uma máquina para de entrar no histórico do alvo. |
 | 4 ~ | `harness audit` denuncia entrada gerenciada residual em `settings.json` — **descartado**; sobrou só a metade necessária: o audit passa a ler o `settings.local.json` (senão acusa `missing_settings` em projeto correto) | `audit.py` | **P0** | S | baixo | Premissa (base instalada em estado pré-migração) não existe. |
-| 5 | Guarda de colisão em `init.sh`/`init.ps1` | `templates.py:212-218` | **P1** | S | baixo | Projeto com `init.sh` próprio deixa de perder o arquivo na primeira compilação. |
-| 6 | `claude-progress.md` → `.harness/progress.md` e `init.*` → `.harness/` (com fallback) | `templates.py:37-39`, `session_start.py:106`, `boundary_guard.py:604-616`, `runtime_audit.py:37,81`, `verify.py:405-407`, `lifecycle.py:36-46` | **P1** | M | médio | Raiz do projeto-alvo passa a receber só `AGENTS.md`; instalação existente segue funcionando. |
-| 7 | Política canônica citada em `AGENTS.md`/`TUTORIAL.md`; contradição removida do comentário | `boundary_guard.py:2321-2325`, `docs/plugin/TUTORIAL.md` | **P1** | S | baixo | Fecha F4: uma fonte de verdade em vez de comentário e mensagem de commit divergentes. |
-| 8 | `.gitignore` do produto realinhado; `init.*`/`claude-progress.md` saem do índice | `.gitignore:4-5` | **P2** | S | baixo | O produto passa a demonstrar a própria política. |
-| 9 | Inventário completo + coluna "versionar?" no TUTORIAL; árvore do README atualizada | `docs/plugin/TUTORIAL.md:61-69`, `README.md:161-173` | **P2** | M | baixo | Documentação cobre 31 artefatos em vez de 7 e marca o que é machine-local. |
-| 10 | `harness doctor` cobre "clone sem compile" | `doctor.py` | **P2** | M | baixo | O trade-off de não versionar hooks vira check executável, não instrução perdida em doc. |
+| 5 ✅ | Guarda de colisão em `init.*` — resolvida por `MANAGED_MARKER` (2ª linha de todo script gerado); `init.*` sem o marcador é preservado e reportado por `manual_init_scripts`/CLI | `templates.py` | **P1** | S | baixo | Projeto com `init.sh` próprio deixa de perder o arquivo — e, com o item 6, a colisão na raiz nem chega a existir. |
+| 6 ✅ | `claude-progress.md` → `.harness/progress.md` e `init.*` → `.harness/` — **sem fallback retrocompatível** (produto pré-produção, ver correção de premissa acima) | `templates.py`, `session_start.py`, `boundary_guard.py`, `runtime_audit.py`, `verify.py`, `lifecycle.py`, `cli.py` | **P1** | M | médio | Raiz do projeto-alvo passa a receber só `AGENTS.md`. `_is_progress_file_path` continua match EXATO (não-recursivo), agora sobre `.harness/progress.md`, com teste dedicado. |
+| 7 ✅ | Política canônica citada em `AGENTS.md` (seção "O que entra no git"), `TUTORIAL.md` e `GUIDE.md`; comentário contraditório removido no P0 | `AGENTS.md`, `docs/plugin/TUTORIAL.md`, `docs/plugin/GUIDE.md` | **P1** | S | baixo | Fecha F4: os documentos apontam para a Seção 3 em vez de reescrevê-la. |
+| 8 ✅ | `.gitignore` do produto realinhado (deixou de ignorar `.harness/*` — e com ele o próprio `.harness/.gitignore`); `init.*` removidos com `git rm --cached`, `claude-progress.md` movido para `.harness/progress.md`; `work/**`, `evidence/**`, `feature_list.json`, `repo-profile.json`, `LIFECYCLE.md` passam a ser versionados | `.gitignore`, `.harness/`, `.claude/.gitignore` | **P2** | S | baixo | O produto passa a demonstrar a própria política; `git check-ignore` confirma `compiled-state*`, `hooks/`, `harness.disabled` e `settings.local.json` ignorados por regra do PRODUTO, não do gitignore global da máquina. |
+| 9 ✅ | Inventário dos 32 artefatos + coluna "versionar?" no TUTORIAL; árvore do README atualizada (6 skills, 685 testes, `.harness/` e `docs/`) | `docs/plugin/TUTORIAL.md`, `README.md` | **P2** | M | baixo | Documentação cobre 32 artefatos em vez de 8, marca o que é machine-local e diz que `compile` regenera só 5 coisas. |
+| 10 ✅ | `harness doctor` cobre "clone sem compile" (`harness.yaml` presente + `settings.local.json` ausente) e "repo movido de lugar" (comando de hook apontando para script inexistente) | `doctor.py`, `tests/test_doctor.py` | **P2** | M | baixo | O trade-off de não versionar hooks vira check executável, não instrução perdida em doc. |
 
 ---
 
