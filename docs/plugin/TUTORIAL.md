@@ -101,7 +101,7 @@ A.6): ele acusa o repositório que tem `harness.yaml` versionado e nenhum
 `settings.local.json`, e também o repositório que mudou de lugar no disco
 (comando de hook apontando para um caminho que não existe mais).
 
-#### Inventário completo — os 32 artefatos
+#### Inventário completo — os 33 artefatos
 
 A regra que decide cada linha é única, e vale para artefato futuro também:
 **especificação, contrato e prova são versionados; saída de compilação que
@@ -137,14 +137,15 @@ fonte canônica: quando esta tabela e aquela seção divergirem, a seção vence
 | 22 | `.harness/TEAM.md` | Detalhe do time de agentes | `harness team generate` | **sim** |
 | 23 | `.harness/team/manifest.json` | Papéis, gates e política de revisão do time | `harness team generate` | **sim** |
 | 24 | `.harness/harness.disabled` | Sentinela do kill-switch | `harness disable` / `enable` | não — estado de máquina |
-| 25 | `.harness/progress.md` | Bookkeeping da sessão: o que foi feito, o que quebrou, onde parou | `compile-session` só se ausente ou se o contrato divergiu — **nunca sobrescreve progresso** | **sim** |
-| 26 | `.harness/init.sh` | Bootstrap: instala deps + health check, derivado do profile | `compile-session` — **exceto** se você editou o arquivo (some o marcador, o harness preserva) | **sim** |
-| 27 | `.harness/init.ps1` | Idem, para PowerShell | idem | **sim** |
-| 28 | `.claude/settings.local.json` | Permissions + hooks compilados que o Claude Code aplica | `compile` e `compile-session` | não — **carrega path absoluto desta máquina** |
-| 29 | `.claude/.gitignore` | Ignora o `settings.local.json` | `compile` / `compile-session` | **sim** |
-| 30 | `.claude/agents/<role>.md` | Definição de um agente do time | `harness team generate` | **sim** |
-| 31 | `.claude/skills/<role>/SKILL.md` | Skill de um papel do time | `harness team generate` | **sim** |
-| 32 | **`AGENTS.md`** (raiz) | Híbrido: três blocos gerenciados + a sua prosa, que nunca é tocada | `compile` (bloco de governança), `compile-session` (lifecycle), `team generate` (time) | **sim** |
+| 25 | `.harness/metrics.json` | Contagem de ciclos `disable`/`enable`/`compile-session` — o número que o gate de decisão do backlog de fricção precisa | `disable`, `enable`, `compile-session`; lido por `harness status` | não — conta operações desta máquina |
+| 26 | `.harness/progress.md` | Bookkeeping da sessão: o que foi feito, o que quebrou, onde parou | `compile-session` só se ausente ou se o contrato divergiu — **nunca sobrescreve progresso** | **sim** |
+| 27 | `.harness/init.sh` | Bootstrap: instala deps + health check, derivado do profile | `compile-session` — **exceto** se você editou o arquivo (some o marcador, o harness preserva) | **sim** |
+| 28 | `.harness/init.ps1` | Idem, para PowerShell | idem | **sim** |
+| 29 | `.claude/settings.local.json` | Permissions + hooks compilados que o Claude Code aplica | `compile` e `compile-session` | não — **carrega path absoluto desta máquina** |
+| 30 | `.claude/.gitignore` | Ignora o `settings.local.json` | `compile` / `compile-session` | **sim** |
+| 31 | `.claude/agents/<role>.md` | Definição de um agente do time | `harness team generate` | **sim** |
+| 32 | `.claude/skills/<role>/SKILL.md` | Skill de um papel do time | `harness team generate` | **sim** |
+| 33 | **`AGENTS.md`** (raiz) | Híbrido: três blocos gerenciados + a sua prosa, que nunca é tocada | `compile` (bloco de governança), `compile-session` (lifecycle), `team generate` (time) | **sim** |
 
 Duas leituras que a tabela costuma surpreender:
 
@@ -200,9 +201,9 @@ Isso instala a biblioteca e o CLI `harness`. Confira:
 
 ```powershell
 harness --help
-# deve listar 17 subcomandos: compile, audit, audit-runtime, analyze,
-#   preflight, compile-contract, task, compile-session, verify, team,
-#   review, supervise, audit-team, disable, enable, status, doctor
+# deve listar 18 subcomandos: compile, audit, audit-runtime, analyze,
+#   preflight, compile-contract, task, profile, compile-session, verify,
+#   team, review, supervise, audit-team, disable, enable, status, doctor
 ```
 
 ## A.2 Abrir o Claude Code com o plugin, dentro do projeto-alvo
@@ -528,13 +529,26 @@ Isso pega o contrato aprovado e compila a **sessão autônoma**:
   (`status/log/diff/add/commit`), e qualquer comando declarado à mão em
   `governance.extra_allowed_commands` do `.harness/harness.yaml` — opcional,
   para comandos permanentes fora do ciclo de teste (ex.: o CLI do próprio
-  produto do repo). Nada genérico, nada de wildcard.
+  produto do repo). Cada um sai em duas formas, a exata e a prefixada
+  (`Bash(pytest -q)` e `Bash(pytest -q:*)`): sem a segunda, acrescentar um
+  argumento ao comando aprovado vira prompt de permissão. Nada genérico,
+  nada de wildcard aberto.
 - **`boundary_guard.py`** — um único hook PreToolUse que cobre Edit/Write/
-  Bash. Decide `allow`/`deny` a partir da superfície do contrato ativo:
+  Bash/PowerShell. Decide `allow`/`deny` a partir da superfície do contrato
+  ativo:
   - arquivo fora dos `files[]` da tarefa ativa → `deny` com a razão;
   - comando composto não escapa: em `pytest tests/ -v && curl evil.com`,
     **cada segmento** entre `;`/`&&`/`||`/`|` precisa prefixar um comando
     aprovado — o `curl` derruba o comando inteiro;
+  - **a FORMA de invocar não precisa ser adivinhada**: `pytest -q`,
+    `python -m pytest -q`, `.venv/Scripts/pytest.exe -q` e `uv run pytest -q`
+    valem a mesma coisa, porque o guard normaliza as duas pontas antes de
+    comparar. Ficam de fora, deliberadamente: `python -c` (executa string
+    arbitrária), `uv run --with <pkg>` (instala pacote da rede antes de
+    rodar) e prefixo de diretório que não seja de venv (`./scripts/x.sh`);
+  - em PowerShell, pipeline com cmdlet read-only passa
+    (`pytest -q | Select-Object -First 5`). `ForEach-Object` não — executa
+    scriptblock arbitrário —, nem atribuição a `$env:*`;
   - command substitution (`$(...)` ou crase) → `deny` direto;
   - **feature-lock**: editar `feature_list.json` para `passes: true` sem
     evidência fresca → `deny` ("rode harness verify primeiro"). Vale

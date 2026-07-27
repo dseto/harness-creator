@@ -173,12 +173,22 @@ EXPECTED_ALLOW = [
     "Write(tests/test_app.py)",
     "Edit(src/util.py)",
     "Write(src/util.py)",
+    # Cada comando derivado do contrato/profile sai em DUAS formas: a exata e a
+    # prefixada (`:*`). Item 8 do backlog do dogfood Savant.Backend — sem a
+    # segunda, `pytest tests -q -k foo` (allow no boundary_guard) caía no
+    # prompt de permissão; com só a segunda, o comando NU não casaria.
     "Bash(pytest tests/test_app.py -q)",
+    "Bash(pytest tests/test_app.py -q:*)",
     "Bash(pytest tests -q)",
+    "Bash(pytest tests -q:*)",
     "Bash(ruff check .)",
+    "Bash(ruff check .:*)",
     "Bash(mypy src)",
+    "Bash(mypy src:*)",
     "Bash(npm run build)",
+    "Bash(npm run build:*)",
     "Bash(npm ci)",
+    "Bash(npm ci:*)",
     "Bash(git status)",
     "Bash(git log*)",
     "Bash(git diff*)",
@@ -348,6 +358,99 @@ def _load_settings(root: Path) -> dict:
 
 def _boundary_script(root: Path) -> Path:
     return root / ".harness" / "hooks" / "boundary_guard.py"
+
+
+# ---------------------------------------------------------------------------
+# Ondas 2-3 do plano v2 do dogfood Savant.Backend — o ciclo de fricção medido
+# de ponta a ponta, pela CLI real
+# ---------------------------------------------------------------------------
+
+def test_compile_session_warns_on_unsupported_allowlist_grammar(tmp_path: Path) -> None:
+    """Contrapartida obrigatória do Item 3 (adaptação exigida em U3 do parecer):
+    o hook lê a allowlist com um parser mínimo stdlib-only. Uma entrada em
+    sintaxe que ele não entende viraria deny SILENCIOSO — com o
+    `settings.local.json`, compilado pelo pyyaml, afirmando o contrário."""
+    project = _setup_project(tmp_path / "demo")
+    (project / ".harness" / "harness.yaml").write_text(
+        "governance:\n  extra_allowed_commands:\n    - &ancora alembic upgrade\n",
+        encoding="utf-8",
+    )
+
+    proc = _run_cli(["compile-session", "--dir", str(project)], cwd=project)
+    assert proc.returncode == 0, proc.stderr
+    assert "extra_allowed_commands" in proc.stderr
+    assert json.loads(proc.stdout)["extra_allowed_commands_grammar_problem"]
+
+    # e o hook realmente nega — o aviso não é decorativo
+    out = _run_hook(_boundary_script(project), {
+        "tool_name": "Bash", "cwd": str(project),
+        "tool_input": {"command": "alembic upgrade head"},
+    })
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_the_friction_cycle_is_gone_end_to_end(tmp_path: Path) -> None:
+    """O ciclo que a sessão real repetiu ~13 vezes, agora sem nenhum
+    `disable`/`enable`: o usuário edita o YAML e o comando vale na tool call
+    seguinte; a forma prefixada por venv já valia sem edição nenhuma."""
+    project = _setup_project(tmp_path / "demo")
+    proc = _run_cli(["compile-session", "--dir", str(project)], cwd=project)
+    assert proc.returncode == 0, proc.stderr
+    script = _boundary_script(project)
+
+    def decide(command: str) -> str:
+        return _run_hook(script, {
+            "tool_name": "Bash", "cwd": str(project),
+            "tool_input": {"command": command},
+        })["permissionDecision"]
+
+    # Item 4: a forma que funciona num venv Windows não precisa ser declarada
+    assert decide("pytest tests -q") == "allow"
+    assert decide(".venv/Scripts/pytest.exe tests -q") == "allow"
+    assert decide("python -m pytest tests -q") == "allow"
+
+    # Item 3: comando novo entra editando só o YAML — sem compile-session
+    assert decide("alembic upgrade head") == "deny"
+    (project / ".harness" / "harness.yaml").write_text(
+        "governance:\n  extra_allowed_commands:\n    - alembic upgrade\n",
+        encoding="utf-8",
+    )
+    assert decide("alembic upgrade head") == "allow"
+
+    # o floor não se mexe em nenhuma das duas formas
+    assert decide("git push origin main") == "deny"
+    assert decide(".venv/Scripts/git.exe push origin main") == "deny"
+
+
+def test_profile_set_fixes_the_environment_without_disabling_the_harness(
+    tmp_path: Path,
+) -> None:
+    """Item 6, o caso real: o proxy corporativo derrubou o TLS do `uv` e foi
+    preciso trocar para `pip`, embora o lockfile continuasse apontando `uv`.
+    Antes, a única saída era `disable` -> editar -> `compile-session` ->
+    `enable`."""
+    project = _setup_project(tmp_path / "demo")
+
+    proc = _run_cli(
+        ["profile", "set", "package_manager", "pip", "--dir", str(project)], cwd=project
+    )
+    assert proc.returncode == 0, proc.stderr
+
+    proc = _run_cli(["compile-session", "--dir", str(project)], cwd=project)
+    assert proc.returncode == 0, proc.stderr
+
+    allow = _load_settings(project)["permissions"]["allow"]
+    assert "Bash(pip install -e .)" in allow
+    assert "Bash(npm ci)" not in allow
+
+    # e a contagem de fricção registrou os `compile-session`, sem nenhum
+    # `disable` — que é exatamente o número que o gate da onda 5 procura
+    proc = _run_cli(["status", "--dir", str(project)], cwd=project)
+    assert proc.returncode == 0, proc.stderr
+    friction = json.loads(proc.stdout)["friction"]
+    assert friction["counters"]["disable"] == 0
+    assert friction["disable_enable_cycles"] == 0
+    assert friction["counters"]["compile-session"] >= 1
 
 
 # ---------------------------------------------------------------------------

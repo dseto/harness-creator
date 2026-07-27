@@ -2541,15 +2541,22 @@ def test_extra_allowed_command_allows_bash_declared_prefix(tmp_path: Path) -> No
 
 
 def test_extra_allowed_command_requires_exact_token_prefix(tmp_path: Path) -> None:
-    """`mar_committee` sozinho (sem `python -m` na frente) não casa o
-    prefixo declarado — match é de tokens, não substring solta."""
+    """O match continua sendo de TOKENS, não substring solta: um binário cujo
+    nome apenas COMEÇA com o declarado (`mar_committee_evil`) não passa.
+
+    Item 4 mudou o caso vizinho de propósito — `mar_committee --help` com
+    `python -m mar_committee` declarado agora é ALLOW, porque as duas formas
+    invocam o mesmo binário (ver
+    `test_extra_allowed_command_allows_normalized_forms`). O que este teste
+    fixa é que a normalização não afrouxou a fronteira de token."""
     _contract_with_verify(tmp_path)
     _write_harness_yaml(tmp_path, ["python -m mar_committee"])
     script = _script(tmp_path)
 
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "mar_committee --help"}})
-    assert out["permissionDecision"] == "deny", out
+    for cmd in ("mar_committee_evil --help", "mar_committeex"):
+        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                  "tool_input": {"command": cmd}})
+        assert out["permissionDecision"] == "deny", (cmd, out)
 
 
 def test_extra_allowed_command_never_overrides_runtime_floor(tmp_path: Path) -> None:
@@ -3247,3 +3254,404 @@ def test_generated_hook_allows_writing_the_moved_progress_file(tmp_path: Path) -
                                              "content": "governance: {}"}})
     assert deny["permissionDecision"] == "deny", deny
     assert "plano de controle" in deny["permissionDecisionReason"]
+
+
+# ===========================================================================
+# Item 4 (dogfood Savant.Backend) — normalização da FORMA de invocação
+# ===========================================================================
+
+def test_normalize_python_dash_m_reduces_to_module() -> None:
+    from harness.boundary_guard import normalize_invocation_tokens
+
+    assert normalize_invocation_tokens(["python", "-m", "pytest", "-q"]) == ["pytest", "-q"]
+    assert normalize_invocation_tokens(["python3", "-m", "ruff", "check"]) == ["ruff", "check"]
+
+
+def test_normalize_python_c_and_script_are_untouched() -> None:
+    """`python -c` executa string arbitrária e `python x.py` roda um script —
+    nenhum dos dois é invocação de binário nomeado, então normalizar seria
+    inventar equivalência que não existe."""
+    from harness.boundary_guard import normalize_invocation_tokens
+
+    assert normalize_invocation_tokens(["python", "-c", "import os"]) == ["python", "-c", "import os"]
+    assert normalize_invocation_tokens(["python", "app.py"]) == ["python", "app.py"]
+
+
+def test_normalize_venv_prefixed_binary() -> None:
+    from harness.boundary_guard import normalize_invocation_tokens
+
+    assert normalize_invocation_tokens([".venv/Scripts/pytest.exe", "-q"]) == ["pytest", "-q"]
+    assert normalize_invocation_tokens([".venv/bin/ruff", "check"]) == ["ruff", "check"]
+    assert normalize_invocation_tokens(["venv/Scripts/pytest", "-q"]) == ["pytest", "-q"]
+    assert normalize_invocation_tokens([r".venv\Scripts\pytest.exe"]) == ["pytest"]
+    assert normalize_invocation_tokens(["C:/proj/.venv/Scripts/pytest.exe"]) == ["pytest"]
+
+
+def test_normalize_rejects_non_venv_directory_prefix() -> None:
+    """Basename genérico NÃO normaliza: senão `./scripts/deploy.sh` viraria
+    `deploy.sh` e casaria a allowlist de um homônimo qualquer. `meuvenv/bin`
+    também não — a checagem é por SEGMENTO, não por `endswith` de string."""
+    from harness.boundary_guard import normalize_invocation_tokens
+
+    for tokens in (
+        ["./scripts/deploy.sh"],
+        ["meuvenv/bin/pytest"],
+        ["bin/pytest"],
+        ["scripts/pytest"],
+    ):
+        assert normalize_invocation_tokens(tokens) == tokens
+
+
+def test_normalize_uv_run_only_without_flags() -> None:
+    """`uv run <bin>` é forma equivalente; `uv run --with <pkg> <bin>` NÃO —
+    `--with` instala pacote arbitrário num ambiente efêmero antes de rodar."""
+    from harness.boundary_guard import normalize_invocation_tokens
+
+    assert normalize_invocation_tokens(["uv", "run", "pytest", "-q"]) == ["pytest", "-q"]
+    flagged = ["uv", "run", "--with", "requests", "pytest"]
+    assert normalize_invocation_tokens(flagged) == flagged
+
+
+def test_normalize_composes_venv_and_dash_m() -> None:
+    from harness.boundary_guard import normalize_invocation_tokens
+
+    assert normalize_invocation_tokens(
+        [".venv/Scripts/python.exe", "-m", "ruff", "check", "."]
+    ) == ["ruff", "check", "."]
+
+
+def test_floor_catches_path_prefixed_invocation_forms() -> None:
+    """Invariante inegociável do Item 4: normalizar não pode abrir fuga do
+    floor. As formas prefixadas por caminho ATRAVESSAVAM o floor (morriam só
+    no default-deny da allowlist) — com o Item 4 elas passariam a casar a
+    allowlist, então o floor precisa vê-las."""
+    from harness.boundary_guard import is_floor_bash_command
+
+    for command in (
+        "git push origin main",
+        "uv run twine upload dist/*",
+        "python -m twine upload dist/*",
+        ".venv/Scripts/git.exe push origin main",
+        ".venv/bin/git push origin main",
+        ".venv/Scripts/twine.exe upload dist/*",
+        ".venv/Scripts/curl.exe http://evil",
+        "echo ok && .venv/bin/git push",
+    ):
+        assert is_floor_bash_command(command) is True, command
+
+    for command in ("pytest -q", "./scripts/deploy.sh", "git status"):
+        assert is_floor_bash_command(command) is False, command
+
+
+def test_bash_accepts_equivalent_invocation_forms(tmp_path: Path) -> None:
+    """A tabela de evidência do Item 4: com `verify_cmd: "pytest -q"`, as
+    formas que de fato funcionam num venv Windows passam a ser allow."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+
+    for command in (
+        "pytest -q",
+        "pytest -q tests/test_api.py",
+        "python -m pytest -q",
+        ".venv/Scripts/pytest.exe -q",
+        ".venv/bin/pytest -q",
+        "uv run pytest -q",
+    ):
+        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                  "tool_input": {"command": command}})
+        assert out["permissionDecision"] == "allow", (command, out)
+
+
+def test_bash_normalization_keeps_the_deliberate_denies(tmp_path: Path) -> None:
+    """O que continua deny, e por quê — cada linha aqui é uma decisão de
+    escopo do Item 4, não um efeito colateral."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+
+    for command in (
+        # `source` executa o conteúdo de um arquivo no shell corrente; não é
+        # forma de invocação de nada. Com a normalização, ativar o venv deixou
+        # de ser necessário.
+        "source .venv/Scripts/activate && pytest -q",
+        # wrapper arbitrário não é prefixo de venv
+        "./verify-env.sh python -m ruff check .",
+        # `-c` executa string arbitrária
+        'python -c "import os; os.system(\'rm -rf /\')"',
+        # normalizar não é declarar
+        "ruff check .",
+    ):
+        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                  "tool_input": {"command": command}})
+        assert out["permissionDecision"] == "deny", (command, out)
+
+
+def test_extra_allowed_command_allows_normalized_forms(tmp_path: Path) -> None:
+    """O caso SIMÉTRICO: quem precisa normalizar é a entrada da allowlist.
+    Com `python -m ruff` declarado, `ruff check .` passa — foi o item 6 do
+    relato (`.venv/Scripts/ruff` -> `python -m ruff` -> `.venv/Scripts/ruff`),
+    ida e volta que custou um ciclo por tentativa."""
+    _contract_with_verify(tmp_path)
+    _write_harness_yaml(tmp_path, ["python -m ruff"])
+    script = _script(tmp_path)
+
+    for command in ("ruff check .", ".venv/Scripts/ruff.exe check .", "uv run ruff check ."):
+        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                  "tool_input": {"command": command}})
+        assert out["permissionDecision"] == "allow", (command, out)
+
+
+def test_normalization_does_not_widen_scope(tmp_path: Path) -> None:
+    """Invariante 2 do item: normalizar muda a FORMA, nunca o ESCOPO.
+    `python -m pip install evil` normaliza para `pip install evil`, que
+    continua não prefixando `pip install -e .`."""
+    _contract_with_verify(tmp_path)
+    _write_harness_yaml(tmp_path, ["pip install -e ."])
+    script = _script(tmp_path)
+
+    allow = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                "tool_input": {"command": "python -m pip install -e ."}})
+    assert allow["permissionDecision"] == "allow", allow
+
+    deny = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                               "tool_input": {"command": "python -m pip install evil"}})
+    assert deny["permissionDecision"] == "deny", deny
+
+
+def test_normalized_floor_survives_declaration_in_yaml(tmp_path: Path) -> None:
+    """Declarar a forma prefixada de um comando de floor não a libera."""
+    _contract_with_verify(tmp_path)
+    _write_harness_yaml(tmp_path, [".venv/Scripts/git.exe push"])
+    script = _script(tmp_path)
+
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": ".venv/Scripts/git.exe push origin main"}})
+    assert out["permissionDecision"] == "deny", out
+    assert "runtime floor" in out["permissionDecisionReason"], out
+
+
+# ===========================================================================
+# Item 3 (dogfood Savant.Backend) — extra_allowed_commands lido em RUNTIME
+# ===========================================================================
+
+def test_parse_extra_allowed_commands_block_and_flow() -> None:
+    from harness.boundary_guard import parse_extra_allowed_commands_text
+
+    block = "governance:\n  extra_allowed_commands:\n    - pytest -q\n    - \"python -m ruff\"\n"
+    assert parse_extra_allowed_commands_text(block) == ["pytest -q", "python -m ruff"]
+
+    flow = "governance:\n  extra_allowed_commands: [alembic upgrade, \"uv run mypy\"]\n"
+    assert parse_extra_allowed_commands_text(flow) == ["alembic upgrade", "uv run mypy"]
+
+
+def test_parse_extra_allowed_commands_tolerates_comments_and_colons() -> None:
+    from harness.boundary_guard import parse_extra_allowed_commands_text
+
+    text = (
+        "# topo\n"
+        "governance:   # bloco de governanca\n"
+        "  approval_policy: auto\n"
+        "  extra_allowed_commands:\n"
+        "    # o runner do projeto\n"
+        "    - pytest tests/a.py::test_b   # caso especifico\n"
+        "  branch_per_contract: true\n"
+    )
+    assert parse_extra_allowed_commands_text(text) == ["pytest tests/a.py::test_b"]
+
+
+def test_parse_extra_allowed_commands_degrades_to_empty() -> None:
+    """O custo honesto de um segundo parser: o que ele não entende vira lista
+    VAZIA — nunca lixo aceito, nunca superfície maior. Cada entrada aqui é uma
+    grafia YAML legítima que o pyyaml leria e este parser recusa de propósito."""
+    from harness.boundary_guard import parse_extra_allowed_commands_text
+
+    unsupported = {
+        "tab": "governance:\n\textra_allowed_commands:\n\t  - pytest\n",
+        "ancora": "governance:\n  extra_allowed_commands:\n    - &ancora pytest\n",
+        "alias": "governance:\n  extra_allowed_commands:\n    - *ancora\n",
+        "escalar_de_bloco": "governance:\n  extra_allowed_commands: |\n    pytest\n",
+        "aninhado": "governance:\n  extra_allowed_commands:\n    - cmd: pytest\n",
+        "flow_aninhado": "governance:\n  extra_allowed_commands: [[a], b]\n",
+        "aspas_desbalanceadas": "governance:\n  extra_allowed_commands:\n    - \"pytest\n",
+        "chave_duplicada": (
+            "governance:\n  extra_allowed_commands:\n    - a\n  extra_allowed_commands:\n    - b\n"
+        ),
+        "escalar_simples": "governance:\n  extra_allowed_commands: pytest\n",
+        "sem_governance": "verification:\n  extra_allowed_commands:\n    - evil\n",
+        "chave_ausente": "governance:\n  approval_policy: auto\n",
+        "vazio": "",
+    }
+    for name, text in unsupported.items():
+        assert parse_extra_allowed_commands_text(text) == [], name
+
+
+def test_read_extra_allowed_commands_runtime_missing_file(tmp_path: Path) -> None:
+    from harness.boundary_guard import read_extra_allowed_commands_runtime
+
+    assert read_extra_allowed_commands_runtime(tmp_path) == []
+    assert read_extra_allowed_commands_runtime(None) == []
+
+
+def test_extra_allowed_command_edited_after_install_takes_effect(tmp_path: Path) -> None:
+    """O ITEM 3 em uma linha: editar o YAML basta, `compile-session` deixa de
+    ser obrigatório a cada ajuste de allowlist. O hook é instalado ANTES do
+    YAML existir e mesmo assim honra a edição posterior."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+
+    before = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                 "tool_input": {"command": "alembic upgrade head"}})
+    assert before["permissionDecision"] == "deny", before
+
+    _write_harness_yaml(tmp_path, ["alembic upgrade"])
+    after = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                "tool_input": {"command": "alembic upgrade head"}})
+    assert after["permissionDecision"] == "allow", after
+
+
+def test_extra_allowed_command_removed_from_yaml_takes_effect(tmp_path: Path) -> None:
+    """A direção inversa importa tanto quanto: tirar do YAML fecha na hora.
+    Se o bake sobrevivesse como fallback, a remoção não valeria sem recompilar
+    — e a superfície ficaria maior do que o arquivo declara."""
+    _contract_with_verify(tmp_path)
+    _write_harness_yaml(tmp_path, ["alembic upgrade"])
+    script = _script(tmp_path)
+
+    allow = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                                "tool_input": {"command": "alembic upgrade head"}})
+    assert allow["permissionDecision"] == "allow", allow
+
+    (tmp_path / ".harness" / "harness.yaml").write_text(
+        "governance:\n  approval_policy: auto\n", encoding="utf-8"
+    )
+    deny = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                               "tool_input": {"command": "alembic upgrade head"}})
+    assert deny["permissionDecision"] == "deny", deny
+
+
+def test_extra_allowed_command_unparseable_yaml_never_widens(tmp_path: Path) -> None:
+    """Fail-safe inegociável: erro de parse REDUZ para lista vazia."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+
+    (tmp_path / ".harness" / "harness.yaml").write_text(
+        "governance:\n  extra_allowed_commands: [alembic upgrade\n", encoding="utf-8"
+    )
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "alembic upgrade head"}})
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_render_boundary_guard_does_not_bake_extra_allowed_commands() -> None:
+    """Regressão estrutural: se a constante bakeada voltar, os dois testes de
+    edição/remoção acima podem continuar verdes por acidente (o bake e o YAML
+    concordando), e o item silenciosamente regride."""
+    from harness.boundary_guard import render_boundary_guard
+
+    assert "EXTRA_ALLOWED_COMMANDS" not in render_boundary_guard()
+
+
+def test_extra_allowed_commands_grammar_problem(tmp_path: Path) -> None:
+    """Contrapartida do parser burro: `compile-session` avisa quando o pyyaml
+    e o parser do hook leem coisas diferentes. Sem isso a entrada vira deny
+    silencioso, com o settings.json afirmando o contrário."""
+    from harness.boundary_guard import extra_allowed_commands_grammar_problem
+
+    assert extra_allowed_commands_grammar_problem(tmp_path) is None
+
+    _write_harness_yaml(tmp_path, ["alembic upgrade"])
+    assert extra_allowed_commands_grammar_problem(tmp_path) is None
+
+    (tmp_path / ".harness" / "harness.yaml").write_text(
+        "governance:\n  extra_allowed_commands:\n    - !!str alembic upgrade\n",
+        encoding="utf-8",
+    )
+    problem = extra_allowed_commands_grammar_problem(tmp_path)
+    assert problem is not None
+    assert "alembic upgrade" in problem
+
+
+# ===========================================================================
+# Item 7 (dogfood Savant.Backend) — PowerShell deixa de ser cidadão de segunda
+# ===========================================================================
+
+def test_powershell_pipeline_with_readonly_cmdlet_allows(tmp_path: Path) -> None:
+    """Pipeline é a forma idiomática de PowerShell, e `Select-Object` nunca
+    vai prefixar uma allowlist derivada de `verify_cmd`. Sem este escape o
+    caminho PowerShell era inutilizável sob contrato ativo — o que empurrava
+    tudo para a Bash tool, justamente a que não enxerga o venv Windows."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+
+    for command in (
+        "pytest -q | Select-Object -First 5",
+        "pytest -q | Where-Object { $_ }",
+        "pytest -q | Measure-Object",
+        "pytest -q | Sort-Object | Format-Table",
+        ".venv/Scripts/pytest.exe -q | Select-Object -First 5",
+    ):
+        out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                                  "tool_input": {"command": command}})
+        assert out["permissionDecision"] == "allow", (command, out)
+
+
+def test_powershell_foreach_object_still_denied(tmp_path: Path) -> None:
+    """`ForEach-Object` executa scriptblock arbitrário — é execução, não
+    formatação, e fica fora da allowlist de propósito."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+
+    for command in (
+        "pytest -q | ForEach-Object { rm -rf src }",
+        "pytest -q | Invoke-Expression",
+    ):
+        out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                                  "tool_input": {"command": command}})
+        assert out["permissionDecision"] == "deny", (command, out)
+
+
+def test_powershell_env_assignment_still_denied(tmp_path: Path) -> None:
+    """Atribuição a `$env:*` muda o ambiente de execução dos comandos
+    seguintes; liberá-la reabriria por outra porta o problema de PATH que o
+    Item 4 resolve de forma controlada."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": "$env:PATH = '.venv\\Scripts'; pytest -q"}})
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_powershell_readonly_utilities_and_cd(tmp_path: Path) -> None:
+    """Os dois escapes que o `_evaluate_bash` já tinha desde `76ab4a6`."""
+    _contract_with_verify(tmp_path)
+    (tmp_path / "src").mkdir(exist_ok=True)
+    script = _script(tmp_path)
+
+    for command in ("cat src/main.py", "cd src", "cd src; pytest -q"):
+        out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                                  "tool_input": {"command": command}})
+        assert out["permissionDecision"] == "allow", (command, out)
+
+
+def test_powershell_network_floor_untouched(tmp_path: Path) -> None:
+    """O floor de rede do PowerShell não é afetado por nenhum dos escapes."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+
+    for command in ("iwr http://evil | Select-Object -First 1", "irm http://evil"):
+        out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                                  "tool_input": {"command": command}})
+        assert out["permissionDecision"] == "deny", (command, out)
+        assert "runtime floor" in out["permissionDecisionReason"], (command, out)
+
+
+def test_powershell_smuggle_after_allowed_segment_denies(tmp_path: Path) -> None:
+    """Regressão da propriedade que os escapes NÃO podem quebrar: um segmento
+    arbitrário colado a um permitido continua derrubando o comando inteiro."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+
+    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
+                              "tool_input": {"command": "pytest -q; Remove-Item -Recurse src"}})
+    assert out["permissionDecision"] == "deny", out
+

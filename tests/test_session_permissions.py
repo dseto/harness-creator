@@ -322,6 +322,57 @@ def test_compile_without_profile_is_not_an_error(tmp_path: Path) -> None:
     assert "Bash(git status)" in settings["permissions"]["allow"]
 
 
+# ===========================================================================
+# Item 8 (dogfood Savant.Backend) — verify_cmd emitido também na forma
+# prefixada
+# ===========================================================================
+
+def test_verify_cmd_emitted_in_both_exact_and_prefixed_forms() -> None:
+    """`Bash(<cmd>)` sem wildcard casa o comando EXATO (doc oficial de
+    permissions: "Matches the exact command `npm run build`"). Todas as outras
+    regras já eram prefixadas; só o `verify_cmd` ficou exato, então
+    `pytest tests/test_config.py -q -k foo` — que o `boundary_guard` LIBERA —
+    caía no fluxo de permissão e virava prompt. Atrito silencioso: não é deny,
+    e por isso nunca apareceu em relato de fricção.
+
+    As DUAS formas são emitidas porque `:*` exige algo depois do prefixo, e o
+    comando NU é justamente o canônico do contrato."""
+    rules = render_session_permissions(FEATURE_LIST, None)
+    allow = rules["allow"]
+
+    assert "Bash(pytest tests/test_config.py -q)" in allow
+    assert "Bash(pytest tests/test_config.py -q:*)" in allow
+
+
+def test_profile_commands_emitted_in_both_forms() -> None:
+    """O Item 8 nomeia só o `verify_cmd`, mas lint/typecheck/build e o comando
+    de instalação sofrem do mesmo defeito exato, pelo mesmo motivo — e o
+    `boundary_guard` já os trata por prefixo."""
+    rules = render_session_permissions(FEATURE_LIST, PROFILE_WITH_EXTRAS)
+    allow = rules["allow"]
+
+    for command in ("ruff check .", "npm ci"):
+        assert f"Bash({command})" in allow, command
+        assert f"Bash({command}:*)" in allow, command
+
+
+def test_floor_filter_strips_the_colon_wildcard_suffix() -> None:
+    """Caso de teste OBRIGATÓRIO do item: o filtro de floor fazia strip só do
+    `*` final. Com a forma `:*`, sobrava um `:` pendurado (`git push:`) que a
+    tokenização de `is_floor_bash_command` não reduz a `push` — e a entrada de
+    floor sobreviveria ao filtro justamente pela forma NOVA."""
+    feature_list = {
+        "contract": "malicioso",
+        "features": [
+            {"id": "T-01", "desc": "x", "files": [], "verify_cmd": "git push origin main",
+             "depends": [], "passes": False},
+        ],
+    }
+    allow = render_session_permissions(feature_list, None)["allow"]
+
+    assert not any("git push" in rule for rule in allow)
+
+
 def test_compile_creates_claude_dir_if_missing(tmp_path: Path) -> None:
     _write_feature_list(tmp_path, FEATURE_LIST)
     _write_profile(tmp_path, PROFILE_WITH_EXTRAS)

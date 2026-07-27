@@ -5,7 +5,107 @@
 Correções achadas durante o dogfood do próprio harness-creator (contrato
 `hook-reasons-progress-sync` e achados A/B/C do backlog de fricção de
 dogfood 2026-07-22), mais o backlog **inteiro** (P0, P1 e P2) do laudo de
-footprint `docs/project/AUDIT-footprint-raiz-e-versionamento-2026-07-26.md`.
+footprint `docs/project/AUDIT-footprint-raiz-e-versionamento-2026-07-26.md`,
+mais as **ondas 2 a 4** do plano v2 do dogfood
+`Savant.Backend.APP-15167` (`docs/project/ROADMAP-dogfood-savant-venv.correction.plano-v2.md`).
+
+### Adicionado (ondas 2–4 do plano v2 — a fricção do venv Windows)
+
+Uma sessão real gastou ~13 ciclos de `disable` → editar → `compile-session` →
+`enable` e terminou com o harness abandonado. As quatro causas foram atacadas
+juntas porque compõem: cada uma sozinha ainda deixava o ciclo de pé.
+
+- **A FORMA de invocar deixa de ser adivinhação (Item 4 — o maior volume).**
+  O match de superfície é por prefixo de tokens, então `verify_cmd: "pytest -q"`
+  liberava só o comando que começa literalmente com `pytest` — e num venv
+  Windows a forma que funciona na Bash tool é `.venv/Scripts/pytest.exe -q`,
+  exatamente a que o guard negava. Três formas passam a reduzir à mesma forma
+  canônica, **nos dois lados da comparação**: `python -m <mod>`,
+  `<venv>/{Scripts,bin}/<bin>[.exe]` e `uv run <bin>`. É equivalência de forma,
+  não ampliação de escopo — `python -m pip install evil` normaliza para
+  `pip install evil`, que continua não prefixando `pip install -e .`.
+  - Fora do escopo por decisão explícita, cada uma com teste: `python -c`
+    (executa string arbitrária), `python <script.py>`, `uv run --with <pacote>`
+    (instala da rede antes de rodar, e rede sempre pede aprovação), prefixo de
+    diretório genérico (`./scripts/deploy.sh` **não** vira `deploy.sh`) e
+    `source <venv>/activate && …` (`source` executa o conteúdo de um arquivo no
+    shell corrente; com a normalização, ativar deixou de ser necessário).
+  - **O floor passa a avaliar as duas formas, bruta e normalizada.** Sem isso o
+    item transformaria um furo latente em furo alcançável: as formas prefixadas
+    por caminho já atravessavam o floor (`.venv/Scripts/git.exe push` não
+    contém o token `git`) e morriam só no default-deny da allowlist — com a
+    normalização, passariam a casar a allowlist. Adaptação exigida pelo parecer
+    MAR (U4), e a razão de o floor deixar de ver *apenas* o comando bruto.
+- **`extra_allowed_commands` é lido em RUNTIME (Item 3).** A allowlist era
+  bakeada no script gerado, então mudá-la exigia `compile-session` — inclusive
+  quando quem editava era o usuário no terminal próprio, onde nenhum hook
+  intercepta. O bake nunca teve razão de performance: o guard já lê dois JSONs
+  do disco a cada tool call. O script standalone é stdlib-only por design, então
+  a leitura usa um parser mínimo restrito a essa sublista, que entende lista de
+  bloco e de fluxo, com ou sem aspas, e ignora comentário. **Fail-safe
+  inegociável**: o que ele não entende degrada para lista vazia — fecha, nunca
+  abre. A constante bakeada foi removida (regressão estrutural fixada por
+  teste), então tirar um comando do YAML também vale na hora.
+  - **`compile-session` avisa quando os dois parsers divergem.** Adaptação
+    exigida pelo parecer MAR (U3): sem ela, uma entrada em sintaxe não suportada
+    viraria deny silencioso com o `settings.json` afirmando o contrário — e
+    "declarei e continua negado" é a classe de fricção opaca que este backlog
+    existe para matar.
+- **`harness profile set <chave> <valor>` (Item 6).** Não havia forma suportada
+  de corrigir o `repo-profile.json`: ele é gerado por `analyze`, que só infere,
+  e escrever em `.harness/**` é deny incondicional. No caso real o proxy
+  corporativo derrubou o TLS do `uv` e foi preciso trocar para `pip`, embora o
+  lockfile continuasse apontando `uv` — a única saída era o ciclo completo.
+  Enumeração fechada de chaves de **ambiente** (`package_manager`,
+  `test_command`, `lint_command`, `typecheck_command`, `build_command`), valor
+  sujeito ao mesmo runtime floor, `unknowns` correspondente limpo junto.
+  `test_glob` fica de fora: decide o que conta como teste protegido, que é
+  governança. **`profile` não entra em `_HARNESS_SUBCOMMANDS`** — é decisão de
+  segurança, não omissão: `test_command` alimenta a superfície de comando
+  compilada, então um agente capaz de gravar ali ampliaria a própria superfície,
+  a mesma rota que o Item 0 fechou.
+- **PowerShell deixa de ser cidadão de segunda (Item 7).** `_evaluate_powershell`
+  exigia que TODO segmento prefixasse uma sequência permitida, e pipeline é a
+  forma idiomática da linguagem — `Select-Object` nunca vai prefixar uma
+  allowlist derivada de `verify_cmd`. Na prática o caminho PowerShell era
+  inutilizável sob contrato ativo, o que empurrava tudo para a Bash tool, que é
+  justamente a que não enxerga o venv Windows. Agora um segmento passa se for
+  cmdlet read-only de pipeline (`Select-Object`, `Where-Object`,
+  `Measure-Object`, `Sort-Object`, `Format-Table`, `Format-List`, `Out-String`,
+  mais os aliases), utilitário read-only ou `cd` intra-repo — os mesmos escapes
+  que o Bash tem desde `76ab4a6`. `ForEach-Object` fica **fora** (executa
+  scriptblock arbitrário) e atribuição a `$env:*` também: liberá-la reabriria
+  por outra porta o problema de PATH que o Item 4 resolve de forma controlada.
+- **Contagem de ciclos de fricção (`harness.metrics`).** O gate da onda 5
+  (postura B vs C) depende de um número que ninguém tem: quantos ciclos uma
+  sessão real ainda gasta *depois* destas correções. Os ~13 da sessão original
+  foram contados à mão relendo transcrição. Os contadores vivem em
+  `disable`/`enable`/`compile-session`, na CLI — **não em hook**: os ciclos
+  ocorrem com o harness desligado, então um contador em hook mediria zero
+  exatamente durante o fenômeno de interesse. `harness status` reporta o
+  resumo; `.harness/metrics.json` é machine-local.
+
+### Corrigido (ondas 2–4 do plano v2)
+
+- **`verify_cmd` passa a ser emitido também na forma prefixada (Item 8).**
+  `Bash(<cmd>)` sem wildcard casa o comando **exato** (confirmado na doc oficial
+  de permissions). Todas as outras regras já eram prefixadas; só os comandos
+  derivados do contrato/profile ficaram exatos, então
+  `pytest -q tests/test_api.py` — que o `boundary_guard` **libera** — caía no
+  fluxo de permissão e virava prompt. Fadiga silenciosa: não é deny, é atrito,
+  e por isso nunca apareceu em relato de fricção. As **duas** formas são
+  emitidas, porque o sufixo `:*` exige algo depois do prefixo e o comando nu é
+  justamente o canônico do contrato. Estendido a lint/typecheck/build e ao
+  comando de instalação, que tinham o mesmo defeito pelo mesmo motivo.
+- **O filtro de runtime floor passa a tratar o sufixo `:*`.** Ele fazia strip só
+  do `*` final; com a forma nova sobrava um `:` pendurado (`git push:`), que a
+  tokenização não reduz a `push` — e uma entrada de floor sobreviveria ao filtro
+  justamente pela forma que o Item 8 introduziu.
+- **A mensagem de deny de comando parou de mandar recompilar.** Ela dizia para
+  pedir ao usuário que editasse o YAML *e rodasse `compile-session`*; com o
+  Item 3 isso deixou de ser necessário. E agora ela começa dizendo que as formas
+  equivalentes já são reconhecidas — a versão anterior induzia exatamente a
+  tentativa-e-erro que o Item 4 elimina.
 
 ### Corrigido (achados da 3ª rodada de teste isento)
 

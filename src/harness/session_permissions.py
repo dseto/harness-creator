@@ -12,9 +12,13 @@ deterministicamente do contrato e do `.harness/repo-profile.json`
 A superfície gerada cobre:
     1. `Edit(<file>)`/`Write(<file>)` para cada arquivo em `files[]` de
        TODAS as features do contrato (união, sem duplicar).
-    2. `Bash(<verify_cmd>)` literal para cada `verify_cmd` distinto.
+    2. `Bash(<verify_cmd>)` E `Bash(<verify_cmd>:*)` para cada `verify_cmd`
+       distinto — a regra sem wildcard casa o comando EXATO, então sozinha ela
+       transformava `pytest -q tests/test_api.py` (que o `boundary_guard`
+       LIBERA) em prompt de permissão. Ver Item 8 do backlog do dogfood
+       `Savant.Backend.APP-15167`.
     3. `Bash(<lint/typecheck/build>)` do `repo-profile.json` (`extras`),
-       quando o profile os observou.
+       quando o profile os observou — nas duas formas, mesma razão.
     4. `Bash(<comando de instalação>)` derivado do `package_manager` do
        profile (ex.: `npm` -> `npm ci`) — a instalação de dependências
        pertence à aprovação do contrato, não ao meio da sessão.
@@ -52,8 +56,11 @@ Exemplo de saída de `render_session_permissions`:
         "Edit(src/harness/config.py)",
         "Write(src/harness/config.py)",
         "Bash(pytest tests/test_config.py -q)",
+        "Bash(pytest tests/test_config.py -q:*)",
         "Bash(ruff check .)",
+        "Bash(ruff check .:*)",
         "Bash(npm ci)",
+        "Bash(npm ci:*)",
         "Bash(git status)",
         "Bash(git log*)",
         "Bash(git diff*)",
@@ -139,10 +146,17 @@ def _passes_runtime_floor_filter(entry: str) -> bool:
     """
     if entry.startswith("Bash(") and entry.endswith(")"):
         command = entry[len("Bash("):-1]
-        # Regras prefixadas (git local, harness CLI, extra_allowed_commands)
-        # terminam em "*" — strip antes de checar o floor, senão a tokenização
-        # de is_floor_bash_command vê "push*" != "push" e o floor não casa.
-        if command.endswith("*"):
+        # Regras prefixadas (git local, harness CLI, extra_allowed_commands,
+        # verify_cmd) terminam em "*" ou no açúcar equivalente ":*" — strip
+        # antes de checar o floor, senão a tokenização de is_floor_bash_command
+        # vê "push*" != "push" e o floor não casa. O ":*" precisa sair INTEIRO:
+        # tirar só o "*" deixaria um ":" pendurado ("git push:"), que também
+        # não tokeniza para "push" — e a entrada de floor sobreviveria ao
+        # filtro pela forma nova, que é exatamente o caso de teste obrigatório
+        # do Item 8.
+        if command.endswith(":*"):
+            command = command[:-2]
+        elif command.endswith("*"):
             command = command[:-1]
         return not is_floor_bash_command(command)
     if (entry.startswith("Edit(") or entry.startswith("Write(")) and entry.endswith(")"):
@@ -194,7 +208,22 @@ def render_session_permissions(
         allow.append(f"Edit({path})")
         allow.append(f"Write({path})")
     for verify_cmd in verify_cmds:
+        # Item 8 do backlog do dogfood Savant.Backend: `Bash(<cmd>)` sem
+        # wildcard casa o comando EXATO (confirmado na doc oficial de
+        # permissions: "Matches the exact command `npm run build`"). Todas as
+        # outras regras deste módulo já eram prefixadas; só o `verify_cmd`
+        # ficou exato, então `pytest -q tests/test_api.py` — que o
+        # `boundary_guard` LIBERA — caía no fluxo de permissão e virava
+        # prompt. Fadiga silenciosa: não é deny, é atrito, e por isso nunca
+        # apareceu em relato de fricção.
+        #
+        # As DUAS formas são emitidas. `Bash(pytest -q:*)` é o açúcar de
+        # wildcard à direita, mas o sufixo exige algo depois — o comando NU
+        # (`pytest -q`), que é justamente o canônico do contrato, não casaria
+        # sozinho. Manter a regra exata ao lado custa uma linha e cobre esse
+        # caso sem depender de interpretação da doc.
         allow.append(f"Bash({verify_cmd})")
+        allow.append(f"Bash({verify_cmd}:*)")
 
     if profile is not None:
         # Nunca `profile.get('extras', {})` sozinho: a chave pode existir
@@ -206,7 +235,12 @@ def render_session_permissions(
                 continue
             value = entry.get("value")
             if value:
+                # Mesma correção do `verify_cmd` acima: o Item 8 nomeia só ele,
+                # mas lint/typecheck/build sofrem do mesmo defeito exato pelo
+                # mesmo motivo, e o `boundary_guard` já os trata por prefixo.
+                # Corrigir um e deixar os outros recriaria o bug pelo lado.
                 allow.append(f"Bash({value})")
+                allow.append(f"Bash({value}:*)")
 
         package_manager_entry = profile.get("package_manager") or {}
         package_manager_value = package_manager_entry.get("value")
@@ -217,6 +251,7 @@ def render_session_permissions(
         )
         if install_cmd:
             allow.append(f"Bash({install_cmd})")
+            allow.append(f"Bash({install_cmd}:*)")
 
     for cmd in extra_allowed_commands or []:
         allow.append(f"Bash({cmd}*)")
