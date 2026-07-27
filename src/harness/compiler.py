@@ -39,6 +39,7 @@ import yaml
 from harness import __version__ as _HARNESS_VERSION
 from harness.config import HarnessConfig
 from harness.governance.approval import _ALWAYS_GATED, _POLICY_MATRIX
+from harness.hook_launcher import hook_command
 from harness.killswitch import DISABLED_CHECK_SRC
 from harness.patterns import _glob_to_regex
 from harness.settings_paths import prepare_managed_settings, write_managed_settings
@@ -136,9 +137,19 @@ def render(config: HarnessConfig, target_dir: Path, raw_keys: set[str] | None = 
 def _hook_entry(matcher: str, script: Path) -> dict[str, Any]:
     # Path absoluto embutido na compilação: portátil entre shells (cmd não
     # expande $VAR); se o repo mudar de lugar, `harness audit` acusa o drift.
+    #
+    # `hook_command()` é o MESMO ponto único dos três hooks de sessão
+    # (`boundary_guard`, `session_start`, `stop_hook`): interpretador absoluto
+    # + sufixo `|| exit 2`. Estes dois aqui ficaram para trás quando o Item 1/1b
+    # entrou, e o achado F8 do dogfood do MiojoSimulator mostrou o custo: um
+    # repo que rodou só `harness compile` — estado por onde TODA instalação
+    # passa, antes de existir contrato — ficava com os guards de TDD lançados
+    # por `python` nu. Interpretador irresolúvel ⇒ processo morre com código
+    # != 2 ⇒ a doc do Claude Code manda a tool call PASSAR. Ver
+    # `harness.hook_launcher` para o mecanismo inteiro.
     return {
         "matcher": matcher,
-        "hooks": [{"type": "command", "command": f'python "{script}"'}],
+        "hooks": [{"type": "command", "command": hook_command(script)}],
     }
 
 

@@ -101,6 +101,30 @@ juntas porque compõem: cada uma sozinha ainda deixava o ciclo de pé.
   do `*` final; com a forma nova sobrava um `:` pendurado (`git push:`), que a
   tokenização não reduz a `push` — e uma entrada de floor sobreviveria ao filtro
   justamente pela forma que o Item 8 introduziu.
+- **Os hooks de `harness compile` deixam de lançar `python` nu** (achado F8 do
+  dogfood no MiojoSimulator 3.0 — `docs/project/DOGFOOD-miojo-simulator-2026-07-27.md`).
+  O Item 1/1b bakeou o interpretador absoluto e o sufixo `|| exit 2` nos três
+  hooks do `compile-session`, mas `compiler.py` continuou montando
+  `python "<script>"` à mão para `guard_tests.py` e `guard_test_runner.py` — e
+  esse é o caminho por onde **toda** instalação passa primeiro, antes de existir
+  contrato. Interpretador irresolúvel ⇒ processo morre com código != 2 ⇒ a doc
+  do Claude Code manda a tool call passar: os guards de TDD falhavam ABERTO.
+  Pior, `harness doctor` não olhava para eles (`MANAGED_HOOK_FILENAMES` listava
+  só os de sessão), então o laudo de um alvo vulnerável devolvia `"hooks": []`.
+  A suíte seguiu verde depois da troca — a mesma lacuna que o B2 fechou para os
+  hooks de sessão —, então entraram os três testes que faltavam: instalação,
+  **desfecho** (script corrompido por erro de sintaxe → o comando gravado sai 2)
+  e cobertura do `doctor`. As mensagens de `interpreter_problem`/
+  `fail_closed_problem` também pararam de mandar rodar `compile-session`, que
+  não regrava estes dois hooks.
+- **A nota do `harness profile set` deixou de prometer efeito inexistente**
+  (achado F4 do mesmo dogfood). Ela dizia, para toda chave, "rode
+  `compile-session` para a mudança chegar ao settings.json e ao boundary_guard".
+  Falso para `test_command`: `_collect_allowed_bash_commands` lê `verify_cmd` +
+  extras + instalação, nunca o `test_command` do profile. Manter `test_command`
+  fora da superfície é a decisão certa — quem manda lá é o `verify_cmd` do
+  contrato aprovado; o que estava errado era a frase. A nota passou a ser por
+  chave, com trava estrutural em teste ligando as chaves aos leitores reais.
 - **A mensagem de deny de comando parou de mandar recompilar.** Ela dizia para
   pedir ao usuário que editasse o YAML *e rodasse `compile-session`*; com o
   Item 3 isso deixou de ser necessário. E agora ela começa dizendo que as formas

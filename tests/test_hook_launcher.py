@@ -279,3 +279,91 @@ def test_installed_command_blocks_when_the_hook_script_is_broken(tmp_path: Path)
             command, shell=True, input="{}", capture_output=True, text=True, timeout=30
         )
         assert proc.returncode == 2, (module, proc.returncode, proc.stderr[:400])
+
+
+# ---------------------------------------------------------------------------
+# F8 — os hooks de `harness compile` também.
+#
+# Achado do dogfood no MiojoSimulator 3.0 (2026-07-27): o Item 1/1b foi
+# aplicado aos três instaladores do `compile-session`, mas `compiler.py`
+# continuou montando `python "<script>"` à mão para `guard_tests.py` e
+# `guard_test_runner.py`. É o caminho por onde TODA instalação passa primeiro —
+# `harness compile` roda antes de existir contrato —, e o alvo real estava
+# nesse estado, com os dois guards de TDD lançados por interpretador nu.
+#
+# O B2 acima previu exatamente esta forma de regressão ("um instalador que
+# parasse de chamar `hook_command()` e montasse a string à mão"); o que faltava
+# era o teste cobrir os DOIS instaladores que existem, não só os três de sessão.
+# ---------------------------------------------------------------------------
+
+_HARNESS_YAML = (
+    "governance:\n"
+    "  approval_policy: auto\n"
+    "verification:\n"
+    "  enforce_tdd: true\n"
+    '  test_command: "pytest -q"\n'
+    '  test_glob: "tests/**/*.py"\n'
+)
+
+
+def _compile_commands(target: Path) -> list[str]:
+    import json
+
+    from harness.compiler import compile_project
+
+    (target / ".harness").mkdir(parents=True, exist_ok=True)
+    (target / ".harness" / "harness.yaml").write_text(_HARNESS_YAML, encoding="utf-8")
+    compile_project(target)
+    settings = json.loads(
+        (target / ".claude" / "settings.local.json").read_text(encoding="utf-8")
+    )
+    return [
+        hook["command"]
+        for entry in settings["hooks"]["PreToolUse"]
+        for hook in entry["hooks"]
+    ]
+
+
+def test_compile_hooks_carry_the_absolute_interpreter_and_fail_closed_suffix(
+    tmp_path: Path,
+) -> None:
+    commands = _compile_commands(tmp_path)
+
+    assert len(commands) == 2, commands  # guard_tests + guard_test_runner
+    for command in commands:
+        assert command.endswith(FAIL_CLOSED_SUFFIX), command
+        assert not command.startswith("python "), command
+        assert interpreter_problem(command) is None, command
+
+
+def test_compile_hook_blocks_when_the_script_is_broken(tmp_path: Path) -> None:
+    """Desfecho, não string — mesma discriminação do B2: a quebra é erro de
+    SINTAXE (sai 1, que o Claude Code trata como não-bloqueante), não script
+    ausente (que já sairia 2 pelo próprio Python e não provaria nada)."""
+    import subprocess
+
+    commands = _compile_commands(tmp_path)
+    for script in (tmp_path / ".harness" / "hooks").glob("*.py"):
+        script.write_text("def quebrado(\n", encoding="utf-8")
+
+    for command in commands:
+        proc = subprocess.run(
+            command, shell=True, input="{}", capture_output=True, text=True, timeout=30
+        )
+        assert proc.returncode == 2, (command, proc.returncode, proc.stderr[:400])
+
+
+def test_doctor_now_sees_the_compile_hooks(tmp_path: Path) -> None:
+    """O laudo do alvo real devolvia `"hooks": []` com os dois hooks
+    instalados e vulneráveis — `MANAGED_HOOK_FILENAMES` listava só os de
+    sessão, então o `doctor` dava verde falso sobre exatamente o estado que o
+    check existe para pegar."""
+    from harness.doctor import run_doctor
+
+    _compile_commands(tmp_path)
+    report = run_doctor(tmp_path)
+
+    assert len(report.hooks) == 2, report.hooks
+    commands = " ".join(h["command"] for h in report.hooks)
+    assert "guard_tests.py" in commands and "guard_test_runner.py" in commands
+    assert all(h["ok"] is True for h in report.hooks), report.hooks

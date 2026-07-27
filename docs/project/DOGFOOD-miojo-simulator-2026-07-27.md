@@ -131,6 +131,58 @@ arquivos modificados **são** os `files[]` do contrato: o trabalho já estava em
 andamento quando o harness foi instalado. O fluxo pressupõe instalar antes de
 começar, e a mensagem de erro não oferece saída para quem já começou.
 
+### F8 — os hooks do `harness compile` lançavam `python` nu (ALTO, segurança — CORRIGIDO nesta sessão)
+
+O `settings.local.json` que `harness compile` escreveu neste alvo contém:
+
+```json
+{ "type": "command", "command": "python \"C:\\Projetos\\miojo-simulator-3.0\\.harness\\hooks\\guard_tests.py\"" }
+```
+
+Interpretador **nu**, resolvido pelo PATH no momento da tool call, e **sem** o
+sufixo `|| exit 2`. É exatamente o fail-open que o Item 1 (`hook_command()` de
+`harness.hook_launcher`) existe para fechar — mas a correção foi aplicada só aos
+três instaladores do `compile-session` (`boundary_guard`, `session_start`,
+`stop_hook`). Os dois hooks de `compiler.py:141` ficaram para trás.
+
+Três razões para isso ser pior do que parece:
+
+1. **É o caminho que toda instalação percorre primeiro.** `harness compile` roda
+   antes de `compile-contract`/`compile-session`; um repo pode ficar dias neste
+   estado — é o estado em que o alvo está agora.
+2. **Pela semântica de exit code do Claude Code, só `exit 2` bloqueia.** Um
+   interpretador irresolúvel (venv desativado, PATH divergente, stub da
+   Microsoft Store, que sai 9009) faz a tool call **passar** com uma linha de
+   `hook error` no transcript.
+3. **O `doctor` não cobre.** `_managed_hook_scripts` filtra por
+   `MANAGED_HOOK_FILENAMES`, que lista só os hooks de sessão — o laudo deste
+   alvo devolveu `"hooks": []` com os dois hooks instalados e vulneráveis.
+
+**Corrigido:** `_hook_entry` passou a usar `hook_command()`, o mesmo ponto único
+dos outros três, e os dois nomes entraram em `MANAGED_HOOK_FILENAMES`. A suíte
+inteira continuou verde **depois** da troca — prova de que nenhum teste cobria o
+formato, que é a mesma lacuna que o B2 fechou para os hooks de sessão. Foram
+acrescentados os três testes que faltavam: instalação (interpretador absoluto +
+sufixo), **desfecho** (script corrompido por erro de sintaxe → o comando gravado
+sai 2; script ausente não discriminaria, porque o próprio Python já sai 2) e
+cobertura do `doctor`.
+
+Um efeito colateral corrigido junto: as mensagens de `interpreter_problem`/
+`fail_closed_problem` mandavam rodar `harness compile-session`, que **não**
+regrava estes dois hooks. Passaram a nomear os dois comandos — mandar o usuário
+rodar algo que não corrige o problema dele é a mesma classe de defeito do F3.
+
+Verificado no alvo real depois do fix:
+
+```
+"C:\Python314\python.exe" "…\.harness\hooks\guard_tests.py" || exit 2
+"C:\Python314\python.exe" "…\.harness\hooks\guard_test_runner.py" || exit 2
+```
+
+com `harness doctor` reportando os dois hooks, `ok: true`, e sem entrada órfã
+(o casamento por NOME DE ARQUIVO em `_merge_settings` já cobria a troca de
+formato — a lição do Item 1 que aqui estava aplicada).
+
 ### F7 — `test_glob` tem duas fontes que podem divergir (BAIXO)
 
 `verification.test_glob` do `harness.yaml` alimenta `guard_tests`; `test_glob`
