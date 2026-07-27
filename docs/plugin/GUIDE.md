@@ -222,7 +222,7 @@ O floor avalia o comando bruto **e** a forma normalizada (abaixo), então
 
 ### Quando o guard atrapalha: três escapes, nenhum deles adivinhação
 
-Todos os três nasceram do dogfood `Savant.Backend.APP-15167` — uma API Python
+Todos os três nasceram do dogfood venv-Windows — uma API Python
 com venv, no Windows, atrás de proxy corporativo, onde descobrir a grafia que o
 guard aceitava consumiu cerca de treze ciclos de desligar e religar o harness.
 

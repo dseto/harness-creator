@@ -16,7 +16,7 @@ A superfície gerada cobre:
        distinto — a regra sem wildcard casa o comando EXATO, então sozinha ela
        transformava `pytest -q tests/test_api.py` (que o `boundary_guard`
        LIBERA) em prompt de permissão. Ver Item 8 do backlog do dogfood
-       `Savant.Backend.APP-15167`.
+       venv-Windows.
     3. `Bash(<lint/typecheck/build>)` do `repo-profile.json` (`extras`),
        quando o profile os observou — nas duas formas, mesma razão.
     4. `Bash(<comando de instalação>)` derivado do `package_manager` do
@@ -204,7 +204,7 @@ def render_session_permissions(
         allow.append(f"Edit({path})")
         allow.append(f"Write({path})")
     for verify_cmd in verify_cmds:
-        # Item 8 do backlog do dogfood Savant.Backend: `Bash(<cmd>)` sem
+        # Item 8 do backlog do dogfood venv-Windows: `Bash(<cmd>)` sem
         # wildcard casa o comando EXATO (confirmado na doc oficial de
         # permissions: "Matches the exact command `npm run build`"). Todas as
         # outras regras deste módulo já eram prefixadas; só o `verify_cmd`

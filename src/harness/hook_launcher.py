@@ -2,7 +2,7 @@
 `.claude/settings.json` e valida, sob demanda, que ele ainda é executável.
 
 **Por que este módulo existe (Item 1 do backlog do dogfood
-`Savant.Backend.APP-15167`).** Os três hooks do harness
+venv-Windows).** Os três hooks do harness
 (`boundary_guard.py`, `session_start.py`, `stop_hook.py`) eram registrados
 como `python "<script>"` — interpretador NU, resolvido pelo PATH do shell
 que executa o hook, no instante da tool call. Se `python` não resolver ali

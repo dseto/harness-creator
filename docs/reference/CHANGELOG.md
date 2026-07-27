@@ -7,7 +7,7 @@ Correções achadas durante o dogfood do próprio harness-creator (contrato
 dogfood 2026-07-22), mais o backlog **inteiro** (P0, P1 e P2) do laudo de
 footprint `docs/project/AUDIT-footprint-raiz-e-versionamento-2026-07-26.md`,
 mais as **ondas 2 a 4** do plano v2 do dogfood
-`Savant.Backend.APP-15167` (`docs/project/ROADMAP-dogfood-savant-venv.correction.plano-v2.md`).
+venv-Windows (`docs/project/ROADMAP-dogfood-venv-windows.correction.plano-v2.md`).
 
 ### Adicionado (ondas 2–4 do plano v2 — a fricção do venv Windows)
 
@@ -392,10 +392,10 @@ clone; a diferença é que agora o produto é honesto sobre isso em vez de
 manter a aparência de governança. `TUTORIAL.md`, `GUIDE.md`, `README.md`,
 `ARCHITECTURE.md` e as skills `init`/`compile`/`audit`/`plan` foram
 atualizados, e o TUTORIAL ganhou coluna "versionar?" na tabela de artefatos.
-Correção da fricção do dogfood real em `Savant.Backend.APP-15167` (API Python
+Correção da fricção do dogfood real num repo com venv (API Python
 com venv, Windows, atrás de proxy corporativo), que acumulou ~13 ciclos
 `disable`/`compile-session`/`enable` e terminou com o harness desativado.
-Backlog em `docs/project/ROADMAP-dogfood-savant-venv.correction.backlog.md`;
+Backlog em `docs/project/ROADMAP-dogfood-venv-windows.correction.backlog.md`;
 ordem de execução (pós-parecer MAR) em `…correction.plano-v2.md`.
 
 ### Segurança

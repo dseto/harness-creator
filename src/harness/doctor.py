@@ -29,7 +29,7 @@ a apontar para um diretório que não existe mais. Antes deste check as duas
 situações só apareciam como prosa em `TUTORIAL.md`.
 
 **3. Hook registrado que não roda** (Item 1 do backlog do dogfood
-`Savant.Backend.APP-15167`). Um hook com interpretador irresolúvel
+venv-Windows). Um hook com interpretador irresolúvel
 (`python` nu que o PATH de runtime não acha, ou caminho absoluto de um venv
 que foi recriado) simplesmente NÃO RODA — e, pela semântica de exit code de
 hook do Claude Code, a tool call PASSA sem gate nenhum. É a falha mais

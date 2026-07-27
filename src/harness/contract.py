@@ -377,7 +377,7 @@ def add_task_file(target_dir: Path, slug: str, task_id: str, new_path: str) -> b
       precisa existir;
     - `new_path` cai no plano de controle do harness (`.harness/**` fora de
       `work/` e `scratch/`) — Item 0 do plano v2 da correção do dogfood
-      `Savant.Backend`. Sem esta recusa, `add-file` era a porta de entrada de
+      venv-Windows. Sem esta recusa, `add-file` era a porta de entrada de
       uma cadeia de auto-ampliação de superfície de COMANDO, provada por
       execução: declarar `.harness/harness.yaml` numa tarefa tornava o `Write`
       nele permitido, o agente escrevia a própria

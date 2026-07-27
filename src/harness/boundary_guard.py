@@ -362,7 +362,7 @@ def _has_sequence(tokens: list[str], seq: list[str]) -> bool:
 
 # ---------------------------------------------------------------------------
 # Normalização da FORMA de invocação (Python real, IMPORTÁVEL) — Item 4 do
-# backlog do dogfood `Savant.Backend.APP-15167`.
+# backlog do dogfood venv-Windows.
 #
 # O match de superfície é por PREFIXO de tokens, então `verify_cmd: "pytest -q"`
 # só liberava o comando que começa literalmente com `pytest`. Num venv Windows a
@@ -753,7 +753,7 @@ def _is_scratch_surface_path(path: str) -> bool:
 
 # ---------------------------------------------------------------------------
 # Floor do plano de controle (Python real, IMPORTÁVEL) — Item 0 do plano v2 da
-# correção do dogfood `Savant.Backend`. Escrita do AGENTE em `.harness/**` é
+# correção do dogfood venv-Windows. Escrita do AGENTE em `.harness/**` é
 # deny INCONDICIONAL, com as duas exceções que já têm regra própria
 # (`.harness/work/**` = autoria do próximo contrato, `.harness/scratch/**` =
 # artefato temporário).
@@ -1001,7 +1001,7 @@ def _is_readonly_shell_segment(segment: str) -> bool:
 
 # ---------------------------------------------------------------------------
 # Cmdlets read-only de pipeline (Python real, IMPORTÁVEL) — Item 7 do backlog
-# do dogfood `Savant.Backend.APP-15167`. `_evaluate_powershell` exigia que TODO
+# do dogfood venv-Windows. `_evaluate_powershell` exigia que TODO
 # segmento prefixasse alguma sequência permitida, e pipeline é a forma
 # idiomática de PowerShell: `Select-Object`/`Where-Object` nunca vão prefixar
 # uma allowlist derivada de `verify_cmd`. Na prática o caminho PowerShell era
@@ -1233,7 +1233,7 @@ def _pending_task_id(feature_list: Any) -> str:
     `harness task add-file`. `<task_id>` literal quando não há pendente ou o
     formato não é reconhecível.
 
-    Item 5 do backlog do dogfood `Savant.Backend`: o que separa "existe um
+    Item 5 do backlog do dogfood venv-Windows: o que separa "existe um
     comando" de "cole isto" é o id já preenchido. A mensagem de deny é lida
     por um agente que acabou de ser bloqueado; obrigá-lo a abrir o
     `feature_list.json` para descobrir o id é o custo que o item existe para
@@ -1508,7 +1508,7 @@ HARNESS_YAML_RELATIVE_PATH = ".harness/harness.yaml"
 
 # ---------------------------------------------------------------------------
 # Leitura em RUNTIME de governance.extra_allowed_commands (Item 3 do backlog do
-# dogfood `Savant.Backend.APP-15167`).
+# dogfood venv-Windows).
 #
 # A allowlist era BAKEADA no script gerado, então mudá-la exigia
 # `compile-session` — mesmo quando quem editava era o USUÁRIO no terminal
@@ -1989,7 +1989,7 @@ FIXED_HARNESS_SEQUENCES = (
 ''' + f"""
 # --- comandos extras declarados em governance.extra_allowed_commands
 # (.harness/harness.yaml): NAO ha constante bakeada aqui. Item 3 do backlog do
-# dogfood Savant.Backend — a lista e lida do YAML a cada tool call por
+# dogfood venv-Windows — a lista e lida do YAML a cada tool call por
 # read_extra_allowed_commands_runtime (faixa GERADA acima), ancorada no
 # repo_root, para que editar o arquivo baste e `compile-session` deixe de ser
 # obrigatorio a cada ajuste de allowlist. Ressalva honesta: o settings.json
@@ -2025,7 +2025,7 @@ def _protected_branch_commit_problem(command, cwd):
     )
 
 
-# Item 5 do backlog do dogfood Savant.Backend: o deny de comando mandava
+# Item 5 do backlog do dogfood venv-Windows: o deny de comando mandava
 # "replaneje via /harness-creator:plan", que e o caminho MAIS CARO e, para
 # comando, nem sequer o certo - replanejar muda files[]/verify_cmd de uma
 # tarefa, nao a allowlist permanente. O escape real e o YAML de governanca, e
@@ -2135,7 +2135,7 @@ def _segment_prefixes_any(seg_tokens, sequences):
     """True se os tokens do segmento PREFIXAM (tokens[:n] == seq, nao mais
     'aparece em qualquer janela') alguma das sequencias permitidas.
 
-    Item 4 do backlog do dogfood Savant.Backend: a comparacao roda tambem
+    Item 4 do backlog do dogfood venv-Windows: a comparacao roda tambem
     sobre a FORMA NORMALIZADA de invocacao (normalize_invocation_tokens, faixa
     GERADA acima) dos DOIS lados. Normalizar so o segmento nao resolveria o
     caso simetrico - com `extra_allowed_commands: ["python -m ruff"]`, quem
@@ -3001,7 +3001,7 @@ def install_boundary_guard(target_dir: Path) -> Path:
         encoding="utf-8",
     )
 
-    # Item 1 do backlog do dogfood Savant.Backend: interpretador ABSOLUTO
+    # Item 1 do backlog do dogfood venv-Windows: interpretador ABSOLUTO
     # bakeado (nao `python` nu resolvido pelo PATH de runtime) — ver
     # `harness.hook_launcher` para o porque e o risco residual.
     command = hook_command(script_path)
@@ -3038,7 +3038,7 @@ def install_boundary_guard(target_dir: Path) -> Path:
         """Entrada que aponta para o NOSSO script, independente da forma do
         comando. Necessário desde que o formato do `command` mudou (`python
         "<script>"` -> `"<interp absoluto>" "<script>"`, Item 1 do backlog do
-        dogfood Savant.Backend): sem isto, um `settings.json` cuja entrada
+        dogfood venv-Windows): sem isto, um `settings.json` cuja entrada
         antiga não conste do `compiled-state-session.json` (state apagado,
         repo clonado com o settings versionado) sobreviveria ao merge e o
         guard rodaria DUAS vezes por tool call. Casa por nome de arquivo, o

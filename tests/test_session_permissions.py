@@ -323,7 +323,7 @@ def test_compile_without_profile_is_not_an_error(tmp_path: Path) -> None:
 
 
 # ===========================================================================
-# Item 8 (dogfood Savant.Backend) — verify_cmd emitido também na forma
+# Item 8 (dogfood venv-Windows) — verify_cmd emitido também na forma
 # prefixada
 # ===========================================================================
 

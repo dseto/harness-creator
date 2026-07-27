@@ -187,7 +187,7 @@ def test_install_is_idempotent_no_duplicate_entries(tmp_path: Path) -> None:
 
 
 def test_install_bakes_absolute_interpreter(tmp_path: Path) -> None:
-    # Item 1 do backlog do dogfood Savant.Backend — ver harness.hook_launcher.
+    # Item 1 do backlog do dogfood venv-Windows — ver harness.hook_launcher.
     install_session_start(tmp_path)
     settings = json.loads((tmp_path / ".claude" / "settings.local.json").read_text(encoding="utf-8"))
     command = settings["hooks"]["SessionStart"][0]["hooks"][0]["command"]

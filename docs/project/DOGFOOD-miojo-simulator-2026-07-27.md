@@ -2,11 +2,11 @@
 
 **Data:** 2026-07-27. **Alvo:** MiojoSimulator 3.0 — FastAPI + Python 3.14 com
 `.venv` no Windows, frontend estático. É o primeiro alvo que reúne as condições
-do relato original (`Savant.Backend.APP-15167`): Python **com venv**, Windows, e
+do relato original do dogfood venv-Windows: Python **com venv**, Windows, e
 um contrato real já autorado (`.harness/work/frontend-progress-bar/`).
 
 **Versões comparadas:** `origin/main` **v0.18.0** (`45ea0ca`) contra a branch
-`feat/savant-ondas-2-5` **v0.19.0**, instaladas lado a lado em duas cópias do
+`feat/ondas-2-5` **v0.19.0**, instaladas lado a lado em duas cópias do
 alvo, com os hooks gerados por cada uma recebendo **payloads `PreToolUse` reais
 via stdin**.
 

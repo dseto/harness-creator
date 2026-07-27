@@ -401,7 +401,7 @@ def _test_runner_fix(profile: RepoProfile) -> str:
 
 # ---------------------------------------------------------------------------
 # Resolubilidade do comando inferido (Item 2 do backlog do dogfood
-# `Savant.Backend.APP-15167`).
+# venv-Windows).
 #
 # As categorias 2-4 checavam DECLARAÇÃO: existe manifesto, existe runner
 # declarado, existe config de lint. Nenhuma checava se o comando inferido de

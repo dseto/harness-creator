@@ -174,7 +174,7 @@ EXPECTED_ALLOW = [
     "Edit(src/util.py)",
     "Write(src/util.py)",
     # Cada comando derivado do contrato/profile sai em DUAS formas: a exata e a
-    # prefixada (`:*`). Item 8 do backlog do dogfood Savant.Backend — sem a
+    # prefixada (`:*`). Item 8 do backlog do dogfood venv-Windows — sem a
     # segunda, `pytest tests -q -k foo` (allow no boundary_guard) caía no
     # prompt de permissão; com só a segunda, o comando NU não casaria.
     "Bash(pytest tests/test_app.py -q)",
@@ -361,7 +361,7 @@ def _boundary_script(root: Path) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Ondas 2-3 do plano v2 do dogfood Savant.Backend — o ciclo de fricção medido
+# Ondas 2-3 do plano v2 do dogfood venv-Windows — o ciclo de fricção medido
 # de ponta a ponta, pela CLI real
 # ---------------------------------------------------------------------------
 

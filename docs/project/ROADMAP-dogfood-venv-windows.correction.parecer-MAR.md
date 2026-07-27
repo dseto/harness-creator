@@ -6,8 +6,8 @@
   `objetivo_x_proposta` (personas cegas Verificador / Cético / Lógico +
   síntese do Juiz).
 - **Data:** 2026-07-26.
-- **Alvo avaliado:** `docs/project/ROADMAP-dogfood-savant-venv.correction.backlog.md`
-  (backlog de correção de fricção do dogfood `Savant.Backend.APP-15167`,
+- **Alvo avaliado:** `docs/project/ROADMAP-dogfood-venv-windows.correction.backlog.md`
+  (backlog de correção de fricção do dogfood venv-Windows,
   repo Python com venv no Windows, atrás de proxy corporativo).
 - **Critério do usuário, literal:** verificar se as sugestões *"atendem o
   objetivo de flexibilizar o harness-creator para o desenvolvimento não ter

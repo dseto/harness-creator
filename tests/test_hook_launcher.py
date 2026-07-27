@@ -1,5 +1,5 @@
 """Testes do lançador de hooks (`harness.hook_launcher`) — Item 1 do backlog
-do dogfood `Savant.Backend.APP-15167`.
+do dogfood venv-Windows.
 
 O que está sendo protegido aqui não é ergonomia: um hook registrado com
 interpretador irresolúvel NÃO RODA, e pela semântica de exit code de hook do

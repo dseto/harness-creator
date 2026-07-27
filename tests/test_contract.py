@@ -730,7 +730,7 @@ def test_add_task_file_still_accepts_normal_relative_paths(tmp_path: Path) -> No
         encoding="utf-8"
     )
     assert "frontend/src/app/x.ts" in plans
-# Item 0 do plano v2 da correção do dogfood Savant.Backend — `add_task_file` é
+# Item 0 do plano v2 da correção do dogfood venv-Windows — `add_task_file` é
 # a PORTA DE ENTRADA de uma cadeia de auto-ampliação de superfície de comando.
 # Sem esta recusa: declarar `.harness/harness.yaml` numa tarefa tornava o
 # `Write` nele allow, o agente escrevia a própria `extra_allowed_commands`,

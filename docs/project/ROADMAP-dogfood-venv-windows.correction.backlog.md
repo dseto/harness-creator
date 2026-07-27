@@ -1,11 +1,11 @@
 # BACKLOG DE EXECUÇÃO - CLAUDE CODE
 # Correção da fricção que levou a ~13 ciclos `disable`/`compile-session`/
 # `enable` e ao abandono do harness numa sessão de dogfood real
-# (`Savant.Backend.APP-15167`, API Python com venv, 2026-07-25/26).
+# (API Python com venv, Windows, proxy corporativo, 2026-07-25/26).
 #
 # >> ORDEM SUPERADA (2026-07-26). A seção "Sequenciamento sugerido" no fim
 # >> deste arquivo foi substituída por
-# >> `ROADMAP-dogfood-savant-venv.correction.plano-v2.md`, que repriorizou os
+# >> `ROADMAP-dogfood-venv-windows.correction.plano-v2.md`, que repriorizou os
 # >> itens após o parecer MAR (`…correction.parecer-MAR.md`) e após medir as
 # >> premissas que o parecer deixou em aberto. Mudanças: Item 0 (NOVO, P0 —
 # >> rota de auto-ampliação provada por execução) entra na frente de tudo e
@@ -30,7 +30,7 @@
 # shims globais no PATH — não existe passo de ativação, logo a forma de
 # invocação é única e o match por prefixo nunca ambiguiza); o self-dogfood
 # deste repo é Python mas SEM venv (confirmado: não há `.venv/` aqui; a
-# validação roda no interpretador global). `Savant.Backend` é o primeiro
+# validação roda no interpretador global). O alvo deste dogfood é o primeiro
 # repo Python COM venv (`.venv\Scripts\`, layout Windows) contra a Bash tool
 # POSIX, e o primeiro atrás de proxy corporativo (TLS do `uv` bloqueado).
 # Agravante de timing: as três features que mediaram toda a fricção são as
@@ -141,7 +141,7 @@ interpretador do `command` não existe em disco; (d) `doctor` fica `ok` no
 caminho feliz.
 
 **Esforço:** S — **Risco se não corrigir:** ALTO (bypass silencioso e total
-do guard, sem registro; a sessão do Savant.Backend reunia exatamente as
+do guard, sem registro; a sessão daquele dogfood reunia exatamente as
 condições — venv, PATH sendo mexido a cada tentativa, 13 ciclos de
 disable/enable — mas não há registro que permita afirmar nem descartar que
 ocorreu).
@@ -526,7 +526,7 @@ Combinado com o Item 3, vale imediatamente.
 **estritamente pior**. Com o sentinel de `disable` presente, o
 `boundary_guard` vira no-op completo — sem floor, sem proteção de segredo,
 sem bloqueio de push, sem gate de evidência — e o agente edita o
-`harness.yaml` livremente, sem registro nenhum. A sessão do Savant.Backend
+`harness.yaml` livremente, sem registro nenhum. A sessão daquele dogfood
 abriu ~13 dessas janelas. A postura A troca janela de desproteção total por
 mutação estreita e logada.
 
@@ -575,7 +575,7 @@ fazer é baixo.
 ## Sequenciamento sugerido — ⚠️ SUPERADO
 
 > Esta tabela é histórica. A ordenação vigente está em
-> [`ROADMAP-dogfood-savant-venv.correction.plano-v2.md`](ROADMAP-dogfood-savant-venv.correction.plano-v2.md).
+> [`ROADMAP-dogfood-venv-windows.correction.plano-v2.md`](ROADMAP-dogfood-venv-windows.correction.plano-v2.md).
 
 | Onda | Itens | Racional |
 |---|---|---|

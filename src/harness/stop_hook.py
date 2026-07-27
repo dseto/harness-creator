@@ -324,7 +324,7 @@ def install_stop_hook(target_dir: Path) -> Path:
     hook_path = hooks_dir / HOOK_FILENAME
     hook_path.write_text(render_stop_hook(), encoding="utf-8")
 
-    # Item 1 do backlog do dogfood Savant.Backend: interpretador ABSOLUTO
+    # Item 1 do backlog do dogfood venv-Windows: interpretador ABSOLUTO
     # bakeado — ver `harness.hook_launcher`.
     command = hook_command(hook_path)
 
@@ -340,7 +340,7 @@ def install_stop_hook(target_dir: Path) -> Path:
     def _is_managed(entry: dict[str, Any]) -> bool:
         # Casa também por NOME DE ARQUIVO — mesmo motivo de
         # `session_start.install_session_start` (Item 1 do backlog do dogfood
-        # Savant.Backend): mudança de formato do `command` não pode deixar
+        # venv-Windows): mudança de formato do `command` não pode deixar
         # entrada órfã duplicando o hook.
         return any(
             h.get("command") in (prev_command, command)
