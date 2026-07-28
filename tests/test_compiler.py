@@ -320,6 +320,118 @@ def test_guard_tests_reason_names_the_file_path(tmp_path: Path) -> None:
     )
 
 
+# ---------------- razão do gate cita o contrato, não só o payload (#41) ----------------
+
+def _write_feature_list(target: Path, features: list[dict]) -> None:
+    path = target / ".harness" / "feature_list.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"contract": "demo", "features": features}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def test_guard_tests_reason_carries_the_functional_description(tmp_path: Path) -> None:
+    """#41: o humano aprova a edição do teste vendo o COMPORTAMENTO coberto
+    (desc da tarefa que declara o arquivo), não só o path."""
+    _write_yaml(tmp_path, BASIC_YAML)
+    compile_project(tmp_path)
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "Alternar tema persiste entre recarregamentos",
+         "files": ["tests/test_theme.py"], "verify_cmd": "pytest tests/test_theme.py",
+         "passes": False},
+        {"id": "T-02", "desc": "Rodapé some no modo compacto",
+         "files": ["tests/test_footer.py"], "verify_cmd": "pytest tests/test_footer.py",
+         "passes": False},
+    ])
+    script = tmp_path / ".harness" / "hooks" / "guard_tests.py"
+
+    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
+                             "tool_input": {"file_path": "tests/test_theme.py"}})
+    reason = out["permissionDecisionReason"]
+    assert out["permissionDecision"] == "ask"
+    assert "Alternar tema persiste entre recarregamentos" in reason, reason
+    assert "T-01" in reason and "Rodapé" not in reason, reason
+
+
+def test_guard_tests_flags_a_test_file_no_task_declares(tmp_path: Path) -> None:
+    """Contrato ativo mas arquivo não declarado: a razão avisa que é trabalho
+    fora do contrato — em vez de mostrar descrição de outra tarefa."""
+    _write_yaml(tmp_path, BASIC_YAML)
+    compile_project(tmp_path)
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "Alternar tema persiste", "files": ["tests/test_theme.py"],
+         "verify_cmd": "pytest", "passes": False},
+    ])
+    script = tmp_path / ".harness" / "hooks" / "guard_tests.py"
+
+    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
+                             "tool_input": {"file_path": "tests/test_outro.py"}})
+    reason = out["permissionDecisionReason"]
+    assert out["permissionDecision"] == "ask"
+    assert "nenhuma tarefa do contrato" in reason, reason
+    assert "Alternar tema persiste" not in reason, reason
+
+
+def test_guard_test_runner_reason_carries_the_functional_description(tmp_path: Path) -> None:
+    """#41: rodar a suíte na fase red mostra a descrição da tarefa pendente
+    ligada ao comando — tarefa já verificada (passes) não polui a razão."""
+    _write_yaml(tmp_path, BASIC_YAML)
+    compile_project(tmp_path)
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "Login rejeita senha vazia", "files": ["tests/test_login.py"],
+         "verify_cmd": "pytest tests/test_login.py", "passes": True},
+        {"id": "T-02", "desc": "Alternar tema persiste entre recarregamentos",
+         "files": ["tests/test_theme.py"], "verify_cmd": "pytest tests/test_theme.py",
+         "passes": False},
+        {"id": "T-03", "desc": "Rodapé some no modo compacto", "files": ["tests/test_footer.py"],
+         "verify_cmd": "pytest tests/test_footer.py", "passes": False},
+    ])
+    script = tmp_path / ".harness" / "hooks" / "guard_test_runner.py"
+
+    cmd = "pytest tests/test_theme.py -v"
+    out = _run_hook(script, {"tool_name": "Bash", "tool_input": {"command": cmd}})
+    reason = out["permissionDecisionReason"]
+    assert out["permissionDecision"] == "ask"
+    assert "Alternar tema persiste entre recarregamentos" in reason, reason
+    assert cmd in reason, reason                       # o comando continua na razão
+    assert "Login rejeita senha vazia" not in reason   # já passou, não é o que se aprova
+    assert "Rodapé" not in reason                      # pendente, mas não é deste comando
+
+
+def test_guards_fall_back_to_payload_reason_without_contract(tmp_path: Path) -> None:
+    """Sem `feature_list.json` (init sem compile-contract) nada quebra: os dois
+    guards continuam pedindo aprovação com a razão antiga."""
+    _write_yaml(tmp_path, BASIC_YAML)
+    compile_project(tmp_path)
+    assert not (tmp_path / ".harness" / "feature_list.json").exists()
+
+    tests_hook = tmp_path / ".harness" / "hooks" / "guard_tests.py"
+    out = _run_hook(tests_hook, {"tool_name": "Edit", "cwd": str(tmp_path),
+                                 "tool_input": {"file_path": "tests/test_x.py"}})
+    assert out["permissionDecision"] == "ask"
+    assert out["permissionDecisionReason"].startswith("Arquivo de teste protegido")
+
+    runner_hook = tmp_path / ".harness" / "hooks" / "guard_test_runner.py"
+    out = _run_hook(runner_hook, {"tool_name": "Bash", "tool_input": {"command": "pytest -x"}})
+    assert out["permissionDecision"] == "ask"
+    assert out["permissionDecisionReason"].startswith("Comando roda a suíte")
+
+
+def test_guards_survive_a_corrupt_feature_list(tmp_path: Path) -> None:
+    """JSON ilegível é fail-safe: razão sem contrato, decisão intacta — o gate
+    nunca vira allow nem estoura o hook por causa do enriquecimento."""
+    _write_yaml(tmp_path, BASIC_YAML)
+    compile_project(tmp_path)
+    (tmp_path / ".harness" / "feature_list.json").write_text("{lixo", encoding="utf-8")
+
+    out = _run_hook(tmp_path / ".harness" / "hooks" / "guard_tests.py",
+                    {"tool_name": "Edit", "cwd": str(tmp_path),
+                     "tool_input": {"file_path": "tests/test_x.py"}})
+    assert out["permissionDecision"] == "ask"
+    assert out["permissionDecisionReason"].startswith("Arquivo de teste protegido")
+
+
 # ---------------- kill-switch: guard_tests / guard_test_runner no-op ----------------
 
 def test_guard_tests_hook_noop_when_sentinel_present(tmp_path: Path) -> None:

@@ -46,15 +46,27 @@ Cada tarefa é um bloco `## [T-XX] <descrição>` seguido de bullets `files` e
 de que esta tarefa depende; ausente = lista vazia):
 
 ```markdown
-## [T-01] <descrição da tarefa 1>
+## [T-01] <descrição comportamental da tarefa 1>
 - files: `<arquivo1>`, `<arquivo2>`
 - verify: `<comando de verificação executável>`
 
-## [T-02] <descrição da tarefa 2>
+## [T-02] <descrição comportamental da tarefa 2>
 - files: `<arquivo3>`
 - verify: `<comando de verificação executável>`
 - depends: T-01
 ```
+
+**A descrição do cabeçalho não é rótulo interno — é o texto que o humano lê
+no diálogo de aprovação.** Os hooks de TDD gerados (`guard_tests.py`,
+`guard_test_runner.py`) leem o `desc` da tarefa em `feature_list.json` e o
+colocam na frente da razão do prompt de permissão. Escreva-a portanto em
+**linguagem de product owner**: o comportamento observável que passa a valer,
+não o passo de implementação.
+
+- Ruim: `## [T-03] Ajustar hook e regex do toggle` — o humano aprova sem
+  saber o que muda.
+- Bom: `## [T-03] Alternar tema claro/escuro persiste a escolha entre
+  recarregamentos da página`.
 
 Regras de formato (não divergir — são o que o parser em `contract.py`
 espera literalmente):
