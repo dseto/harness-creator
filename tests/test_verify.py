@@ -20,6 +20,7 @@ from harness.verify import (
     detect_file_lock_hint,
     evidence_path,
     mark_feature_passed,
+    normalize_command_head,
     run_verify,
 )
 
@@ -362,7 +363,113 @@ def test_run_verify_non_ascii_utf8_output_does_not_crash_reader_thread(
     assert exc_info.value.stdout == "Á café ☕"
 
 
-# ---------------- mark_feature_passed (opt-in, chamada só por cli.py --mark-passed) ----------------
+def test_run_verify_stamps_the_last_update_section_of_progress(tmp_path: Path) -> None:
+    """Item 4 do backlog do dogfood miojo: a coluna de status já era
+    sincronizada, mas a seção de texto livre ficava vazia até alguém lembrar
+    do passo 12 — e o arquivo existe justamente para a próxima sessão retomar
+    sem perder contexto."""
+    from harness.templates import PROGRESS_FILE, render_progress_template
+
+    _write_feature_list(
+        tmp_path,
+        [{"id": "T-01", "desc": "Alvo", "files": [], "verify_cmd": _true_cmd(),
+          "depends": [], "passes": False}],
+    )
+    feature_list = json.loads(
+        (tmp_path / ".harness" / "feature_list.json").read_text(encoding="utf-8")
+    )
+    _write(tmp_path / PROGRESS_FILE, render_progress_template(feature_list))
+
+    path = run_verify(tmp_path, "T-01")
+
+    evidence = json.loads(path.read_text(encoding="utf-8"))
+    progress = (tmp_path / PROGRESS_FILE).read_text(encoding="utf-8")
+    assert "| T-01 | Alvo | done |" in progress
+    # mesmo timestamp da evidência: dois carimbos divergentes para o mesmo
+    # evento seriam piores que a seção vazia
+    assert evidence["recorded_at"] in progress
+    assert ".harness/evidence/exemplo-feature/T-01.json" in progress
+
+
+def test_run_verify_succeeds_when_progress_file_is_absent(tmp_path: Path) -> None:
+    """Sincronizar o rastro legível nunca pode ser motivo de a verificação
+    falhar — no-op silencioso, mesma regra de `update_progress_status`."""
+    _write_feature_list(
+        tmp_path,
+        [{"id": "T-01", "desc": "x", "files": [], "verify_cmd": _true_cmd(),
+          "depends": [], "passes": False}],
+    )
+
+    path = run_verify(tmp_path, "T-01")
+
+    assert json.loads(path.read_text(encoding="utf-8"))["exit_code"] == 0
+
+
+# ---------------- normalize_command_head (item 1 do backlog do dogfood miojo) ----------------
+
+
+@pytest.mark.skipif(not _is_windows(), reason="normalização só se aplica ao cmd.exe")
+def test_normalize_command_head_rewrites_only_the_head_on_windows() -> None:
+    # o head é o único ponto onde o `/` quebra: o cmd.exe corta o token do
+    # COMANDO no primeiro `/`, tratando o resto como switch
+    assert normalize_command_head(
+        ".venv/Scripts/pytest.exe -q tests/test_x.py"
+    ) == ".venv\\Scripts\\pytest.exe -q tests/test_x.py"
+
+
+@pytest.mark.skipif(not _is_windows(), reason="normalização só se aplica ao cmd.exe")
+def test_normalize_command_head_preserves_slashes_in_arguments() -> None:
+    # regex, URL e --cov=src/... continuam intactos: reescrevê-los mudaria o
+    # SIGNIFICADO do comando, não só a forma de invocação
+    assert normalize_command_head(
+        ".venv/Scripts/pytest.exe --cov=src/harness -k 'a/b'"
+    ) == ".venv\\Scripts\\pytest.exe --cov=src/harness -k 'a/b'"
+
+
+@pytest.mark.skipif(not _is_windows(), reason="normalização só se aplica ao cmd.exe")
+def test_normalize_command_head_noop_for_plain_and_quoted_heads() -> None:
+    assert normalize_command_head("python -m pytest -q") == "python -m pytest -q"
+    assert normalize_command_head("pytest -q") == "pytest -q"
+    # head entre aspas: o cmd.exe já trata o caminho inteiro como um token só
+    assert normalize_command_head('".venv/Scripts/pytest.exe" -q') == '".venv/Scripts/pytest.exe" -q'
+
+
+@pytest.mark.skipif(_is_windows(), reason="POSIX resolve a barra normal nativamente")
+def test_normalize_command_head_is_noop_outside_windows() -> None:
+    command = ".venv/bin/pytest -q"
+    assert normalize_command_head(command) == command
+
+
+@pytest.mark.skipif(not _is_windows(), reason="reproduz a falha do cmd.exe")
+def test_run_verify_executes_venv_anchored_command_and_records_original_text(
+    tmp_path: Path,
+) -> None:
+    """A regressão que originou o item: `.venv/Scripts/<bin>` passava no
+    boundary_guard (que só CASA o texto) e falhava na execução com
+    `'.venv' não é reconhecido...`, porque quem executa é o cmd.exe.
+
+    Usa um .cmd de verdade dentro de `.venv/Scripts` — o ponto do teste é o
+    caminho com barra normal chegar ao shell, não o binário em si."""
+    scripts = tmp_path / ".venv" / "Scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "faketest.cmd").write_text("@echo ok\n@exit 0\n", encoding="ascii")
+
+    _write_feature_list(
+        tmp_path,
+        [{"id": "T-01", "desc": "x", "files": [], "depends": [], "passes": False,
+          "verify_cmd": ".venv/Scripts/faketest.cmd -q"}],
+    )
+
+    path = run_verify(tmp_path, "T-01")
+
+    evidence = json.loads(path.read_text(encoding="utf-8"))
+    assert evidence["exit_code"] == 0
+    # a evidência guarda o TEXTO DO CONTRATO, não a forma executável — é o
+    # contrato que ela prova
+    assert evidence["verify_cmd"] == ".venv/Scripts/faketest.cmd -q"
+
+
+# ---------------- mark_feature_passed (default desde v0.23.0; --no-mark-passed volta ao antigo) ----------------
 
 
 def test_mark_feature_passed_sets_passes_true_and_preserves_other_features(tmp_path: Path) -> None:

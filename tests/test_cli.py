@@ -627,9 +627,14 @@ def test_verify_subcommand_with_mark_passed_flag_sets_passes_true(
     assert features_by_id["T-02"]["depends"] == ["T-01"]
 
 
-def test_verify_subcommand_without_mark_passed_flag_leaves_feature_list_unchanged(
+def test_verify_subcommand_marks_passes_true_by_default(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """Item 3 do backlog do dogfood miojo: verify verde FECHA a tarefa.
+
+    Antes da v0.23.0 marcar era opt-in, e o resultado era evidência com
+    `exit_code: 0` em disco enquanto `passes` continuava false — `harness
+    supervise` devolvia a mesma tarefa para sempre."""
     _write_two_feature_list(tmp_path, _true_cmd())
 
     monkeypatch.setattr(sys, "argv", ["harness", "verify", "T-01", "--dir", str(tmp_path)])
@@ -637,12 +642,40 @@ def test_verify_subcommand_without_mark_passed_flag_leaves_feature_list_unchange
         main()
 
     assert exc_info.value.code == 0
-    capsys.readouterr()
+    captured = capsys.readouterr()
+    # o stdout continua sendo SÓ o JSON da evidência (consumido por json.loads
+    # mundo afora); o aviso de estado vai para stderr
+    assert json.loads(captured.out)["feature_id"] == "T-01"
+    assert "passes:true gravado" in captured.err
 
     feature_list_path = tmp_path / ".harness" / "feature_list.json"
     data = json.loads(feature_list_path.read_text(encoding="utf-8"))
     features_by_id = {f["id"]: f for f in data["features"]}
-    # comportamento atual preservado: sem a flag, feature_list.json não muda
+    assert features_by_id["T-01"]["passes"] is True
+    assert features_by_id["T-02"]["passes"] is False
+
+
+def test_verify_subcommand_no_mark_passed_leaves_feature_list_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--no-mark-passed` mantém o comportamento antigo (fleet paralelo) — e a
+    saída DIZ que a tarefa continua aberta, em vez de deixar o agente deduzir."""
+    _write_two_feature_list(tmp_path, _true_cmd())
+
+    monkeypatch.setattr(
+        sys, "argv",
+        ["harness", "verify", "T-01", "--dir", str(tmp_path), "--no-mark-passed"],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    captured = capsys.readouterr()
+    assert "passes continua" in captured.err
+
+    feature_list_path = tmp_path / ".harness" / "feature_list.json"
+    data = json.loads(feature_list_path.read_text(encoding="utf-8"))
+    features_by_id = {f["id"]: f for f in data["features"]}
     assert features_by_id["T-01"]["passes"] is False
     assert features_by_id["T-02"]["passes"] is False
 

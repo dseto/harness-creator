@@ -11,6 +11,7 @@ from harness.templates import (
     INIT_SH_FILE,
     MANAGED_MARKER,
     PROGRESS_FILE,
+    append_progress_note,
     install_templates,
     is_managed_init_script,
     manual_init_scripts,
@@ -128,6 +129,64 @@ def test_update_progress_status_preserves_ultima_atualizacao_section(tmp_path: P
     after = (tmp_path / PROGRESS_FILE).read_text(encoding="utf-8")
     assert "## Última atualização" in after
     assert "Nota livre do agente: quebrou X, ver Y." in after
+
+
+# ---------------------------------------------------------------------------
+# append_progress_note (item 4 do backlog do dogfood miojo)
+# ---------------------------------------------------------------------------
+
+def test_append_progress_note_creates_auto_block_below_heading(tmp_path: Path) -> None:
+    _write(tmp_path / PROGRESS_FILE, render_progress_template(_FEATURE_LIST))
+
+    assert append_progress_note(tmp_path, "2026-07-27T10:00:00+00:00 — T-01 verificado") is True
+
+    after = (tmp_path / PROGRESS_FILE).read_text(encoding="utf-8")
+    assert "<!-- harness:auto -->" in after
+    assert "- 2026-07-27T10:00:00+00:00 — T-01 verificado" in after
+    # o bloco entra ABAIXO do heading e o placeholder original segue intacto
+    assert after.index("## Última atualização") < after.index("<!-- harness:auto -->")
+    assert "_(vazio" in after
+
+
+def test_append_progress_note_accumulates_and_preserves_human_prose(tmp_path: Path) -> None:
+    content = render_progress_template(_FEATURE_LIST) + "\nNota livre: falta migrar Z.\n"
+    _write(tmp_path / PROGRESS_FILE, content)
+
+    append_progress_note(tmp_path, "t1 — T-01 verificado")
+    append_progress_note(tmp_path, "t2 — T-02 verificado")
+
+    after = (tmp_path / PROGRESS_FILE).read_text(encoding="utf-8")
+    assert "- t1 — T-01 verificado" in after
+    assert "- t2 — T-02 verificado" in after
+    # a prosa do agente nunca é tocada pelo bloco automático
+    assert "Nota livre: falta migrar Z." in after
+    # e não vira um segundo bloco a cada nota
+    assert after.count("<!-- harness:auto -->") == 1
+
+
+def test_append_progress_note_keeps_only_the_most_recent_entries(tmp_path: Path) -> None:
+    _write(tmp_path / PROGRESS_FILE, render_progress_template(_FEATURE_LIST))
+
+    for i in range(13):
+        append_progress_note(tmp_path, f"t{i:02d} — T-01 verificado")
+
+    after = (tmp_path / PROGRESS_FILE).read_text(encoding="utf-8")
+    assert "t00 —" not in after
+    assert "t02 —" not in after
+    assert "t03 —" in after
+    assert "t12 —" in after
+
+
+def test_append_progress_note_noop_when_file_or_heading_absent(tmp_path: Path) -> None:
+    # arquivo ausente: no-op silencioso, nunca cria o esqueleto
+    assert append_progress_note(tmp_path, "t — x") is False
+    assert not (tmp_path / PROGRESS_FILE).exists()
+
+    # arquivo sem o heading (agente reescreveu à mão): fica como está
+    custom = "# Meu progresso\n\nsó texto meu\n"
+    _write(tmp_path / PROGRESS_FILE, custom)
+    assert append_progress_note(tmp_path, "t — x") is False
+    assert (tmp_path / PROGRESS_FILE).read_text(encoding="utf-8") == custom
 
 
 # ---------------------------------------------------------------------------

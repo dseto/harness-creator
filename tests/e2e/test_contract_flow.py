@@ -75,7 +75,12 @@ def _run(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     env = os.environ | {"PYTHONPATH": str(SRC_DIR)}
     return subprocess.run(
         [sys.executable, "-m", "harness.cli", *args],
-        capture_output=True, text=True, timeout=60, env=env, cwd=str(cwd),
+        # `encoding="utf-8"` explícito (mesmo padrão de `_run_preflight_cli` e
+        # `_run_cli` de test_fase4_outcomes): sem ele, `text=True` decodifica
+        # com o codec do locale, e no Windows pt-BR (cp1252) as mensagens
+        # acentuadas do CLI chegam como mojibake — as asserções de texto
+        # falham por causa do leitor, não do produto.
+        capture_output=True, text=True, encoding="utf-8", timeout=60, env=env, cwd=str(cwd),
     )
 
 

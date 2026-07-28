@@ -540,9 +540,16 @@ def _dry_check_verify_cmd(verify_cmd: str, cwd: Path, timeout: float = 8.0) -> s
             "comando; se isso e inesperado, revise Plans.md"
         )
 
+    # Mesma normalização de head do `run_verify` (import tardio pelo ciclo
+    # descrito abaixo): sem ela, este dry-check reprovaria com "comando não
+    # encontrado" exatamente a forma `.venv/Scripts/<bin>` que o preflight
+    # recomenda e que o verify real executa — dois veredictos opostos sobre a
+    # mesma string, no mesmo repo.
+    from harness.verify import normalize_command_head
+
     try:
         proc = subprocess.run(
-            verify_cmd,
+            normalize_command_head(verify_cmd),
             shell=True,
             cwd=cwd,
             capture_output=True,

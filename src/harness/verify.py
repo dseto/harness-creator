@@ -7,9 +7,10 @@ edição sobre `feature_list.json` (outro escopo) nem ordena por `depends[]`
 (idem) — apenas executa o comando de UMA feature e, em caso de sucesso,
 grava a prova em `.harness/evidence/<contrato>/<feature_id>.json`.
 
-`mark_feature_passed` é a exceção opt-in a essa regra: só roda quando o
-`cli.py` chama com `--mark-passed` (e só depois de `run_verify` já ter tido
-sucesso) — grava `passes: true` na feature em `feature_list.json`. Sem lock
+`mark_feature_passed` é a exceção a essa regra: roda depois de `run_verify`
+ter tido sucesso e grava `passes: true` na feature em `feature_list.json`.
+Desde a v0.23.0 é o comportamento PADRÃO do `harness verify` (antes era
+opt-in via `--mark-passed`); `--no-mark-passed` volta ao antigo. Sem lock
 entre processos; ver docstring da função para a ressalva de concorrência.
 
 Campo opcional `cwd` da feature (ver `contract.py`): diretório relativo a
@@ -54,7 +55,7 @@ from typing import Any, TextIO
 
 from harness.boundary_guard import is_floor_bash_command
 from harness.contract import FEATURE_LIST_FILE
-from harness.templates import update_progress_status
+from harness.templates import append_progress_note, update_progress_status
 
 EVIDENCE_DIR = ".harness/evidence"
 _VERIFY_TIMEOUT_SECONDS = 600
@@ -315,6 +316,41 @@ def _run_verify_cmd(
     return returncode, "".join(out_parts), "".join(err_parts)
 
 
+def normalize_command_head(command: str) -> str:
+    """No Windows, troca `/` por `\\` SÓ no primeiro token de `command`.
+
+    Item 1 do backlog do dogfood miojo. O `boundary_guard` reconhece
+    `.venv/Scripts/pytest.exe` como forma equivalente ao binário nu — e o
+    `preflight` recomenda exatamente essa forma. Mas o guard só precisa CASAR
+    o texto; quem EXECUTA é este módulo, via `shell=True`, que no Windows
+    passa pelo `cmd.exe` — e o `cmd.exe` corta o token no primeiro `/`
+    (delimitador de switch), respondendo `'.venv' não é reconhecido como um
+    comando interno ou externo`. A mesma string, portanto, passava no guard e
+    falhava na execução: o preflight recomendava uma forma que só funcionava
+    em metade dos caminhos.
+
+    **Só o head, nunca a string inteira.** Um replace global mangelaria
+    argumento legítimo com `/`: regex (`-k 'a/b'`), URL, `--cov=src/harness`,
+    caminho de teste em forma POSIX que o próprio `cmd.exe` aceita quando é
+    ARGUMENTO (o corte por `/` só vale para o token do comando). O head é o
+    único ponto onde a barra quebra.
+
+    No-op fora do Windows, no-op quando o head não tem `/`, e no-op quando o
+    head vem entre aspas (aí o `cmd.exe` já trata o caminho inteiro como um
+    token só, e reescrever poderia romper um quoting deliberado).
+    """
+    if sys.platform != "win32":
+        return command
+    stripped = command.lstrip()
+    if not stripped or stripped[0] in ("\"", "'"):
+        return command
+    head = re.match(r"\S+", stripped).group(0)
+    if "/" not in head:
+        return command
+    leading = command[: len(command) - len(stripped)]
+    return leading + head.replace("/", "\\") + stripped[len(head):]
+
+
 def compute_files_hash(files: list[str], target_dir: Path) -> str:
     """SHA-256 determinístico do conteúdo atual de `files` (relativos a `target_dir`).
 
@@ -402,9 +438,14 @@ def run_verify(
                 f"feature '{feature_id}': cwd '{feature_cwd}' não existe em {target_dir}"
             )
 
+    # O texto do contrato é preservado intacto (é ele que vai para a
+    # evidência e para as mensagens de erro); o que roda é a forma executável
+    # — ver `normalize_command_head` para o porquê de só o head mudar.
+    exec_cmd = normalize_command_head(verify_cmd)
+
     try:
         returncode, stdout, stderr = _run_verify_cmd(
-            verify_cmd, verify_cwd, timeout_seconds, stream
+            exec_cmd, verify_cwd, timeout_seconds, stream
         )
     except subprocess.TimeoutExpired as exc:
         raise VerifyError(
@@ -442,25 +483,49 @@ def run_verify(
     # existir (nunca faz run_verify falhar por causa disso).
     update_progress_status(target_dir, feature_id, "done")
 
+    # Item 4 do backlog do dogfood miojo: a coluna de status era sincronizada,
+    # mas a seção de texto livre "Última atualização" continuava 100% manual e
+    # ficava vazia até alguém lembrar do passo 12 — o arquivo existe para a
+    # próxima sessão retomar sem perder contexto, e cumpria mal esse papel.
+    # O MESMO timestamp da evidência, nunca um relógio novo: dois carimbos
+    # divergentes para o mesmo evento seriam piores que o placeholder.
+    append_progress_note(
+        target_dir,
+        f"{evidence['recorded_at']} — {feature_id} verificado (exit_code 0) — "
+        f"{path.relative_to(target_dir).as_posix()}",
+    )
+
     return path
 
 
 def mark_feature_passed(target_dir: Path, feature_id: str) -> Path:
     """Grava `passes: true` na feature `feature_id` em `feature_list.json`.
 
-    Opt-in via `harness verify <id> --mark-passed` (chamado pelo `cli.py`
-    SÓ depois de `run_verify` ter sucesso) — poupa a sessão orquestradora
-    sequencial única de editar `feature_list.json` na mão a cada tarefa.
+    Chamada pelo `cli.py` SÓ depois de `run_verify` ter sucesso, e por padrão
+    desde a v0.23.0 (item 3 do backlog do dogfood miojo). Antes era opt-in via
+    `--mark-passed`, e o resultado prático era que `harness verify` gravava
+    evidência com `exit_code: 0` enquanto `passes` continuava `false` — e como
+    `supervisor.ready_features` decide só por `passes`, `harness supervise`
+    devolvia a MESMA tarefa indefinidamente, com prova verde em disco. A saída
+    do verify também não mencionava a flag em lugar nenhum, então não havia de
+    onde deduzir o passo que faltava.
 
-    SEM lock entre processos: não usar com múltiplos agentes escrevendo o
-    mesmo `feature_list.json` em paralelo (mesma ressalva de
-    `contract.compile_contract`, que usa este mesmo padrão de escrita).
+    `--no-mark-passed` mantém o comportamento antigo. Ele existe para o caso
+    de concorrência: SEM lock entre processos, não usar com múltiplos agentes
+    escrevendo o mesmo `feature_list.json` em paralelo (mesma ressalva de
+    `contract.compile_contract`, que usa este mesmo padrão de escrita). O
+    lifecycle passo 6 manda trabalhar UMA feature por vez, então sequencial é
+    o default honesto — quem monta fleet paralelo sabe que está fora dele.
 
     Reescreve o arquivo inteiro (leitura completa -> mutação da feature em
-    memória -> `write_text` do payload inteiro), preservando todos os outros
-    campos de topo e todas as outras features intactas. Levanta
-    `VerifyError` se `feature_list.json` não existir, tiver JSON inválido,
-    ou não tiver a feature `feature_id`.
+    memória -> escrita do payload inteiro), preservando todos os outros
+    campos de topo e todas as outras features intactas. A escrita é ATÔMICA
+    (arquivo temporário no mesmo diretório + `os.replace`): a corrida de
+    lost-update entre processos continua existindo, mas nenhuma delas pode
+    deixar o `feature_list.json` truncado — o arquivo é o contrato ativo, e um
+    truncamento nele derruba o boundary_guard inteiro para o caminho de
+    bootstrap. Levanta `VerifyError` se `feature_list.json` não existir, tiver
+    JSON inválido, ou não tiver a feature `feature_id`.
     """
     target_dir = target_dir.resolve()
     feature_list_path = target_dir / FEATURE_LIST_FILE
@@ -479,7 +544,8 @@ def mark_feature_passed(target_dir: Path, feature_id: str) -> Path:
     else:
         raise VerifyError(f"feature '{feature_id}' não encontrada em {feature_list_path}")
 
-    feature_list_path.write_text(
-        json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
+    payload = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    tmp_path = feature_list_path.with_name(feature_list_path.name + ".tmp")
+    tmp_path.write_text(payload, encoding="utf-8")
+    os.replace(tmp_path, feature_list_path)
     return feature_list_path
