@@ -63,6 +63,61 @@ _RISK_TO_RULES: dict[str, list[str]] = {
 # eet...) pertencem ao modo de execução congelado e geram aviso.
 _COMPILED_SECTIONS = {"governance", "verification"}
 
+# Fonte única do trecho que lê o contrato compilado de DENTRO dos hooks
+# gerados (standalone/stdlib — eles não importam a biblioteca). Existe porque
+# o diálogo de aprovação do Claude Code só mostra o texto que o hook devolve
+# em `permissionDecisionReason`: sem isto o humano aprova a edição/execução de
+# um teste vendo path e comando, mas não o COMPORTAMENTO coberto (issue #41 —
+# a regra "descrição funcional" do passo 15 do lifecycle nunca chegou aqui).
+# Ancorado por `__file__`, mesmo racional do `DISABLED_CHECK_SRC`: o hook mora
+# em `<repo>/.harness/hooks/`, então `parent.parent` é `<repo>/.harness` e o
+# contrato é `<repo>/.harness/feature_list.json`, independente do `cwd` do
+# payload (que pode derivar). Fail-safe em toda leitura: qualquer erro devolve
+# lista vazia e a razão volta ao texto sem contrato — o gate continua pedindo
+# aprovação, nunca quebra nem vira allow por causa deste enriquecimento.
+CONTRACT_LOOKUP_SRC = '''_DESC_MAX_CHARS = 220
+_MAX_TASKS_IN_REASON = 3
+
+
+def _contract_features() -> list:
+    """Tarefas de `<repo>/.harness/feature_list.json`, ou [] se não houver
+    contrato compilado / o JSON estiver ilegível (fail-safe)."""
+    try:
+        from pathlib import Path as _P
+        path = _P(__file__).resolve().parent.parent / "feature_list.json"
+        features = json.loads(path.read_text(encoding="utf-8")).get("features")
+        return features if isinstance(features, list) else []
+    except Exception:
+        return []
+
+
+def _norm_path(raw: str) -> str:
+    path = (raw or "").replace("\\\\", "/").strip().lower()
+    while path.startswith("./"):
+        path = path[2:]
+    return path
+
+
+def _describe(feature: dict) -> str:
+    desc = (feature.get("desc") or "").strip() or "(tarefa sem descrição no contrato)"
+    if len(desc) > _DESC_MAX_CHARS:
+        desc = desc[:_DESC_MAX_CHARS - 1] + "..."
+    text = str(feature.get("id") or "?") + " — " + desc
+    files = [f for f in (feature.get("files") or []) if f]
+    if files:
+        text += " (arquivos: " + ", ".join(files[:4]) + ")"
+    return text
+
+
+def _contract_note(features: list) -> str:
+    """Prefixo da razão: o que o humano está aprovando, em linguagem de
+    contrato — vem ANTES do path/comando, que sozinhos não dizem nada."""
+    if not features:
+        return ""
+    return "O QUE ESTE TESTE COBRE: " + " | ".join(
+        _describe(f) for f in features[:_MAX_TASKS_IN_REASON]
+    ) + ". "'''
+
 
 @dataclass
 class Artifacts:
@@ -170,6 +225,9 @@ import sys
 {DISABLED_CHECK_SRC}
 
 
+{CONTRACT_LOOKUP_SRC}
+
+
 TEST_PATTERN = re.compile({pattern!r})
 
 
@@ -194,8 +252,20 @@ def main() -> None:
         path = path[len(cwd) + 1:]
 
     if TEST_PATTERN.match(path):
+        features = _contract_features()
+        declared = [
+            f for f in features
+            if any(_norm_path(x) == _norm_path(path) for x in (f.get("files") or []))
+        ]
+        note = _contract_note(declared)
+        if not note and features:
+            note = (
+                "ATENÇÃO: nenhuma tarefa do contrato ativo declara este arquivo "
+                "de teste — aprovar aqui é aprovar trabalho fora do contrato. "
+            )
         decision, reason = "ask", (
-            "Arquivo de teste protegido pelo harness (edit_test): `" + path
+            note
+            + "Arquivo de teste protegido pelo harness (edit_test): `" + path
             + "` casa test_glob — edição exige aprovação humana explícita."
         )
     else:
@@ -234,6 +304,25 @@ import sys
 {DISABLED_CHECK_SRC}
 
 
+{CONTRACT_LOOKUP_SRC}
+
+
+def _relevant_to_command(feature: dict, command: str) -> bool:
+    """A tarefa fala do comando que está sendo rodado? Casa pelo `verify_cmd`
+    literal ou por qualquer arquivo declarado (path completo ou basename) que
+    apareça na linha de comando — é o que separa `pytest tests/test_a.py` da
+    tarefa certa quando o contrato tem várias pendentes."""
+    verify = (feature.get("verify_cmd") or "").strip()
+    lowered = _norm_path(command)
+    if verify and _norm_path(verify) in lowered:
+        return True
+    for raw in (feature.get("files") or []):
+        norm = _norm_path(raw)
+        if norm and (norm in lowered or norm.rsplit("/", 1)[-1] in lowered):
+            return True
+    return False
+
+
 RUNNER_TOKENS = {runner_tokens!r}
 # Metacaracteres de shell contam como separador — "pytest&&true" não escapa.
 SHELL_SPLIT = re.compile(r"[\\s;&|()<>`$\\"']+")
@@ -265,8 +354,11 @@ def main() -> None:
     tokens = [t for t in SHELL_SPLIT.split(command) if t]
     hit = _has_runner_sequence(tokens)
     if hit:
+        pending = [f for f in _contract_features() if not f.get("passes")]
+        focused = [f for f in pending if _relevant_to_command(f, command)] or pending
         decision, reason = "ask", (
-            "Comando roda a suíte de teste (`" + command + "`) — disciplina "
+            _contract_note(focused)
+            + "Comando roda a suíte de teste (`" + command + "`) — disciplina "
             "TDD do harness pede confirmação humana (escreva o teste falho "
             "antes da implementação)."
         )
