@@ -178,8 +178,10 @@ Duas leituras que a tabela costuma surpreender:
    nunca libera: **escrita** em arquivo de segredo (`.env`, `.pem`, `id_rsa`,
    `*credentials*`), inclusive por redirecionamento (`>`, `>>`, `tee`); rede
    não planejada (`curl`, `wget`); publicação (`npm publish`, `pip upload`,
-   `twine upload`, `gh release`); e `git push` — sempre fora da superfície
-   automática. **Leitura** de segredo não é bloqueada (ler `.env.example` é
+   `twine upload`, `gh release`) — sempre fora da superfície automática.
+   `git push` tem uma exceção estreita: só da branch do contrato ativo
+   (`contract/<slug>`) para ela mesma, sem `--force` nem refspec explícito;
+   qualquer outra forma segue negada. **Leitura** de segredo não é bloqueada (ler `.env.example` é
    rotina): o guard libera e anexa um aviso à razão, porque o conteúdo entra
    no contexto da sessão.
 6. **Generaliza entre stacks.** O mesmo pipeline foi provado em dogfood real
