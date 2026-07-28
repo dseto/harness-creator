@@ -1,0 +1,16 @@
+{
+  "feature_id": "T-01",
+  "contract": "item-8-preflight-read-only",
+  "desc": "Rodar o preflight volta a não escrever nada no repositório avaliado, nem perguntar nada a quem roda",
+  "files": [
+    "src/harness/cli.py",
+    "src/harness/config.py",
+    "src/harness/preflight.py",
+    "tests/test_preflight.py",
+    "tests/e2e/evidence/preflight-dogfood-2026-07-17.md"
+  ],
+  "verify_cmd": "python -m pytest tests/test_preflight.py -q",
+  "recorded_at": "2026-07-28T16:35:57.593108+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:97bda4a90b4e6f810fccae66f2c078b75e133332db1fe1b406d8bd75775954b8"
+}

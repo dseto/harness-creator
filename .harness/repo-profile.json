@@ -6,7 +6,11 @@
       "confidence": 1.0
     }
   ],
-  "package_manager": null,
+  "package_manager": {
+    "value": "pip",
+    "evidence": "pyproject.toml",
+    "confidence": 0.6
+  },
   "test_command": {
     "value": "pytest",
     "evidence": "pyproject.toml",
@@ -32,11 +36,9 @@
       "confidence": 1.0
     }
   },
-  "unknowns": [
-    "package_manager: nenhum lockfile detectado"
-  ],
-  "analyzed_at": "2026-07-23T20:33:11.960157+00:00",
+  "unknowns": [],
+  "analyzed_at": "2026-07-28T16:31:36.922446+00:00",
   "manifest_snapshot": {
-    "pyproject.toml": "c0f7a367077e69a452dd940e3d11437a8eec5e3f1154d2af003fb31fd276bfe0"
+    "pyproject.toml": "18f9d46085af907c5ae185397588b1e46b1aae08e829d9877de78a97cd8d348b"
   }
 }

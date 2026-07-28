@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-02",
+  "contract": "item-8-preflight-read-only",
+  "desc": "Quando o comando de teste ou de lint não resolve, o laudo diz ao usuário exatamente qual comando rodar para corrigir",
+  "files": [
+    "skills/preflight/SKILL.md",
+    "tests/test_preflight.py"
+  ],
+  "verify_cmd": "python -m pytest tests/test_preflight.py -k skill -q",
+  "recorded_at": "2026-07-28T16:37:19.367983+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:fefb90f0d45d879a626e0f8abf21738033b6d57faa32f2b95d75f8fe981f4a8b"
+}

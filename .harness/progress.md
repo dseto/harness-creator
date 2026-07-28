@@ -1,14 +1,21 @@
 # Claude Progress
 
-Contrato: `spec-template-resumo-executivo`
+Contrato: `item-8-preflight-read-only`
 
 ## Features
 
 | id | desc | status |
 | --- | --- | --- |
-| T-01 | Template spec.md ganha secao Resumo executivo por padrao | done |
+| T-01 | Rodar o preflight volta a não escrever nada no repositório avaliado, nem perguntar nada a quem roda | done |
+| T-02 | Quando o comando de teste ou de lint não resolve, o laudo diz ao usuário exatamente qual comando rodar para corrigir | done |
 
 ## Última atualização
+
+<!-- harness:auto -->
+- 2026-07-28T16:35:57.593108+00:00 — T-01 verificado (exit_code 0) — .harness/evidence/item-8-preflight-read-only/T-01.json
+- 2026-07-28T16:37:19.367983+00:00 — T-02 verificado (exit_code 0) — .harness/evidence/item-8-preflight-read-only/T-02.json
+<!-- /harness:auto -->
+
 
 Contrato `harness-kill-switch` CONCLUÍDO — T-01..T-06 verificados
 (`harness verify <id> --mark-passed`, `exit_code: 0` cada; evidência em

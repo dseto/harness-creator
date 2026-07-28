@@ -1,16 +1,34 @@
 {
-  "contract": "spec-template-resumo-executivo",
-  "compiled_at": "2026-07-23T21:38:11.880823+00:00",
-  "compiled_with_version": "0.17.6",
+  "contract": "item-8-preflight-read-only",
+  "compiled_at": "2026-07-28T16:33:57.888570+00:00",
+  "compiled_with_version": "0.23.0",
   "features": [
     {
       "id": "T-01",
-      "desc": "Template spec.md ganha secao Resumo executivo por padrao",
+      "desc": "Rodar o preflight volta a não escrever nada no repositório avaliado, nem perguntar nada a quem roda",
       "files": [
-        "skills/plan/references/contract-templates.md"
+        "src/harness/cli.py",
+        "src/harness/config.py",
+        "src/harness/preflight.py",
+        "tests/test_preflight.py",
+        "tests/e2e/evidence/preflight-dogfood-2026-07-17.md"
       ],
-      "verify_cmd": "python -c \"text = open('skills/plan/references/contract-templates.md', encoding='utf-8').read(); assert '## Resumo executivo' in text; assert text.index('## Resumo executivo') < text.index('## Escopo')\"",
+      "verify_cmd": "python -m pytest tests/test_preflight.py -q",
       "depends": [],
+      "cwd": null,
+      "passes": true
+    },
+    {
+      "id": "T-02",
+      "desc": "Quando o comando de teste ou de lint não resolve, o laudo diz ao usuário exatamente qual comando rodar para corrigir",
+      "files": [
+        "skills/preflight/SKILL.md",
+        "tests/test_preflight.py"
+      ],
+      "verify_cmd": "python -m pytest tests/test_preflight.py -k skill -q",
+      "depends": [
+        "T-01"
+      ],
       "cwd": null,
       "passes": true
     }
