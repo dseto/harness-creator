@@ -217,7 +217,17 @@ def render_closed_progress(report: dict[str, Any]) -> str:
     lines = [
         "# Claude Progress",
         "",
-        f"Contrato `{contract}` ENCERRADO por `harness finish`.",
+        # Header CANÔNICO (`Contrato: ` + crase), e não uma variação com o
+        # "ENCERRADO" embutido na mesma linha. `templates.install_templates` só
+        # restaura o progresso do contrato seguinte quando consegue ler o slug
+        # antigo por este formato exato; um header decorado devolvia `None` e a
+        # regeneração era pulada em silêncio, fazendo a sessão seguinte herdar
+        # o resumo da demanda anterior. Foi o que aconteceu na v0.25.0: o
+        # `SessionStart` injetou "nenhuma feature pendente" numa sessão com seis
+        # tarefas a fazer — o modo de falha que este comando existe para matar.
+        f"Contrato: `{contract}`",
+        "",
+        "_Demanda ENCERRADA por `harness finish`._",
         "",
         "## Features",
         "",

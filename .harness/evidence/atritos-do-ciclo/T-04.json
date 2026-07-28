@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-04",
+  "contract": "atritos-do-ciclo",
+  "desc": "A suíte de ponta a ponta passa em qualquer console, sem depender da codificação configurada na máquina",
+  "files": [
+    "tests/e2e/test_contract_flow.py",
+    "src/harness/cli.py"
+  ],
+  "verify_cmd": "python -m pytest tests/e2e/test_contract_flow.py -q",
+  "recorded_at": "2026-07-28T23:42:37.405049+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:768c46ea669eae9d7233489f8faaf6d577e42ab29faf5bfe76e99cf5c93f7a82"
+}

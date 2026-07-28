@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-05",
+  "contract": "atritos-do-ciclo",
+  "desc": "Ao barrar um commit na branch protegida, a recusa passa a dizer que chore de doc/versão é decisão do humano e vai no terminal dele, sem sugerir que o agente contorne o PR",
+  "files": [
+    "src/harness/boundary_guard.py",
+    "tests/test_boundary_guard.py"
+  ],
+  "verify_cmd": "python -m pytest tests/test_boundary_guard.py -k chore -q",
+  "recorded_at": "2026-07-28T23:39:13.769731+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:cf759ce59c21768b6201b2e268603ed433dc3d80cddb31a55c430ea152c22ef4"
+}

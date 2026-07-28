@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-02",
+  "contract": "atritos-do-ciclo",
+  "desc": "O comando de teste declarado no perfil do projeto pode ser rodado durante a demanda, e não só o teste exato da tarefa em curso",
+  "files": [
+    "src/harness/boundary_guard.py",
+    "tests/test_boundary_guard.py"
+  ],
+  "verify_cmd": "python -m pytest tests/test_boundary_guard.py -k profile_test_command -q",
+  "recorded_at": "2026-07-28T23:53:03.119102+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:cf759ce59c21768b6201b2e268603ed433dc3d80cddb31a55c430ea152c22ef4"
+}

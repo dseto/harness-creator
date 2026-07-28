@@ -1,30 +1,28 @@
 {
-  "contract": "harness-finish",
-  "compiled_at": "2026-07-28T21:44:44.411771+00:00",
-  "compiled_with_version": "0.24.0",
+  "contract": "atritos-do-ciclo",
+  "compiled_at": "2026-07-28T23:42:05.275099+00:00",
+  "compiled_with_version": "0.25.0",
   "features": [
     {
       "id": "T-01",
-      "desc": "`harness finish` recusa encerrar a demanda quando o fecho não está íntegro, e diz exatamente o que está pendente",
+      "desc": "O agente consegue ler o relógio para carimbar a hora da aprovação, mas continua sem poder ajustar o relógio da máquina",
       "files": [
-        "src/harness/finish.py",
-        "src/harness/cli.py",
-        "tests/test_finish.py"
+        "src/harness/boundary_guard.py",
+        "tests/test_boundary_guard.py"
       ],
-      "verify_cmd": "python -m pytest tests/test_finish.py -k audit -q",
+      "verify_cmd": "python -m pytest tests/test_boundary_guard.py -k date -q",
       "depends": [],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-02",
-      "desc": "Com o fecho íntegro, `harness finish` limpa os descartáveis do `.harness/` e deixa o resumo de progresso declarando o contrato encerrado",
+      "desc": "O comando de teste declarado no perfil do projeto pode ser rodado durante a demanda, e não só o teste exato da tarefa em curso",
       "files": [
-        "src/harness/finish.py",
-        "tests/test_finish.py",
-        "src/harness/cli.py"
+        "src/harness/boundary_guard.py",
+        "tests/test_boundary_guard.py"
       ],
-      "verify_cmd": "python -m pytest tests/test_finish.py -k sweep -q",
+      "verify_cmd": "python -m pytest tests/test_boundary_guard.py -k profile_test_command -q",
       "depends": [
         "T-01"
       ],
@@ -33,26 +31,52 @@
     },
     {
       "id": "T-03",
-      "desc": "O agente consegue rodar `harness finish` sozinho, sem prompt de permissão, como já faz com os demais subcomandos do harness",
+      "desc": "Descobrir em que branch a sessão está deixa de ser bloqueado, sem liberar apagar branch",
       "files": [
         "src/harness/boundary_guard.py",
         "tests/test_boundary_guard.py"
       ],
-      "verify_cmd": "python -m pytest tests/test_boundary_guard.py -k finish -q",
+      "verify_cmd": "python -m pytest tests/test_boundary_guard.py -k show_current -q",
       "depends": [
-        "T-01"
+        "T-02"
       ],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-04",
-      "desc": "Começar o segundo contrato de um repo deixa de travar o agente: o artefato que o próprio harness acabou de gerar não conta mais como sujeira que impede criar a branch",
+      "desc": "A suíte de ponta a ponta passa em qualquer console, sem depender da codificação configurada na máquina",
       "files": [
-        "src/harness/branching.py",
-        "tests/test_branching.py"
+        "tests/e2e/test_contract_flow.py",
+        "src/harness/cli.py"
       ],
-      "verify_cmd": "python -m pytest tests/test_branching.py -k managed -q",
+      "verify_cmd": "python -m pytest tests/e2e/test_contract_flow.py -q",
+      "depends": [],
+      "cwd": null,
+      "passes": true
+    },
+    {
+      "id": "T-05",
+      "desc": "Ao barrar um commit na branch protegida, a recusa passa a dizer que chore de doc/versão é decisão do humano e vai no terminal dele, sem sugerir que o agente contorne o PR",
+      "files": [
+        "src/harness/boundary_guard.py",
+        "tests/test_boundary_guard.py"
+      ],
+      "verify_cmd": "python -m pytest tests/test_boundary_guard.py -k chore -q",
+      "depends": [
+        "T-03"
+      ],
+      "cwd": null,
+      "passes": true
+    },
+    {
+      "id": "T-06",
+      "desc": "Depois de encerrar uma demanda, o resumo de progresso do contrato seguinte é regenerado — a sessão nova não herda mais o estado da demanda anterior",
+      "files": [
+        "src/harness/finish.py",
+        "tests/test_finish.py"
+      ],
+      "verify_cmd": "python -m pytest tests/test_finish.py -k regenera -q",
       "depends": [],
       "cwd": null,
       "passes": true

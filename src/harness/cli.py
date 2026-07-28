@@ -71,8 +71,17 @@ def _audit_exit_code(report: Any) -> int:
 def main() -> None:
     # No Windows, stdout redirecionado/piped fica na locale cp1252 e corrompia o JSON
     # ensure_ascii=False do laudo (UnicodeEncodeError em paths com caracteres fora do cp1252, ex. cirílico/CJK).
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8")
+    #
+    # O stderr entrou junto (atrito 4 do ciclo `harness-finish`): reconfigurar só
+    # o stdout deixava os dois streams em codecs DIFERENTES, e as mensagens de
+    # erro acentuadas ("contrato não aprovado") saíam em cp1252. Quem captura o
+    # stderr decodificando UTF-8 — qualquer chamador programático, e a suíte e2e
+    # entre eles — recebia `UnicodeDecodeError` na thread leitora do subprocess
+    # e um `stderr` `None` no lugar do texto. O sintoma não parecia de encoding:
+    # o teste quebrava com `TypeError` num assert sobre a mensagem.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(prog="harness", description="harness-creator — Agente = Modelo + Harness")
     sub = parser.add_subparsers(dest="command", required=True)
 

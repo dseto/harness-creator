@@ -1212,13 +1212,23 @@ def _is_claude_memory_path(path: str) -> bool:
 # está fora de escopo por design.
 # ---------------------------------------------------------------------------
 READONLY_SHELL_UTILITIES = frozenset({
-    "cat", "head", "tail", "wc", "grep", "rg", "ls", "echo", "find",
+    "cat", "head", "tail", "wc", "grep", "rg", "ls", "echo", "find", "date",
 })
 FIND_WRITE_FLAGS = frozenset({
     "-delete", "-exec", "-execdir", "-ok", "-okdir",
     "-fprint", "-fprintf", "-fprint0", "-fls",
 })
 GREP_RG_EXEC_FLAGS = ("--pre", "--pre-glob", "--hostname-bin")
+#: `date` LE o relogio (read-only) ate estas flags, que o ESCREVEM. Ajustar o
+#: relogio do host e mudanca de configuracao de sistema, nao leitura. Mesmo
+#: padrao de FIND_WRITE_FLAGS/GREP_RG_EXEC_FLAGS: utilitario de leitura com um
+#: punhado de flags que o tornam destrutivo.
+#:
+#: `date` entrou na allowlist porque a skill `plan` EXIGE carimbar
+#: `approved_at` com o timestamp ISO do momento da aprovacao humana, e nenhuma
+#: rota de ler a hora era permitida - nem `date`, nem `python -c`. O agente
+#: ficava sem como cumprir uma regra do proprio processo.
+DATE_WRITE_FLAGS = ("-s", "--set")
 
 
 def _is_grep_exec_flag(token: str) -> bool:
@@ -1226,6 +1236,17 @@ def _is_grep_exec_flag(token: str) -> bool:
     `--hostname-bin`), em forma exata ou `--flag=valor`. `--pretty`/`-p`
     NÃO casam (match por igualdade/`=`, não por prefixo)."""
     for flag in GREP_RG_EXEC_FLAGS:
+        if token == flag or token.startswith(flag + "="):
+            return True
+    return False
+
+
+def _is_date_write_flag(token: str) -> bool:
+    """True se `token` é flag do `date` que ESCREVE o relógio da máquina
+    (`-s`, `--set`), em forma exata ou `--set=valor`. Match por igualdade/`=`
+    e não por prefixo, senão `--iso-8601=seconds` seria confundido com escrita
+    a cada carimbo de timestamp — o uso que motivou liberar o comando."""
+    for flag in DATE_WRITE_FLAGS:
         if token == flag or token.startswith(flag + "="):
             return True
     return False
@@ -1288,6 +1309,8 @@ def _is_readonly_shell_segment(segment: str) -> bool:
     if head == "find" and any(t in FIND_WRITE_FLAGS for t in rest):
         return False
     if head in ("grep", "rg") and any(_is_grep_exec_flag(t) for t in rest):
+        return False
+    if head == "date" and any(_is_date_write_flag(t) for t in rest):
         return False
     return True
 
@@ -2210,6 +2233,8 @@ def render_boundary_guard(protected_branches: list[str] | None = None) -> str:
         f"FIND_WRITE_FLAGS = {set(FIND_WRITE_FLAGS)!r}",
         f"GREP_RG_EXEC_FLAGS = {GREP_RG_EXEC_FLAGS!r}",
         inspect.getsource(_is_grep_exec_flag),
+        f"DATE_WRITE_FLAGS = {DATE_WRITE_FLAGS!r}",
+        inspect.getsource(_is_date_write_flag),
         inspect.getsource(_segment_has_file_redirect),
         inspect.getsource(_is_readonly_shell_segment),
         f"READONLY_PS_CMDLETS = {set(READONLY_PS_CMDLETS)!r}",
@@ -2289,6 +2314,11 @@ FIXED_GIT_SEQUENCES = [
     ["git", "diff"],
     ["git", "add"],
     ["git", "commit"],
+    # TRES tokens de proposito: o match e por PREFIXO, entao ["git","branch"]
+    # liberaria `-D`/`-d`/`-m` de carona numa entrada que so quer LER o nome da
+    # branch atual. Atrito 3 do ciclo do contrato `harness-finish` - sem isto o
+    # agente descobria a branch lendo a primeira linha do `git status`.
+    ["git", "branch", "--show-current"],
 ]
 
 # --- subcomandos do proprio harness sempre liberados quando ha contrato
@@ -2352,7 +2382,12 @@ def _protected_branch_commit_problem(command, cwd):
         "mensagem, troque de branch. Saida: `git checkout -b <tipo>/<slug>` "
         "(ex.: feat/minha-mudanca) e commite la; ou rode `harness "
         "compile-session`, que posiciona em contract/<slug> automaticamente "
-        "quando ha contrato ativo"
+        "quando ha contrato ativo. TERCEIRA saida, e ela NAO e do agente: se "
+        "esta mudanca e chore de doc/versao que a politica do repo manda ir "
+        "direto para a main (CHANGELOG, bump de versao, correcao de texto), "
+        "ela nao passa por aqui - peca ao HUMANO para rodar o commit no "
+        "terminal dele, fora do Claude Code, e siga em frente. Nao procure "
+        "outra rota nem insista neste comando"
     )
 
 
@@ -2593,6 +2628,14 @@ def _collect_allowed_bash_commands(feature_list, profile):
         vc = feat.get("verify_cmd")
         if vc:
             commands.append(vc)
+    # O test_command mora no TOPO do profile, nao em extras (diferente de
+    # lint/typecheck/build) - ficar de fora foi omissao, nao decisao: o lint do
+    # projeto rodava a qualquer hora e o teste do projeto so na grafia exata do
+    # verify_cmd da tarefa, entao nao havia como testar mudanca em codigo
+    # compartilhado contra o resto da suite antes do commit.
+    test_command = _profile_entry_value(profile, "test_command")
+    if test_command:
+        commands.append(test_command)
     for key in ("lint_command", "typecheck_command", "build_command"):
         value = _profile_extra_value(profile, key)
         if value:
