@@ -1,5 +1,39 @@
 # Changelog
 
+## v0.22.2 — a razão do gate de teste cita o contrato
+
+Issue #41, PR #42.
+
+### Corrigido — o humano aprovava um teste sem saber o que ele cobre
+
+O diálogo de aprovação do Claude Code só mostra o texto que o hook devolve em
+`permissionDecisionReason`. Os dois guards de TDD ecoavam apenas o payload
+(path do arquivo, linha de comando), então o humano aprovava a edição e a
+execução de um teste sem saber QUAL comportamento estava sendo verificado — o
+que a issue #12 já tinha proibido, mas cuja correção ficou só na prosa do
+passo 15 do lifecycle (mensagem de chat, gate pré-commit) e nunca alcançou a
+superfície onde o humano clica.
+
+- `CONTRACT_LOOKUP_SRC` — fonte única embutida nos dois hooks gerados, no
+  mesmo padrão do `DISABLED_CHECK_SRC`: lê `.harness/feature_list.json`
+  ancorado por `__file__` e monta o prefixo "O QUE ESTE TESTE COBRE" com id,
+  `desc` e arquivos declarados da tarefa.
+- `guard_tests.py` — casa o arquivo editado contra os `files[]` das tarefas;
+  sem casar, avisa que é trabalho fora do contrato ativo.
+- `guard_test_runner.py` — mostra as tarefas pendentes ligadas ao comando
+  (match por `verify_cmd` ou por arquivo declarado), ignorando as que já
+  passaram.
+- Fail-safe em toda leitura: sem contrato, sem match ou JSON ilegível, a razão
+  volta ao texto anterior e a decisão `ask` fica intacta.
+- `contract-templates.md` — a descrição do cabeçalho `## [T-XX]` passa a ser
+  exigida em linguagem de product owner, com exemplo bom/ruim: é ela que
+  aparece verbatim no diálogo.
+
+5 testes novos em `tests/test_compiler.py` (descrição na razão dos dois
+guards, arquivo fora do contrato, fallback sem contrato, JSON corrompido) —
+`pytest tests/test_compiler.py`, 31 passam. A suíte completa não foi executada
+neste corte.
+
 ## v0.22.1 — deadlock de bootstrap do boundary_guard
 
 Correção dos problemas encontrados ao rodar a v0.22.0 num projeto real
