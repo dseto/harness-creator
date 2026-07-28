@@ -1,5 +1,56 @@
 # Changelog
 
+## v0.23.1 — o preflight volta a ser read-only
+
+Item 8 do backlog do dogfood miojo, fechado revertendo a primeira tentativa.
+
+O `preflight` passou a oferecer, quando `.harness/harness.yaml` não existia e
+havia WARNING de `test_command_resolvable`/`lint_command_resolvable`, criar o
+arquivo com valores padrão. Auditoria independente mediu, em fixture real, que
+a oferta não limpava nenhum dos dois warnings — `run_preflight` alimenta os
+checks só com `analyze_project()` + `_with_manual_overrides`, e o yaml era lido
+apenas para saber se existia. `message` e `fix` saíam idênticos antes e depois,
+e o arquivo novo sujava a árvore de trabalho, levando `git_worktree_clean` de
+PASS para WARNING. Saldo do fix: um aviso a mais.
+
+Três agravantes: o yaml gerado gravava `test_command: 'pytest -x --tb=short'`
+— a forma desancorada que o próprio warning denuncia — como governança, e é
+dela que sai o hook `guard_test_runner`; a escrita contradizia a promessa
+read-only de `docs/preflight.md` e da skill sem atualizar nenhuma das duas; e
+sob guard ativo o agente alcançava essa escrita (`echo` está entre os
+utilitários read-only e a avaliação por segmento aprova
+`echo s | harness preflight`), abrindo uma rota para o arquivo de governança
+num comando que está na allowlist do agente justamente por ser leitura pura.
+Nada disso chegou a uma versão publicada: a oferta nasceu e foi revertida
+dentro da janela pós-v0.23.0.
+
+### O `fix` desses dois checks nunca morou no `harness.yaml`
+
+A premissa original do item 8 — "o fix só existe dentro do `harness.yaml`, que
+só nasce no `init`" — estava errada em duas frentes: nenhum check do preflight
+lê o yaml, e o schema não tem chave de lint nenhuma. O fix mora no
+`.harness/repo-profile.json`, via `harness profile set`, que o preflight relê
+no laudo seguinte por `MANUAL_EVIDENCE`. O pré-requisito é `harness analyze`,
+não `init`.
+
+O Passo 3.1 novo da skill `/harness-creator:preflight` documenta essa rota:
+quando um dos dois checks vier WARNING, a skill mostra o `fix` do laudo e
+instrui o usuário a rodar, no terminal dele, `harness analyze` (se ainda não
+houver profile) e `harness profile set test_command "<forma do fix>"`, e
+re-rodar o preflight. Em projeto Node a alternativa é `scripts.test` no
+`package.json`; em Python o manifesto não consegue expressar a forma ancorada
+no venv. `harness profile set` é comando do usuário por design — alimenta a
+superfície de comando compilada, então não está entre os subcomandos que o
+agente roda —, e por isso a skill instrui em vez de executar.
+
+Verificado ponta-a-ponta em fixture limpa: `echo s | preflight` não escreve
+byte nenhum e deixa a árvore limpa, o laudo volta às três chaves de contrato, e
+`analyze` + `profile set` levam `test_command_resolvable` (e `lint_command`)
+de WARNING para PASS. Suíte completa em 949 verde, 1 skip.
+
+Também restaura a evidência de dogfood datada de 2026-07-17, que o commit
+revertido havia editado para casar com o código novo.
+
 ## v0.23.0 — o verify fecha a tarefa
 
 Onda 1 do backlog do dogfood miojo: os quatro achados de atrito diário, os que
