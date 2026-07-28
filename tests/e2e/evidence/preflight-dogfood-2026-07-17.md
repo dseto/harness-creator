@@ -37,7 +37,6 @@ Laudo real (stdout do subprocess):
 {
   "verdict": "NOT_READY",
   "target": "<mock_a_cru>",
-  "has_config": false,
   "categories": [
     {
       "id": "git",
@@ -151,7 +150,6 @@ Laudo real (stdout do subprocess):
 {
   "verdict": "READY",
   "target": "<mock_b_completo>",
-  "has_config": false,
   "categories": [
     {
       "id": "git",

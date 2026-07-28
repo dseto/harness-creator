@@ -10,12 +10,12 @@ aprovado e só devolve o controle ao humano em estado retomável.
    governança compilada (permissions, hooks, este próprio lifecycle) antes
    de tocar em qualquer arquivo do projeto.
 
-2. **Rodar `init.sh`/`init.ps1` (deps + health check do profile).** Script
+2. **Rodar `.harness/init.sh`/`.harness/init.ps1` (deps + health check do profile).** Script
    gerado a partir do profile do projeto: instala dependências e roda um
    health check para confirmar que o ambiente está utilizável antes de
    começar a trabalhar.
 
-3. **Ler `claude-progress.md`.** Resumo do estado da sessão anterior — o
+3. **Ler `.harness/progress.md`.** Resumo do estado da sessão anterior — o
    que já foi feito, o que ficou pendente, o que quebrou. Evita retrabalho
    e recontagem de contexto pelo humano.
 
@@ -24,7 +24,7 @@ aprovado e só devolve o controle ao humano em estado retomável.
    (`verify_cmd`).
 
 5. **Checar `git log`.** Confirma o que já foi commitado de fato, cruzando
-   com o que `claude-progress.md`/`feature_list.json` alegam — detecta
+   com o que `.harness/progress.md`/`feature_list.json` alegam — detecta
    divergência entre estado declarado e estado real do repositório.
 
 6. **Escolher exatamente UMA feature pendente.** Disciplina de escopo: a
@@ -51,14 +51,14 @@ aprovado e só devolve o controle ao humano em estado retomável.
     frontmatter do `spec.md` ativo (`.harness/work/<slug>/spec.md`),
     acessível via `harness.contract.get_stop_conditions` — esse campo é o
     disjuntor do loop. Satisfazer QUALQUER uma das condições listadas ali
-    interrompe a autocorreção, registra o estado em `claude-progress.md` e
+    interrompe a autocorreção, registra o estado em `.harness/progress.md` e
     devolve o controle ao humano junto com o diagnóstico da falha.
 
 11. **Registrar a prova (evidência da verificação bem-sucedida).** Grava a
     evidência de que `verify_cmd` passou (timestamp, comando, hash) — é o
     que autoriza marcar a feature como concluída no passo 13.
 
-12. **Atualizar `claude-progress.md` com o estado atual.** Documenta o que
+12. **Atualizar `.harness/progress.md` com o estado atual.** Documenta o que
     foi feito nesta sessão, para que a próxima sessão (passo 3) retome sem
     perder contexto.
 

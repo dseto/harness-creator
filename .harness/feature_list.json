@@ -16,7 +16,7 @@
       "verify_cmd": "python -m pytest tests/test_preflight.py -q",
       "depends": [],
       "cwd": null,
-      "passes": false
+      "passes": true
     },
     {
       "id": "T-02",
@@ -30,7 +30,7 @@
         "T-01"
       ],
       "cwd": null,
-      "passes": false
+      "passes": true
     }
   ]
 }

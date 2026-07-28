@@ -166,7 +166,7 @@ def _sample_report() -> PreflightReport:
 def test_report_to_dict_has_contract_keys() -> None:
     data = _sample_report().to_dict()
 
-    assert set(data.keys()) == {"verdict", "target", "categories", "has_config"}
+    assert set(data.keys()) == {"verdict", "target", "categories"}
     assert data["verdict"] == "NOT_READY"
     assert data["target"] == "/abs/target"
 
@@ -917,6 +917,48 @@ def test_preflight_skill_frontmatter_and_body() -> None:
     assert "python -m harness.cli preflight --dir" in body
 
 
+def test_preflight_skill_ensina_a_rota_de_correcao_do_comando() -> None:
+    """A skill precisa dizer ONDE `test_command_resolvable`/`lint_command_resolvable`
+    se corrigem — item 8 do backlog do dogfood miojo.
+
+    Esses dois checks são WARNING-only, então o repo cai em
+    `READY_WITH_WARNINGS` e o laudo apontava um problema sem nenhuma ação
+    possível no momento em que era reportado. A rota que funciona é
+    `harness profile set` sobre o `.harness/repo-profile.json`, que o preflight
+    relê via `_with_manual_overrides` (`MANUAL_EVIDENCE`) — provado
+    ponta-a-ponta indo de WARNING para PASS. O pré-requisito é `harness
+    analyze`, não `init`: a premissa original do item 8 (o fix só nasceria no
+    `harness.yaml`) estava errada.
+
+    `harness profile set` é comando do USUÁRIO por design (não está em
+    `_HARNESS_SUBCOMMANDS` do boundary_guard, porque alimenta a superfície
+    compilada), então o corpo precisa mandar o usuário rodar — nunca a skill.
+    """
+    body = _split_frontmatter(_SKILL_PATH.read_text(encoding="utf-8"))[1]
+
+    for code in ("test_command_resolvable", "lint_command_resolvable"):
+        assert code in body, f"a skill não trata o check '{code}'"
+
+    # a forma EXECUTÁVEL documentada no resto da skill, não a menção em prosa.
+    assert "harness.cli profile set" in body, "a skill não indica a rota real de correção"
+    assert "harness.cli analyze" in body, "a skill não cita o pré-requisito do profile"
+    assert "package.json" in body, "a skill não cobre o caso Node (scripts.test no manifesto)"
+
+
+def test_preflight_skill_mantem_a_promessa_read_only() -> None:
+    """O preflight não escreve um byte no repo avaliado, e a skill diz isso.
+
+    A tentativa anterior de fechar o item 8 (commit 6c6a383) fez o CLI criar
+    `.harness/harness.yaml` — o que não limpava nenhum dos dois warnings (nenhum
+    check lê o yaml), sujava a árvore de trabalho e contradizia esta promessa
+    sem atualizá-la. O teste trava a promessa junto do código revertido.
+    """
+    body = _split_frontmatter(_SKILL_PATH.read_text(encoding="utf-8"))[1]
+
+    assert "READ-ONLY" in body
+    assert "NÃO escreve um byte no repo avaliado" in body
+
+
 def test_cli_preflight_unicode_target_emits_valid_utf8_json(tmp_path: Path) -> None:
     # F-01: alvo com nome fora do cp1252 (cirílico + CJK). O CLI REAL via
     # subprocess deve emitir JSON UTF-8 válido — sem o fix de reconfigure() no
@@ -1201,27 +1243,3 @@ def test_corrupt_profile_does_not_break_preflight(tmp_path: Path) -> None:
     report = run_preflight(tmp_path)
 
     assert _by_code(report.categories[2], "test_runner_detected").status == "PASS"
-
-
-def test_preflight_report_has_config_flag_false_when_no_config(tmp_path: Path) -> None:
-    """Report deve ter has_config=False quando .harness/harness.yaml não existe."""
-    _write_python_repo_complete(tmp_path)
-
-    report = run_preflight(tmp_path)
-
-    assert report.has_config is False
-    assert "has_config" in json.loads(report.to_json())
-
-
-def test_preflight_report_has_config_flag_true_when_config_exists(tmp_path: Path) -> None:
-    """Report deve ter has_config=True quando .harness/harness.yaml existe."""
-    _write_python_repo_complete(tmp_path)
-
-    config_dir = tmp_path / ".harness"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    (config_dir / "harness.yaml").write_text("governance:\n  approval_policy: balanced\n", encoding="utf-8")
-
-    report = run_preflight(tmp_path)
-
-    assert report.has_config is True
-    assert json.loads(report.to_json())["has_config"] is True

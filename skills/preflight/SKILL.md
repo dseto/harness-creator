@@ -57,14 +57,50 @@ As 4 categorias, na ordem do laudo:
 ## Passo 3 — Roteamento pelo veredito
 
 - **`READY` ou `READY_WITH_WARNINGS`**: parabenize brevemente. Se houver
-  WARNINGs, aponte que são não-bloqueantes mas valem atenção. Sugira o próximo
-  passo do fluxo: `/harness-creator:plan`.
+  WARNINGs, aponte que são não-bloqueantes mas valem atenção. Se algum deles
+  for `test_command_resolvable` ou `lint_command_resolvable`, aplique o Passo
+  3.1 ANTES de sugerir o próximo passo. Sugira o próximo passo do fluxo:
+  `/harness-creator:plan`.
 - **`NOT_READY`**: há FAIL(s) bloqueante(s). Ofereça aplicar os fixes,
   categoria a categoria. REGRA DURA: a skill NUNCA aplica um fix sozinha. Peça
   confirmação explícita do usuário para CADA fix, um a um — nunca em lote,
   nunca "aplico todos?". Depois de aplicar os fixes que o usuário aprovou,
   RE-RODE `python -m harness.cli preflight --dir <alvo>` (volte ao Passo 1)
   para confirmar que o veredito melhorou.
+
+## Passo 3.1 — Comando de teste/lint que não resolve (WARNING com saída real)
+
+`test_command_resolvable` e `lint_command_resolvable` são WARNING-only, então
+caem no ramo `READY_WITH_WARNINGS` — mas NÃO são "só um aviso": o comando que
+o preflight avaliou é o mesmo que vai virar `verify_cmd` do contrato, e um
+comando que não resolve no shell do agente derruba o ciclo lá na frente. O
+laudo já traz a forma correta no campo `fix` (ex.:
+`.venv/Scripts/pytest.exe`); o que falta é dizer ONDE declará-la.
+
+O lugar é o `.harness/repo-profile.json`, NÃO o `.harness/harness.yaml` — o
+preflight relê a correção manual do profile no próximo laudo, e o `harness.yaml`
+não é lido por nenhum check (e não tem chave de lint nenhuma). Portanto:
+
+1. Mostre o `fix` do laudo e diga qual forma foi escolhida.
+2. **A skill não aplica isto** — `harness profile set` é comando do USUÁRIO por
+   design (alimenta a superfície de comando compilada, então não está entre os
+   subcomandos que o agente roda). Peça ao usuário que rode, no terminal dele:
+
+   ```
+   python -m harness.cli analyze --dir <alvo>
+   python -m harness.cli profile set test_command "<forma do fix>" --dir <alvo>
+   ```
+
+   O `analyze` só é necessário se ainda não houver `.harness/repo-profile.json`
+   (o `profile set` corrige um profile existente, não cria um). Para
+   `lint_command_resolvable`, a mesma chamada com a chave `lint_command`.
+3. Em projeto Node, a alternativa natural é editar `scripts.test` no
+   `package.json` — o analyzer usa esse valor verbatim. Em Python o manifesto
+   não consegue expressar a forma ancorada no venv, então `profile set` é o
+   caminho.
+4. Depois que o usuário confirmar que rodou, RE-RODE
+   `python -m harness.cli preflight --dir <alvo>` (volte ao Passo 1) e confirme
+   que o check virou PASS.
 
 ## Regras
 
