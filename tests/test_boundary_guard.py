@@ -194,6 +194,23 @@ def test_bootstrap_surface_allows_contract_creation_path(
     assert out["permissionDecision"] == "allow", out
 
 
+@pytest.mark.parametrize("command", [
+    "harness finish --dir .",
+    "python -m harness.cli finish --dir .",
+])
+def test_bootstrap_surface_allows_harness_finish(tmp_path: Path, command: str) -> None:
+    """`finish` fecha a demanda: audita o estado e varre os descartáveis do
+    `.harness/`. Entra na allowlist pela mesma razão de `compile-session` — é
+    passo do ciclo sancionado, e escreve só dentro do `.harness/`. Não abre
+    buraco no floor porque o comando nunca executa git nem gh: um `finish` que
+    commitasse/pushasse viraria bypass do floor por dentro de um subcomando
+    permitido, que é justamente por que `enable`/`disable` ficam de fora."""
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": command}})
+    assert out["permissionDecision"] == "allow", out
+
+
 def test_bootstrap_denies_command_outside_minimal_surface(tmp_path: Path) -> None:
     script = _script(tmp_path)
     out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
