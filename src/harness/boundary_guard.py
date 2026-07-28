@@ -477,6 +477,17 @@ def normalize_invocation_tokens(tokens: list[str]) -> list[str]:
     return current
 
 
+# Subcomandos de `git` em que o MODO (o token seguinte) decide se a operação é
+# inócua ou destrutiva — `checkout -b` cria branch, `checkout .` descarta
+# trabalho não commitado. Para estes, `suggested_allowlist_entry` não corta em
+# dois tokens: a entrada de allowlist casa por prefixo, e sugerir `git checkout`
+# entregaria ao usuário uma linha que libera o descarte junto com a criação.
+GIT_MODE_SENSITIVE_SUBCOMMANDS = frozenset({
+    "checkout", "switch", "branch", "restore",
+    "reset", "clean", "rm", "stash",
+})
+
+
 def suggested_allowlist_entry(command: str) -> str | None:
     """Entrada de `governance.extra_allowed_commands` que liberaria `command`.
 
@@ -497,11 +508,26 @@ def suggested_allowlist_entry(command: str) -> str | None:
 
     Argumento que começa com `-` não entra (`ruff check .` → `ruff check`, mas
     `ruff --fix` → `ruff`), porque flag não é subcomando e travar nela produz
-    uma entrada que não casa quase nada."""
+    uma entrada que não casa quase nada.
+
+    EXCEÇÃO — subcomandos de `git` com modo destrutivo
+    (`GIT_MODE_SENSITIVE_SUBCOMMANDS`): aí a regra de dois tokens produziria
+    uma sugestão perigosa. `git checkout -b <branch>` cria branch e é inócuo,
+    mas a entrada `git checkout` casa por PREFIXO e liberaria junto
+    `git checkout .` e `git checkout <arquivo>` — descarte de trabalho não
+    commitado, irreversível e invisível na revisão. Nesses subcomandos a
+    sugestão inclui o TERCEIRO token (`git checkout -b`, `git reset --hard`),
+    porque é o modo, não o subcomando, que separa o inócuo do destrutivo."""
     tokens = normalize_invocation_tokens(_tokenize_command(command))
     if not tokens:
         return None
     if len(tokens) >= 2 and not tokens[1].startswith("-"):
+        if (
+            tokens[0] == "git"
+            and tokens[1] in GIT_MODE_SENSITIVE_SUBCOMMANDS
+            and len(tokens) >= 3
+        ):
+            return " ".join(tokens[:3])
         return " ".join(tokens[:2])
     return tokens[0]
 
@@ -527,6 +553,27 @@ def command_escape_hint(command: str) -> str:
     rodar horas sem humano no meio, com segurança. Todo deny que o usuário não
     consegue resolver em dez segundos é fricção que empurra para o kill-switch,
     e o kill-switch é desproteção total."""
+    return (
+        "Escapes, do mais barato ao mais caro. (1) O guard ja reconhece as "
+        "formas EQUIVALENTES do que esta declarado: `python -m <bin>`, "
+        "`.venv/Scripts/<bin>`, `.venv/bin/<bin>` e `uv run <bin>` valem tanto "
+        "quanto o binario nu — NAO ha grafia a descobrir por tentativa e erro. "
+        "(2) " + allowlist_yaml_hint(command) + " (3) Replaneje via "
+        "/harness-creator:plan so se o ESCOPO da tarefa mudou."
+    )
+
+
+def allowlist_yaml_hint(command: str) -> str:
+    """O bloco YAML pronto para colar, isolado de `command_escape_hint`.
+
+    Extraido porque este e o UNICO escape de comando que funciona sem contrato
+    ativo: o hook le `.harness/harness.yaml` a cada tool call, entao a entrada
+    vale na chamada seguinte, sem `compile` e sem `/harness-creator:plan`. O
+    deny de bootstrap (`_no_contract_command_deny`) precisa dele, e nao pode
+    reusar `command_escape_hint` inteiro — os outros itens de la apontam
+    `harness task add-file` e replanejamento, que nao existem sem contrato.
+    Apontar escape inexistente foi o que fez o agente concluir que estava
+    preso; apontar NENHUM escape tem o mesmo efeito."""
     entry = suggested_allowlist_entry(command) or "<comando>"
     # O bloco NAO repete `governance:`. Todo `.harness/harness.yaml` ja tem essa
     # chave (o `init` a escreve e o `compile` recusa o arquivo sem ela), entao
@@ -534,11 +581,7 @@ def command_escape_hint(command: str) -> str:
     # hook degrada a lista inteira para vazia nesse caso. A instrucao mais
     # obvia seria a que quebra.
     return (
-        "Escapes, do mais barato ao mais caro. (1) O guard ja reconhece as "
-        "formas EQUIVALENTES do que esta declarado: `python -m <bin>`, "
-        "`.venv/Scripts/<bin>`, `.venv/bin/<bin>` e `uv run <bin>` valem tanto "
-        "quanto o binario nu — NAO ha grafia a descobrir por tentativa e erro. "
-        "(2) Se o repo precisa deste comando de forma PERMANENTE, peca ao "
+        "Se o repo precisa deste comando de forma PERMANENTE, peca ao "
         "usuario para edita-lo no .harness/harness.yaml, no terminal DELE (fora "
         "do Claude Code). Se `extra_allowed_commands` ainda nao existe, colar "
         "estas duas linhas DENTRO do bloco `governance:` que ja esta la:\n\n"
@@ -546,8 +589,7 @@ def command_escape_hint(command: str) -> str:
         "Se a chave ja existe, basta acrescentar a linha `    - " + entry + "` "
         "na lista. Vale na tool call SEGUINTE — o guard le esse arquivo a cada "
         "chamada, sem recompilar nada. E casa por PREFIXO: essa entrada libera "
-        "o comando com qualquer argumento depois dela. (3) Replaneje via "
-        "/harness-creator:plan so se o ESCOPO da tarefa mudou."
+        "o comando com qualquer argumento depois dela."
     )
 
 
@@ -1938,7 +1980,9 @@ def render_boundary_guard(protected_branches: list[str] | None = None) -> str:
         inspect.getsource(_strip_exe_suffix),
         inspect.getsource(venv_prefixed_binary),
         inspect.getsource(normalize_invocation_tokens),
+        f"GIT_MODE_SENSITIVE_SUBCOMMANDS = {set(GIT_MODE_SENSITIVE_SUBCOMMANDS)!r}",
         inspect.getsource(suggested_allowlist_entry),
+        inspect.getsource(allowlist_yaml_hint),
         inspect.getsource(command_escape_hint),
         inspect.getsource(_has_sequence_normalized),
         inspect.getsource(is_floor_bash_command),
@@ -2637,19 +2681,23 @@ def _evaluate_file(path, cwd):
 def _no_contract_command_deny(command):
     """Mensagem de deny do modo bootstrap (sem contrato compilado).
 
-    Distinta de `command_escape_hint`, que aponta `harness task add-file` -
-    inutil quando nao ha tarefa nenhuma. Aqui o caminho de saida e compilar
-    um contrato, e a mensagem diz exatamente o que JA esta liberado para
-    chegar la, para o agente nao concluir que esta preso."""
+    Distinta de `command_escape_hint`, que aponta `harness task add-file` e
+    replanejamento - inuteis quando nao ha tarefa nenhuma. Mas o bloco YAML de
+    `extra_allowed_commands` (allowlist_yaml_hint) ENTRA: e o unico escape de
+    comando que funciona sem contrato, porque o hook le o harness.yaml a cada
+    tool call. Omiti-lo deixaria o deny sem saida nenhuma - o mesmo efeito
+    pratico de apontar um escape inexistente."""
     return (
         "nenhum contrato ativo no projeto: sem contrato so ficam liberados git "
         "local (status/log/diff/add/commit), subcomandos do proprio harness, "
         "utilitarios read-only e cd intra-repo. '" + (command or "")[:80] + "' "
-        "esta fora disso. Rode /harness-creator:plan (ou a sequencia harness "
-        "analyze -> harness compile -> harness compile-contract -> harness "
-        "compile-session) para compilar um contrato e autorizar a superficie; "
-        "artefatos temporarios (screenshot, dump, HTML de debug) podem ser "
-        "salvos em .harness/scratch/"
+        "esta fora disso. Dois caminhos. (1) Se este comando faz parte de "
+        "trabalho a ser planejado, rode /harness-creator:plan (ou a sequencia "
+        "harness analyze -> harness compile -> harness compile-contract -> "
+        "harness compile-session) para compilar um contrato e autorizar a "
+        "superficie; artefatos temporarios (screenshot, dump, HTML de debug) "
+        "podem ser salvos em .harness/scratch/. (2) "
+        + allowlist_yaml_hint(command)
     )
 
 
