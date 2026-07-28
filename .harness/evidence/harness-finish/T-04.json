@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-04",
+  "contract": "harness-finish",
+  "desc": "Começar o segundo contrato de um repo deixa de travar o agente: o artefato que o próprio harness acabou de gerar não conta mais como sujeira que impede criar a branch",
+  "files": [
+    "src/harness/branching.py",
+    "tests/test_branching.py"
+  ],
+  "verify_cmd": "python -m pytest tests/test_branching.py -k managed -q",
+  "recorded_at": "2026-07-28T22:18:25.002733+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:576d456be35b4e842b30446a914e07872f91cfab5718f3d5e433aff0100e5232"
+}

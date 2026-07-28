@@ -1,0 +1,14 @@
+{
+  "feature_id": "T-02",
+  "contract": "harness-finish",
+  "desc": "Com o fecho íntegro, `harness finish` limpa os descartáveis do `.harness/` e deixa o resumo de progresso declarando o contrato encerrado",
+  "files": [
+    "src/harness/finish.py",
+    "tests/test_finish.py",
+    "src/harness/cli.py"
+  ],
+  "verify_cmd": "python -m pytest tests/test_finish.py -k sweep -q",
+  "recorded_at": "2026-07-28T22:18:35.694932+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:78937d049fe3c2655b986e7cb65234fcacd4c2bb35af4c57454ce80f6a99542d"
+}

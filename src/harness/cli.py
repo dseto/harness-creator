@@ -211,6 +211,13 @@ def main() -> None:
     aud_team = sub.add_parser("audit-team", help="Audita os artefatos de time da Fase 4 — score + findings JSON")
     aud_team.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
 
+    fin = sub.add_parser(
+        "finish",
+        help="Encerra a demanda: audita o fecho (evidência fresca, tudo passando, "
+        "sem resíduo) e varre os descartáveis do .harness/. Nunca toca git",
+    )
+    fin.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+
     dis = sub.add_parser(
         "disable",
         help="Kill-switch: desativa COMPLETAMENTE o harness (todos os hooks) — rodar só no terminal do usuário",
@@ -652,6 +659,18 @@ def main() -> None:
         next_feature = dispatch_next(Path(args.dir))
         print(json.dumps({"next": next_feature}, indent=2, ensure_ascii=False))
         sys.exit(0)
+
+    if args.command == "finish":
+        from harness.finish import audit_closure, sweep_disposables
+
+        report = audit_closure(Path(args.dir))
+        # A auditoria é o gate: reprovada, o comando reporta e sai sem varrer
+        # nada — limpar por cima de um fecho quebrado apagaria o rastro
+        # necessário para consertá-lo.
+        if not report["blockers"]:
+            report["swept"] = sweep_disposables(Path(args.dir))
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+        sys.exit(1 if report["blockers"] else 0)
 
     if args.command == "audit-team":
         from harness.team_audit import audit_team

@@ -125,6 +125,95 @@ def test_ensure_contract_branch_ignores_untracked_files(tmp_path: Path) -> None:
     assert (harness_dir / "feature_list.json").is_file()
 
 
+def _commit_harness_managed_artifacts(target: Path) -> None:
+    """Deixa os artefatos gerenciados pelo harness TRACKED, como num repo que
+    versiona `.harness/` — é o estado em que o deadlock aparece."""
+    harness_dir = target / ".harness"
+    harness_dir.mkdir(exist_ok=True)
+    (harness_dir / "feature_list.json").write_text("{}", encoding="utf-8")
+    (harness_dir / "repo-profile.json").write_text("{}", encoding="utf-8")
+    _git(target, "add", ".harness")
+    _git(target, "commit", "-m", "versiona .harness")
+
+
+def test_ensure_contract_branch_ignores_dirty_harness_managed_artifacts(
+    tmp_path: Path,
+) -> None:
+    """Deadlock achado ao vivo compilando o contrato `harness-finish`. Num repo
+    que versiona `.harness/`, do SEGUNDO contrato em diante o agente ficava sem
+    saída: `compile-contract` reescreve o `feature_list.json` tracked -> tree
+    suja -> `compile-session` recusa e manda commitar na branch atual -> a
+    branch atual é protegida e o guard nega o commit, sugerindo `git checkout
+    -b` -> que o guard também nega. O arquivo que o PRÓPRIO harness acabou de
+    gerar não é "trabalho de outro contexto"; ele viaja para a branch nova de
+    qualquer forma, porque `git switch -c` preserva a working tree."""
+    _init_repo(tmp_path)
+    _commit_harness_managed_artifacts(tmp_path)
+    harness_dir = tmp_path / ".harness"
+    harness_dir.joinpath("feature_list.json").write_text(
+        '{"contract": "exemplo-feature"}', encoding="utf-8"
+    )
+    harness_dir.joinpath("repo-profile.json").write_text(
+        '{"languages": ["python"]}', encoding="utf-8"
+    )
+
+    result = ensure_contract_branch(tmp_path, "exemplo-feature")
+
+    assert result == "contract/exemplo-feature"
+    assert _current_branch(tmp_path) == "contract/exemplo-feature"
+    # O switch levou o conteúdo junto — nada foi perdido nem revertido.
+    assert "exemplo-feature" in harness_dir.joinpath("feature_list.json").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_ensure_contract_branch_ignores_managed_progress_and_evidence(
+    tmp_path: Path,
+) -> None:
+    """O conjunto gerenciado não é só o que `compile-contract` grava: o
+    `progress.md` e a evidência saem de `harness verify` a cada tarefa, e num
+    repo que versiona `.harness/` eles ficam tracked-sujos o tempo todo. Achado
+    rodando o próprio `harness finish` sobre este contrato — ele acusou o
+    `progress.md` como "trabalho de outro contexto", que é exatamente o que ele
+    não é."""
+    _init_repo(tmp_path)
+    harness_dir = tmp_path / ".harness"
+    harness_dir.mkdir(exist_ok=True)
+    (harness_dir / "progress.md").write_text("# Claude Progress\n", encoding="utf-8")
+    evidence_dir = harness_dir / "evidence" / "exemplo-feature"
+    evidence_dir.mkdir(parents=True)
+    (evidence_dir / "T-01.json").write_text("{}", encoding="utf-8")
+    _git(tmp_path, "add", ".harness")
+    _git(tmp_path, "commit", "-m", "versiona .harness")
+    (harness_dir / "progress.md").write_text("# Claude Progress\n\nT-01 done\n", encoding="utf-8")
+    (evidence_dir / "T-01.json").write_text('{"exit_code": 0}', encoding="utf-8")
+
+    result = ensure_contract_branch(tmp_path, "exemplo-feature")
+
+    assert result == "contract/exemplo-feature"
+
+
+def test_ensure_contract_branch_aborts_when_unmanaged_file_is_dirty_beside_managed(
+    tmp_path: Path,
+) -> None:
+    """A isenção é escopada: sujeira de qualquer arquivo fora do conjunto
+    gerenciado continua abortando, e a mensagem nomeia só o que de fato é
+    trabalho de outro contexto — citar o `feature_list.json` que o próprio
+    comando anterior gerou mandaria o humano investigar um falso positivo."""
+    _init_repo(tmp_path)
+    _commit_harness_managed_artifacts(tmp_path)
+    (tmp_path / ".harness" / "feature_list.json").write_text("{}\n", encoding="utf-8")
+    (tmp_path / "README.md").write_text("modificado", encoding="utf-8")
+
+    with pytest.raises(BranchingError) as exc_info:
+        ensure_contract_branch(tmp_path, "exemplo-feature")
+
+    message = str(exc_info.value)
+    assert "README.md" in message
+    assert "feature_list.json" not in message
+    assert _current_branch(tmp_path) == "main"
+
+
 def test_ensure_contract_branch_rejects_non_git_dir(tmp_path: Path) -> None:
     with pytest.raises(BranchingError, match="git"):
         ensure_contract_branch(tmp_path, "exemplo-feature")

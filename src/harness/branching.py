@@ -29,6 +29,30 @@ from harness.config import HarnessConfig
 HARNESS_YAML_RELATIVE_PATH = ".harness/harness.yaml"
 CONTRACT_BRANCH_PREFIX = "contract/"
 
+#: Artefatos que o PRÓPRIO harness grava no fluxo que antecede a criação da
+#: branch — `analyze` produz o `repo-profile.json`, `compile-contract` produz o
+#: `feature_list.json`. Num repo que versiona `.harness/` eles são tracked, e
+#: contá-los como sujeira fechava o agente num deadlock a partir do SEGUNDO
+#: contrato: compile-contract suja o feature_list -> compile-session recusa a
+#: tree e manda commitar na branch atual -> a branch atual é protegida e o
+#: guard nega o commit, sugerindo `git checkout -b` -> que o guard também nega.
+#: As três mensagens apontavam umas para as outras sem abrir caminho.
+#:
+#: A isenção é segura porque `git switch`/`switch -c` preserva a working tree:
+#: o conteúdo viaja para a branch de contrato, que é exatamente onde ele deve
+#: ser commitado. Nada aqui é descartado. Sujeira de qualquer arquivo FORA
+#: deste conjunto continua abortando com a mesma mensagem.
+HARNESS_MANAGED_PATHS = frozenset({
+    ".harness/feature_list.json",
+    ".harness/repo-profile.json",
+    ".harness/progress.md",
+})
+
+#: Mesma isenção, para as árvores inteiras que o harness gerencia. A evidência
+#: nasce de `harness verify` a cada tarefa, então num repo que versiona
+#: `.harness/` ela fica tracked-suja durante toda a demanda.
+HARNESS_MANAGED_PREFIXES = (".harness/evidence/",)
+
 
 class BranchingError(Exception):
     """Falha de pré-condição ou de git ao posicionar a branch de contrato."""
@@ -84,8 +108,9 @@ def ensure_contract_branch(target_dir: Path, contract: str) -> str:
     status = _git(target_dir, "status", "--porcelain", "-uno")
     if status.returncode != 0:
         raise BranchingError(f"git status falhou: {status.stderr.strip()[:200]}")
-    if status.stdout.strip():
-        raise BranchingError(_dirty_tree_problem(status.stdout, branch))
+    unmanaged = unmanaged_dirty_paths(status.stdout)
+    if unmanaged:
+        raise BranchingError(_dirty_tree_problem(unmanaged, branch))
 
     exists = _git(target_dir, "rev-parse", "--verify", f"refs/heads/{branch}")
     if exists.returncode == 0:
@@ -104,7 +129,29 @@ def ensure_contract_branch(target_dir: Path, contract: str) -> str:
 _DIRTY_SAMPLE = 5
 
 
-def _dirty_tree_problem(porcelain: str, branch: str) -> str:
+def unmanaged_dirty_paths(porcelain: str) -> list[str]:
+    """Caminhos tracked sujos de `git status --porcelain` que NÃO estão em
+    `HARNESS_MANAGED_PATHS` — ou seja, a sujeira que de fato é trabalho de
+    outro contexto. Exportada porque `harness.finish` faz o mesmo julgamento
+    ao auditar o fecho da demanda, e duplicar a regra em dois lugares é como
+    ela se torna inconsistente."""
+    paths: list[str] = []
+    for line in (porcelain or "").splitlines():
+        if len(line) <= 3:
+            continue
+        path = line[3:].strip().strip('"')
+        # Rename/copy vêm como `old -> new`; o que importa é o destino.
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        if not path or path in HARNESS_MANAGED_PATHS:
+            continue
+        if path.startswith(HARNESS_MANAGED_PREFIXES):
+            continue
+        paths.append(path)
+    return paths
+
+
+def _dirty_tree_problem(files: list[str], branch: str) -> str:
     """Razão de recusa da árvore suja, nomeando os arquivos e as saídas.
 
     Achado F6 do dogfood venv-Windows: a mensagem antiga dizia
@@ -115,9 +162,6 @@ def _dirty_tree_problem(porcelain: str, branch: str) -> str:
     começa do zero. Mandar "stashear" ali é conselho ruim: o stash esconde
     exatamente o que o contrato existe para governar. Dizer QUAIS arquivos e
     QUAIS são as três saídas custa nada e evita a decisão errada."""
-    files = [
-        line[3:].strip() for line in (porcelain or "").splitlines() if len(line) > 3
-    ]
     listed = ", ".join(files[:_DIRTY_SAMPLE])
     if len(files) > _DIRTY_SAMPLE:
         listed += f" (+{len(files) - _DIRTY_SAMPLE})"

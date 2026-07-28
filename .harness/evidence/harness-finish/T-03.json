@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-03",
+  "contract": "harness-finish",
+  "desc": "O agente consegue rodar `harness finish` sozinho, sem prompt de permissão, como já faz com os demais subcomandos do harness",
+  "files": [
+    "src/harness/boundary_guard.py",
+    "tests/test_boundary_guard.py"
+  ],
+  "verify_cmd": "python -m pytest tests/test_boundary_guard.py -k finish -q",
+  "recorded_at": "2026-07-28T21:59:25.463014+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:745b09050f84ca5b877f430089d24b77c0dde6a27d9e7c54e1488b331971f577"
+}
