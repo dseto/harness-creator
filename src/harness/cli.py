@@ -279,6 +279,7 @@ def main() -> None:
         sys.exit(0)
 
     if args.command == "preflight":
+        from harness.config import generate_minimal_harness_config_yaml
         from harness.preflight import PreflightError, run_preflight
 
         try:
@@ -286,6 +287,38 @@ def main() -> None:
         except PreflightError as exc:
             print(f"erro: {exc}", file=sys.stderr)
             sys.exit(2)
+
+        # Se config não existe e há warnings corrigíveis, oferecer criar
+        if not report.has_config:
+            config_warnings = {
+                check.code
+                for cat in report.categories
+                for check in cat.checks
+                if check.status == "WARNING"
+                and check.code in ["test_command_resolvable", "lint_command_resolvable"]
+            }
+            if config_warnings:
+                print("\n⚠️  arquivo `.harness/harness.yaml` não existe.", file=sys.stderr)
+                print("Há warnings que podem ser resolvidos criando o arquivo com defaults.", file=sys.stderr)
+                print("\nCriar `.harness/harness.yaml` com configuração mínima? (s/n) ", end="", file=sys.stderr)
+                try:
+                    response = input().strip().lower()
+                    if response == "s":
+                        target_dir = Path(args.dir)
+                        config_dir = target_dir / ".harness"
+                        config_dir.mkdir(parents=True, exist_ok=True)
+                        config_file = config_dir / "harness.yaml"
+                        yaml_content = generate_minimal_harness_config_yaml()
+                        config_file.write_text(yaml_content, encoding="utf-8")
+                        print(f"✓ arquivo criado: {config_file}", file=sys.stderr)
+                        print("re-rodando preflight...\n", file=sys.stderr)
+                        try:
+                            report = run_preflight(target_dir)
+                        except PreflightError as exc:
+                            print(f"erro ao re-rodar preflight: {exc}", file=sys.stderr)
+                            sys.exit(2)
+                except EOFError:
+                    pass
 
         print(report.to_json())
         if report.verdict == "NOT_READY":

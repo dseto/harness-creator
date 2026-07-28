@@ -166,7 +166,7 @@ def _sample_report() -> PreflightReport:
 def test_report_to_dict_has_contract_keys() -> None:
     data = _sample_report().to_dict()
 
-    assert set(data.keys()) == {"verdict", "target", "categories"}
+    assert set(data.keys()) == {"verdict", "target", "categories", "has_config"}
     assert data["verdict"] == "NOT_READY"
     assert data["target"] == "/abs/target"
 
@@ -1201,3 +1201,27 @@ def test_corrupt_profile_does_not_break_preflight(tmp_path: Path) -> None:
     report = run_preflight(tmp_path)
 
     assert _by_code(report.categories[2], "test_runner_detected").status == "PASS"
+
+
+def test_preflight_report_has_config_flag_false_when_no_config(tmp_path: Path) -> None:
+    """Report deve ter has_config=False quando .harness/harness.yaml não existe."""
+    _write_python_repo_complete(tmp_path)
+
+    report = run_preflight(tmp_path)
+
+    assert report.has_config is False
+    assert "has_config" in json.loads(report.to_json())
+
+
+def test_preflight_report_has_config_flag_true_when_config_exists(tmp_path: Path) -> None:
+    """Report deve ter has_config=True quando .harness/harness.yaml existe."""
+    _write_python_repo_complete(tmp_path)
+
+    config_dir = tmp_path / ".harness"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "harness.yaml").write_text("governance:\n  approval_policy: balanced\n", encoding="utf-8")
+
+    report = run_preflight(tmp_path)
+
+    assert report.has_config is True
+    assert json.loads(report.to_json())["has_config"] is True

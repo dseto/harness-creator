@@ -49,3 +49,36 @@ class VerificationConfig(BaseModel):
 class HarnessConfig(BaseModel):
     governance: GovernanceConfig = Field(default_factory=GovernanceConfig)
     verification: VerificationConfig = Field(default_factory=VerificationConfig)
+
+
+def generate_minimal_harness_config_yaml() -> str:
+    """Gera YAML mínimo com defaults de HarnessConfig.
+
+    Usado pelo CLI preflight quando arquivo não existe mas há warnings corrigíveis.
+    Arquivo gerado é válido e pode ser customizado depois via `harness init`.
+    """
+    config = HarnessConfig()
+    yaml_lines = [
+        "# harness.yaml — configuração mínima gerada pelo preflight",
+        "# Customize conforme necessário; `harness init` pode expandir depois",
+        "",
+        "governance:",
+        f"  approval_policy: {config.governance.approval_policy}",
+        "  budget:",
+        f"    max_tokens_per_task: {config.governance.budget.max_tokens_per_task}",
+        f"    max_tokens_per_session: {config.governance.budget.max_tokens_per_session}",
+        f"    max_tool_calls_per_task: {config.governance.budget.max_tool_calls_per_task}",
+        f"    max_green_iterations: {config.governance.budget.max_green_iterations}",
+        f"  extra_allowed_commands: []",
+        f"  branch_per_contract: {str(config.governance.branch_per_contract).lower()}",
+        "  protected_branches:",
+        "    - main",
+        "    - homolog",
+        "    - develop",
+        "",
+        "verification:",
+        f"  enforce_tdd: {str(config.verification.enforce_tdd).lower()}",
+        f"  test_command: {config.verification.test_command!r}",
+        f"  test_glob: {config.verification.test_glob!r}",
+    ]
+    return "\n".join(yaml_lines)
