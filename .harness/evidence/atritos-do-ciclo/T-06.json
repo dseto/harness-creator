@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-06",
+  "contract": "atritos-do-ciclo",
+  "desc": "Depois de encerrar uma demanda, o resumo de progresso do contrato seguinte é regenerado — a sessão nova não herda mais o estado da demanda anterior",
+  "files": [
+    "src/harness/finish.py",
+    "tests/test_finish.py"
+  ],
+  "verify_cmd": "python -m pytest tests/test_finish.py -k regenera -q",
+  "recorded_at": "2026-07-28T23:50:26.694851+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:f99c70540ea5efe6d86e75f0967b366f9126f2501cea6f1b3e0e273133b166fe"
+}

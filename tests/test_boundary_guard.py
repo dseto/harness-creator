@@ -211,6 +211,142 @@ def test_bootstrap_surface_allows_harness_finish(tmp_path: Path, command: str) -
     assert out["permissionDecision"] == "allow", out
 
 
+@pytest.mark.parametrize("command", [
+    "date",
+    "date -u +%Y-%m-%dT%H:%M:%SZ",
+    "date --iso-8601=seconds",
+])
+def test_readonly_surface_allows_date_to_read_the_clock(
+    tmp_path: Path, command: str
+) -> None:
+    """A skill `plan` EXIGE carimbar `approved_at` com o timestamp ISO atual no
+    momento da aprovação humana, e o guard negava toda rota de obtê-lo (`date`
+    e `python -c`). O agente ficava sem como cumprir uma regra do próprio
+    processo — atrito 1 do ciclo do contrato `harness-finish`, onde a saída foi
+    rodar uma análise inteira do repo só para ler o relógio."""
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": command}})
+    assert out["permissionDecision"] == "allow", out
+
+
+@pytest.mark.parametrize("command", [
+    'date -s "2020-01-01 00:00:00"',
+    "date --set=2020-01-01",
+])
+def test_readonly_surface_denies_date_that_sets_the_clock(
+    tmp_path: Path, command: str
+) -> None:
+    """`date` é read-only só até as flags que ESCREVEM o relógio da máquina.
+    Mesmo padrão de `find` (`FIND_WRITE_FLAGS`) e `grep`/`rg`
+    (`GREP_RG_EXEC_FLAGS`): utilitário de leitura com um punhado de flags que o
+    tornam destrutivo. Mexer no relógio do host é mudança de configuração de
+    sistema, não leitura."""
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": command}})
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_surface_allows_the_profile_test_command_mid_contract(tmp_path: Path) -> None:
+    """Atrito 2 do ciclo do contrato `harness-finish`. A superfície de comando
+    era montada com o `verify_cmd` de cada tarefa mais `lint_command`,
+    `typecheck_command` e `build_command` do profile — e ignorava o
+    `test_command`, que está no MESMO profile. Assimetria pura: o lint do
+    projeto rodava a qualquer momento, o teste do projeto só na grafia exata do
+    `verify_cmd` da tarefa em curso. Na prática não havia como testar uma
+    mudança em código compartilhado contra o resto da suíte antes do commit.
+
+    O contrato deste teste tem feature PENDENTE de propósito: com todas
+    passando, `_contract_fully_passed` aposenta o guard da superfície e
+    qualquer pytest passaria — o que mascara o furo."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "files": ["src/a.py"],
+         "verify_cmd": "pytest tests/test_a.py -q", "passes": False},
+    ])
+    _write_profile(tmp_path)  # test_command = "pytest"
+    script = _script(tmp_path)
+
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "pytest tests -q"}})
+
+    assert out["permissionDecision"] == "allow", out
+
+
+def test_surface_denies_pytest_when_the_profile_test_command_is_absent(
+    tmp_path: Path,
+) -> None:
+    """A liberação vem do profile, não de um allow embutido para `pytest`: sem
+    `test_command` declarado, a superfície continua a de antes."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "files": ["src/a.py"],
+         "verify_cmd": "pytest tests/test_a.py -q", "passes": False},
+    ])
+    _write_profile(tmp_path, test_command=None)
+    script = _script(tmp_path)
+
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "pytest tests -q"}})
+
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_git_surface_allows_branch_show_current(tmp_path: Path) -> None:
+    """Atrito 3 do ciclo do contrato `harness-finish`: `git status`/`log`/`diff`
+    passavam e `git branch --show-current` não, apesar de ser leitura pura. O
+    agente descobria a branch atual lendo a primeira linha do `git status` —
+    rodeio sem ganho de segurança nenhum."""
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "git branch --show-current"}})
+    assert out["permissionDecision"] == "allow", out
+
+
+@pytest.mark.parametrize("command", [
+    "git branch -D feature-antiga",
+    "git branch -d feature-antiga",
+    "git branch -m novo-nome",
+])
+def test_git_surface_still_denies_branch_write_beside_show_current(
+    tmp_path: Path, command: str
+) -> None:
+    """A liberação é da sequência de TRÊS tokens `git branch --show-current`.
+    Liberar `git branch` com dois tokens abriria `-D`/`-d`/`-m` junto, porque o
+    match de superfície é por PREFIXO de tokens — apagar branch entraria de
+    carona numa entrada que só queria ler o nome da atual."""
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": command}})
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_protected_branch_deny_names_the_chore_way_out(tmp_path: Path) -> None:
+    """Atrito 5 do ciclo do contrato `harness-finish`. O floor de branch
+    protegida está CERTO e continua intacto — o que estava errado era só a
+    mensagem: ela oferecia `git checkout -b` e `harness compile-session`, e as
+    duas são conselho ruim para um chore de release, que por política do repo
+    vai direto para a `main`. Sem a terceira saída, o agente ficava tentando
+    rotas fechadas ou reescrevendo a mensagem do commit, achando que o problema
+    era o texto.
+
+    A saída é incondicional, e não condicionada ao diff staged, porque
+    classificar "chore" por caminho não pega o arquivo onde mora a versão
+    (`src/harness/__init__.py` neste repo) sem virar regra específica de um
+    repositório. O preço é a linha aparecer em todo deny de branch protegida —
+    por isso ela precisa dizer que a decisão é do HUMANO."""
+    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
+    script = _script(tmp_path)
+
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": 'git commit -m "chore: bump"'}})
+
+    assert out["permissionDecision"] == "deny", out
+    reason = out["permissionDecisionReason"]
+    assert "so via PR" in reason          # a rota normal continua sendo o PR
+    assert "terminal" in reason.lower()   # a terceira saída é o terminal do humano
+    assert "humano" in reason.lower()     # e é decisão dele, não do agente
+
+
 def test_bootstrap_denies_command_outside_minimal_surface(tmp_path: Path) -> None:
     script = _script(tmp_path)
     out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),

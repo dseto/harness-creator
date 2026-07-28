@@ -1,15 +1,19 @@
 # Claude Progress
 
-Contrato `harness-finish` ENCERRADO por `harness finish`.
+Contrato: `atritos-do-ciclo`
+
+_Demanda ENCERRADA por `harness finish`._
 
 ## Features
 
 | id | desc | status |
 | --- | --- | --- |
-| T-01 | `harness finish` recusa encerrar a demanda quando o fecho não está íntegro, e diz exatamente o que está pendente | done |
-| T-02 | Com o fecho íntegro, `harness finish` limpa os descartáveis do `.harness/` e deixa o resumo de progresso declarando o contrato encerrado | done |
-| T-03 | O agente consegue rodar `harness finish` sozinho, sem prompt de permissão, como já faz com os demais subcomandos do harness | done |
-| T-04 | Começar o segundo contrato de um repo deixa de travar o agente: o artefato que o próprio harness acabou de gerar não conta mais como sujeira que impede criar a branch | done |
+| T-01 | O agente consegue ler o relógio para carimbar a hora da aprovação, mas continua sem poder ajustar o relógio da máquina | done |
+| T-02 | O comando de teste declarado no perfil do projeto pode ser rodado durante a demanda, e não só o teste exato da tarefa em curso | done |
+| T-03 | Descobrir em que branch a sessão está deixa de ser bloqueado, sem liberar apagar branch | done |
+| T-04 | A suíte de ponta a ponta passa em qualquer console, sem depender da codificação configurada na máquina | done |
+| T-05 | Ao barrar um commit na branch protegida, a recusa passa a dizer que chore de doc/versão é decisão do humano e vai no terminal dele, sem sugerir que o agente contorne o PR | done |
+| T-06 | Depois de encerrar uma demanda, o resumo de progresso do contrato seguinte é regenerado — a sessão nova não herda mais o estado da demanda anterior | done |
 
 ## Última atualização
 

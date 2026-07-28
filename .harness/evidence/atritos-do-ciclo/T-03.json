@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-03",
+  "contract": "atritos-do-ciclo",
+  "desc": "Descobrir em que branch a sessão está deixa de ser bloqueado, sem liberar apagar branch",
+  "files": [
+    "src/harness/boundary_guard.py",
+    "tests/test_boundary_guard.py"
+  ],
+  "verify_cmd": "python -m pytest tests/test_boundary_guard.py -k show_current -q",
+  "recorded_at": "2026-07-28T23:53:08.127196+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:cf759ce59c21768b6201b2e268603ed433dc3d80cddb31a55c430ea152c22ef4"
+}

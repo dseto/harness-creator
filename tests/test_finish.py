@@ -16,6 +16,7 @@ import pytest
 
 from harness.finish import FinishError, audit_closure, sweep_disposables
 from harness.killswitch import SENTINEL_RELATIVE_PATH
+from harness.templates import install_templates
 from harness.verify import compute_files_hash
 
 
@@ -289,8 +290,10 @@ def test_sweep_rewrites_progress_declaring_the_contract_closed(tmp_path: Path) -
     sweep_disposables(tmp_path)
 
     text = progress.read_text(encoding="utf-8")
-    assert "ENCERRADO" in text
-    assert "demo" in text
+    assert "ENCERRADA" in text
+    # Header canônico, não decorado — é o que deixa o próximo contrato
+    # regenerar o arquivo em vez de herdar este resumo.
+    assert "Contrato: `demo`" in text
     assert "| T-01 | faz a coisa | done |" in text
     assert "contrato-anterior" not in text
     assert "NADA COMMITADO" not in text
@@ -352,6 +355,37 @@ def test_sweep_never_touches_the_history_of_the_demand(tmp_path: Path) -> None:
     assert (tmp_path / files[0]).is_file()
 
 
+def test_sweep_stub_deixa_o_proximo_contrato_regenerar_o_progresso(tmp_path: Path) -> None:
+    """Defeito entregue na v0.25.0 pelo próprio `finish`, achado ao compilar o
+    contrato seguinte. `install_templates` só restaura o `progress.md` quando
+    consegue ler o slug antigo pelo header canônico ``Contrato: `slug` `` — com
+    dois-pontos e terminando em crase. O stub de encerramento abria com
+    ``Contrato `slug` ENCERRADO``, que não casa: o slug antigo vinha `None`, a
+    regeneração era pulada e o arquivo ficava preservado.
+
+    O efeito era a sessão seguinte herdar o resumo da demanda ANTERIOR — o hook
+    `SessionStart` chegou a injetar "nenhuma feature pendente" numa sessão com
+    seis tarefas a fazer. É exatamente o modo de falha que o `finish` existe
+    para matar."""
+    _clean_closure(tmp_path)
+    sweep_disposables(tmp_path)
+    progress = tmp_path / ".harness" / "progress.md"
+    assert "demo" in progress.read_text(encoding="utf-8")
+
+    install_templates(
+        tmp_path,
+        {"contract": "contrato-novo", "features": [
+            {"id": "T-01", "desc": "primeira tarefa do contrato novo", "passes": False},
+        ]},
+        {},
+    )
+
+    text = progress.read_text(encoding="utf-8")
+    assert "contrato-novo" in text
+    assert "primeira tarefa do contrato novo" in text
+    assert "ENCERRADO" not in text
+
+
 def test_cli_finish_sweeps_and_exits_0_on_a_clean_closure(tmp_path: Path) -> None:
     _clean_closure(tmp_path)
     progress = tmp_path / ".harness" / "progress.md"
@@ -367,4 +401,4 @@ def test_cli_finish_sweeps_and_exits_0_on_a_clean_closure(tmp_path: Path) -> Non
     report = json.loads(proc.stdout)
     assert report["blockers"] == []
     assert report["swept"]["progress"].endswith("progress.md")
-    assert "ENCERRADO" in progress.read_text(encoding="utf-8")
+    assert "ENCERRADA" in progress.read_text(encoding="utf-8")
