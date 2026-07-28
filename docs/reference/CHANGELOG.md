@@ -2,7 +2,8 @@
 
 ## v0.22.1 — deadlock de bootstrap do boundary_guard
 
-Correção de três problemas encontrados ao rodar a v0.22.0 num projeto real.
+Correção dos problemas encontrados ao rodar a v0.22.0 num projeto real
+(issues #37 e #39, PRs #38 e #40).
 
 ### Corrigido — o default-deny sem contrato travava a criação do contrato
 
@@ -59,6 +60,47 @@ escrita em `src/other.py` — fora do contrato — passava. Escape de superfíci
 de escrita, presente desde antes desta versão e independente da allowlist de
 leitura. O alvo agora é o token depois do último `>`.
 
+### Corrigido — o deny sem contrato não mostrava o escape que funciona
+
+A onda 5 (postura C) definiu que todo deny de comando devolve o bloco
+`governance.extra_allowed_commands` **pronto para colar**. No caminho sem
+contrato isso não acontecia: na v0.22.0 o deny retornava antes de
+`command_escape_hint` ser alcançado, e a correção do bootstrap (acima) trocou
+esse retorno por `_no_contract_command_deny`, que cortou o bloco YAML junto
+com os itens que de fato não se aplicam sem contrato (`harness task add-file`,
+replanejamento via `/harness-creator:plan`).
+
+O corte é o defeito: `extra_allowed_commands` é o **único** escape de comando
+que funciona sem contrato, porque o hook lê o `.harness/harness.yaml` a cada
+tool call — a entrada vale na chamada seguinte, sem `compile` e sem `/plan`.
+Sem o bloco, o deny de bootstrap não apontava saída alguma, que na prática é o
+mesmo que apontar um escape inexistente: empurra para o kill-switch.
+
+O bloco foi extraído para `allowlist_yaml_hint`, usado tanto por
+`command_escape_hint` quanto por `_no_contract_command_deny` — que agora
+oferece dois caminhos, compilar o contrato ou declarar o comando no YAML.
+
+### Corrigido — a entrada de allowlist sugerida para `git` era destrutiva
+
+`suggested_allowlist_entry` corta em binário + subcomando, o que está certo
+para `alembic upgrade` ou `ruff check`, mas produzia `git checkout` — e a
+entrada casa por **prefixo**, então liberaria `git checkout .` e
+`git checkout <arquivo>` (descarte de trabalho não commitado, irreversível)
+junto com o inócuo `git checkout -b`.
+
+Novo `GIT_MODE_SENSITIVE_SUBCOMMANDS` (`checkout`, `switch`, `branch`,
+`restore`, `reset`, `clean`, `rm`, `stash`): nesses, a sugestão inclui o
+terceiro token — `git checkout -b`, `git reset --hard` — porque é o modo, não
+o subcomando, que separa o inócuo do destrutivo. Os demais subcomandos de git
+seguem na regra de dois tokens.
+
+Contexto de uso que expôs os dois itens acima: sem contrato ativo o agente
+está na branch protegida, `git commit` cai no floor e `git checkout -b` não
+está na allowlist fixa — o guard exige sair da branch protegida e não oferece
+o comando que faz isso. Entrar em `FIXED_GIT_SEQUENCES` exigiria um predicado
+sensível a argumento (o match é por prefixo) e foi decidido não fazer: a
+resposta é declarar em `extra_allowed_commands`, desde que o deny mencione.
+
 ### Corrigido — documentação sobre quando os hooks passam a valer
 
 As skills `init` e `compile` afirmavam que permissions e hooks só valem na
@@ -72,7 +114,9 @@ Três testes E2E já falhavam na v0.22.0 lançada (`test_boundary_flow`,
 `test_fase2_outcomes` outcomes 2 e 5) — afirmavam o comportamento anterior à
 inversão do issue #35 e o momento em que `harness compile` desregistra o
 `guard_tests.py` legado (agora no próprio `compile`, não mais só no
-`compile-session`). Atualizados para o estado real; a suíte fecha em 925 verde.
+`compile-session`). Atualizados para o estado real; a suíte fecha em 926 verde
+no PR #38. O PR #40 rodou só o escopo afetado (26 testes) a pedido do dono
+do repo — a suíte completa não foi executada com os dois PRs juntos.
 
 ## Não lançado
 
