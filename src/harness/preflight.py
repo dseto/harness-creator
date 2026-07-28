@@ -129,11 +129,13 @@ class PreflightReport:
     verdict: str              # "READY" | "READY_WITH_WARNINGS" | "NOT_READY"
     target: str               # caminho absoluto avaliado
     categories: list[PreflightCategory] = field(default_factory=list)
+    has_config: bool = field(default=True)  # .harness/harness.yaml existe (para CLI oferecer criar)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "verdict": self.verdict,
             "target": self.target,
+            "has_config": self.has_config,
             "categories": [c.to_dict() for c in self.categories],
         }
 
@@ -857,8 +859,12 @@ def run_preflight(target_dir: Path) -> PreflightReport:
         _check_lint(profile, target_dir),
     ]
 
+    config_path = target_dir / ".harness" / "harness.yaml"
+    has_config = config_path.is_file()
+
     return PreflightReport(
         verdict=compute_verdict(categories),
         target=str(target_dir.resolve()),
         categories=categories,
+        has_config=has_config,
     )
