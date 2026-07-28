@@ -112,9 +112,10 @@ existir, centralize as transições `passes:true` numa única sessão
 orquestradora quando trabalhar com múltiplos agentes em paralelo — não
 deixe cada agente editar `feature_list.json` por conta própria.
 
-`harness verify <id> --mark-passed` existe para poupar essa sessão
-orquestradora de editar `feature_list.json` na mão a cada tarefa: opt-in,
-grava `passes:true` só depois de um `verify_cmd` com exit code 0. Serve
-para o fluxo sequencial de UMA sessão única — continua sem lock entre
-processos, então não use `--mark-passed` com múltiplos agentes escrevendo
-o mesmo `feature_list.json` em paralelo.
+`harness verify <id>` grava `passes:true` sozinho quando o `verify_cmd`
+sai com exit code 0 — é o DEFAULT desde a v0.23.0, e poupa a sessão
+orquestradora de editar `feature_list.json` na mão a cada tarefa. Serve
+para o fluxo sequencial de UMA sessão única. Como a escrita continua sem
+lock entre processos, use `--no-mark-passed` quando houver múltiplos
+agentes escrevendo o mesmo `feature_list.json` em paralelo: aí só a
+evidência é gravada, e a transição fica centralizada na orquestradora.

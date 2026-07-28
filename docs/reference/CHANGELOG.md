@@ -1,5 +1,71 @@
 # Changelog
 
+## v0.25.0 — o ciclo ganha um fim, e o segundo contrato deixa de travar
+
+Itens 5+7 do backlog do dogfood miojo (são o mesmo item), issue #53, PR #54.
+
+### `harness finish` — encerrar a demanda
+
+O ciclo tinha início bem definido (`preflight` → `init` → `plan` →
+`compile-contract` → `compile-session`) e nenhum fim: depois que
+`harness supervise` devolvia `next: null`, o repositório simplesmente ficava
+como estava, e cada demanda deixava sobra para a seguinte. Neste próprio repo,
+o `progress.md` afirmava por duas versões seguidas que havia trabalho não
+commitado esperando aprovação humana; o `.harness/scratch/` guardava rascunhos
+de seis dias antes; e nada conferia se as provas registradas ainda valiam para
+o código em disco.
+
+`harness finish` faz duas coisas, nesta ordem. **Audita o fecho** (só leitura),
+bloqueando em: kill-switch ativo, `feature_list.json` ausente/ilegível, feature
+sem `passes: true`, feature passada sem evidência, evidência com `files_hash`
+anterior ao código, e mudança tracked fora dos `files[]` do contrato. Havendo
+bloqueador, reporta, sai com código 1 e **não varre nada** — limpar por cima de
+um fecho quebrado apagaria o rastro necessário para consertá-lo. Com a
+auditoria limpa, **varre os descartáveis do `.harness/`**: o `progress.md` vira
+um resumo declarando o contrato encerrado e o `scratch/` é esvaziado,
+preservando o `.gitignore`.
+
+O comando nunca executa `git` nem `gh`, e nunca apaga `work/`, `evidence/` ou
+`feature_list.json`. Ação de rede irreversível dentro de um subcomando que está
+na allowlist do agente transformaria o próprio `finish` em bypass do runtime
+floor — é a razão de `enable`/`disable` ficarem fora dessa lista. Pela mesma
+lógica, o comando não gera "sugestões de melhoria": isso é saída de modelo, não
+de CLI.
+
+O bloqueador de kill-switch cobre, no momento do fecho, parte da issue #52 — a
+janela de quatro dias em que o guard rodou em no-op sem que nenhuma superfície
+avisasse.
+
+### Deadlock do segundo contrato
+
+Achado ao vivo compilando este próprio contrato. Num repo que versiona
+`.harness/`, a partir do segundo contrato o agente ficava sem saída
+sancionada: `compile-contract` reescreve o `feature_list.json` tracked → a
+working tree suja faz `compile-session` recusar e mandar commitar na branch
+atual → a branch atual é protegida e o guard nega o `git commit`, sugerindo
+`git checkout -b` → que o guard também nega. As três mensagens apontavam umas
+para as outras e nenhuma abria caminho. Só não aparecia antes porque numa
+instalação nova o `feature_list.json` é untracked, e o julgamento de sujeira
+usa `-uno`.
+
+`ensure_contract_branch` agora ignora, ao julgar sujeira, os artefatos que o
+próprio harness gera: `feature_list.json`, `repo-profile.json`, `progress.md` e
+a árvore `evidence/`. Eles viajam para a branch nova de qualquer forma, porque
+`git switch -c` preserva a working tree — nada é descartado. Sujeira de
+qualquer arquivo fora desse conjunto continua abortando com a mesma mensagem.
+
+O `progress.md` e a `evidence/` entraram no conjunto por dogfood: rodar o
+próprio `harness finish` sobre este contrato acusou o `progress.md` como
+"trabalho de outro contexto", que é exatamente o que ele não é.
+
+### Também nesta versão
+
+- `finish` entra em `_HARNESS_SUBCOMMANDS` do `boundary_guard`, junto dos
+  demais comandos do ciclo.
+- `skills/plan/references/contract-templates.md` deixa de descrever
+  `--mark-passed` como opt-in — marcar `passes:true` é o default desde a
+  v0.23.0, e a flag útil hoje é a inversa, `--no-mark-passed`.
+
 ## v0.24.0 — push da branch do contrato deixa de exigir humano
 
 Onda 2 do backlog do dogfood miojo: o item que mexe no runtime floor. A entrega
