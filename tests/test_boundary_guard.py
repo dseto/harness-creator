@@ -207,6 +207,22 @@ def test_bootstrap_denies_command_outside_minimal_surface(tmp_path: Path) -> Non
     assert "task add-file" not in reason
 
 
+def test_bootstrap_deny_carries_the_paste_ready_yaml_block(tmp_path: Path) -> None:
+    """`extra_allowed_commands` é o ÚNICO escape de comando que funciona sem
+    contrato — o hook lê o harness.yaml a cada tool call, então a entrada vale
+    na chamada seguinte, sem `compile` e sem `/plan`. Omitir o bloco do deny de
+    bootstrap deixava o agente sem saída alguma."""
+    script = _script(tmp_path)
+    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
+                              "tool_input": {"command": "git checkout -b chore/harness-init"}})
+    assert out["permissionDecision"] == "deny", out
+    reason = out["permissionDecisionReason"]
+    assert "extra_allowed_commands:" in reason, reason
+    # e a entrada sugerida preserva o modo — não libera `git checkout .` junto
+    assert "- git checkout -b" in reason, reason
+    assert "- git checkout\n" not in reason, reason
+
+
 def test_bootstrap_still_denies_push_by_floor(tmp_path: Path) -> None:
     script = _script(tmp_path)
     out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
@@ -3567,6 +3583,24 @@ def test_suggested_allowlist_entry_is_canonical_and_two_tokens() -> None:
     assert suggested_allowlist_entry("ruff --fix .") == "ruff"
     assert suggested_allowlist_entry("docker") == "docker"
     assert suggested_allowlist_entry("") is None
+
+
+def test_suggested_allowlist_entry_keeps_the_mode_for_git_subcommands() -> None:
+    """A regra de dois tokens produziria `git checkout` — que casa por prefixo
+    e liberaria `git checkout .` (descarte de trabalho não commitado) junto com
+    `git checkout -b`. Nos subcomandos de git em que o MODO decide se a
+    operação é destrutiva, a sugestão inclui o terceiro token."""
+    from harness.boundary_guard import suggested_allowlist_entry
+
+    assert suggested_allowlist_entry("git checkout -b chore/x") == "git checkout -b"
+    assert suggested_allowlist_entry("git switch -c chore/x") == "git switch -c"
+    assert suggested_allowlist_entry("git checkout .") == "git checkout ."
+    assert suggested_allowlist_entry("git reset --hard HEAD") == "git reset --hard"
+    assert suggested_allowlist_entry("git branch chore/x") == "git branch chore/x"
+    # subcomando de git SEM modo sensível continua na regra de dois tokens
+    assert suggested_allowlist_entry("git cherry-pick abc123") == "git cherry-pick"
+    # sem terceiro token não há modo a preservar
+    assert suggested_allowlist_entry("git checkout") == "git checkout"
 
 
 def test_deny_reason_carries_a_paste_ready_yaml_block(tmp_path: Path) -> None:
