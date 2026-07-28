@@ -196,7 +196,7 @@ def _hook_entry(matcher: str, script: Path) -> dict[str, Any]:
     # `hook_command()` é o MESMO ponto único dos três hooks de sessão
     # (`boundary_guard`, `session_start`, `stop_hook`): interpretador absoluto
     # + sufixo `|| exit 2`. Estes dois aqui ficaram para trás quando o Item 1/1b
-    # entrou, e o achado F8 do dogfood do MiojoSimulator mostrou o custo: um
+    # entrou, e o achado F8 do dogfood venv-Windows mostrou o custo: um
     # repo que rodou só `harness compile` — estado por onde TODA instalação
     # passa, antes de existir contrato — ficava com os guards de TDD lançados
     # por `python` nu. Interpretador irresolúvel ⇒ processo morre com código

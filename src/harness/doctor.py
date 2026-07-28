@@ -66,8 +66,8 @@ _HOOK_SCRIPT_PATTERN = re.compile(r'"([^"]+\.py)"')
 # qualquer um deles é NOSSO e tem o interpretador verificado; hooks de
 # terceiros no mesmo arquivo são ignorados (não cabe ao `doctor` opinar sobre
 # eles).
-# `guard_tests.py`/`guard_test_runner.py` entraram no achado F8 do dogfood do
-# MiojoSimulator: são gerados por `harness compile` (não por `compile-session`),
+# `guard_tests.py`/`guard_test_runner.py` entraram no achado F8 do dogfood
+# venv-Windows: são gerados por `harness compile` (não por `compile-session`),
 # ficaram de fora do Item 1/1b, e o `doctor` também não os olhava — o laudo de um
 # alvo com os dois instalados e lançados por `python` nu devolvia `"hooks": []`,
 # um verde falso sobre o estado exatamente que o check existe para pegar.

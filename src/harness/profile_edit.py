@@ -149,7 +149,7 @@ GOVERNANCE_EVIDENCE = f"{HARNESS_YAML_RELATIVE_PATH} (verification.test_glob)"
 def reconcile_test_glob(target_dir: Path) -> str | None:
     """Faz o `test_glob` do profile seguir o do `.harness/harness.yaml`.
 
-    Achado F7 do dogfood no MiojoSimulator 3.0: o mesmo conceito tinha DUAS
+    Achado F7 do dogfood venv-Windows: o mesmo conceito tinha DUAS
     fontes. `verification.test_glob` do `harness.yaml` alimenta o `guard_tests`
     (via `harness compile`); `test_glob` do `repo-profile.json` alimenta
     `_is_test_diff`, que é o gate de "diff de teste exige justificativa" do

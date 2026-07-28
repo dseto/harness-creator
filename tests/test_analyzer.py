@@ -346,7 +346,7 @@ def test_write_profile_writes_json_under_harness_dir(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# F1 (dogfood MiojoSimulator 3.0) — repo Python que declara dependências em
+# F1 (dogfood venv-Windows) — repo Python que declara dependências em
 # `requirements.txt` e não é um pacote instalável.
 #
 # O analyzer era dirigido a manifesto e só reconhecia Python por

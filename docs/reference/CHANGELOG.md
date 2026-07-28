@@ -327,7 +327,7 @@ juntas porque compõem: cada uma sozinha ainda deixava o ciclo de pé.
   escrita**: o `test_glob` decide o que conta como teste protegido, que é
   política aprovada — é por isso que `harness profile set` recusa essa chave.
 - **Os hooks de `harness compile` deixam de lançar `python` nu** (achado F8 do
-  dogfood no MiojoSimulator 3.0 — `docs/project/DOGFOOD-miojo-simulator-2026-07-27.md`).
+  dogfood venv-Windows — `docs/project/DOGFOOD-venv-windows-2026-07-27.md`).
   O Item 1/1b bakeou o interpretador absoluto e o sufixo `|| exit 2` nos três
   hooks do `compile-session`, mas `compiler.py` continuou montando
   `python "<script>"` à mão para `guard_tests.py` e `guard_test_runner.py` — e

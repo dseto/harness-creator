@@ -1071,7 +1071,7 @@ def test_venv_anchoring_warning_never_blocks_readiness(
 
 
 # ---------------------------------------------------------------------------
-# F1 + F5 (dogfood MiojoSimulator 3.0) — a cascata, e por que ela é o achado.
+# F1 + F5 (dogfood venv-Windows) — a cascata, e por que ela é o achado.
 #
 # O analyzer não reconhecia `requirements.txt`, então um serviço FastAPI real
 # saía sem `test_command`. Consequência em cadeia: `test_runner_detected`

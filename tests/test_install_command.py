@@ -1,4 +1,4 @@
-"""Achado F2 do dogfood no MiojoSimulator 3.0 — o comando de instalação.
+"""Achado F2 do dogfood venv-Windows — o comando de instalação.
 
 O mapa dizia `pip -> "pip install -e ."`, que exige um pacote instalável. A
 maioria dos serviços Python não é um pacote: declara dependências em

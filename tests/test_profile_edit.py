@@ -171,7 +171,7 @@ def test_cli_profile_set_happy_path(
 def test_next_step_note_does_not_overpromise_for_test_command(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Achado do dogfood no MiojoSimulator 3.0: o `test_command` do profile
+    """Achado do dogfood venv-Windows: o `test_command` do profile
     NÃO chega à superfície de comando — `_collect_allowed_bash_commands` lê só
     `verify_cmd` + extras + instalação. A nota dizia "rode compile-session para
     a mudança chegar ao boundary_guard" para toda chave, prometendo um efeito
@@ -228,7 +228,7 @@ def _write_harness_yaml(target: Path, test_glob: str) -> None:
 
 
 def test_reconcile_test_glob_makes_governance_win(tmp_path: Path) -> None:
-    """Achado F7 do dogfood no MiojoSimulator 3.0: o mesmo conceito tinha DUAS
+    """Achado F7 do dogfood venv-Windows: o mesmo conceito tinha DUAS
     fontes. `verification.test_glob` do `harness.yaml` alimenta o `guard_tests`;
     `test_glob` do `repo-profile.json` alimenta `_is_test_diff`, o gate de
     "diff de teste exige justificativa". No alvo real o primeiro valia

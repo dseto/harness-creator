@@ -284,7 +284,7 @@ def test_installed_command_blocks_when_the_hook_script_is_broken(tmp_path: Path)
 # ---------------------------------------------------------------------------
 # F8 — os hooks de `harness compile` também.
 #
-# Achado do dogfood no MiojoSimulator 3.0 (2026-07-27): o Item 1/1b foi
+# Achado do dogfood venv-Windows (2026-07-27): o Item 1/1b foi
 # aplicado aos três instaladores do `compile-session`, mas `compiler.py`
 # continuou montando `python "<script>"` à mão para `guard_tests.py` e
 # `guard_test_runner.py`. É o caminho por onde TODA instalação passa primeiro —

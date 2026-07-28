@@ -107,7 +107,7 @@ _DIRTY_SAMPLE = 5
 def _dirty_tree_problem(porcelain: str, branch: str) -> str:
     """Razão de recusa da árvore suja, nomeando os arquivos e as saídas.
 
-    Achado F6 do dogfood no MiojoSimulator 3.0: a mensagem antiga dizia
+    Achado F6 do dogfood venv-Windows: a mensagem antiga dizia
     "commit ou stash antes de compilar a sessão" e parava aí. No alvo real, os
     arquivos modificados **eram** os `files[]` do próprio contrato — o trabalho
     já estava em andamento quando o harness foi instalado, que é o caso mais

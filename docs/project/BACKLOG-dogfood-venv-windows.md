@@ -29,7 +29,7 @@ genuinamente resta.
 | 8 | `settings.json` emite `Bash(<verify_cmd>)` sem forma prefixada | ✅ entregue (+ lint/typecheck/build/install) | PR #31 |
 | 9 | `harness allow-command <cmd>` — ampliar superfície de comando | ✅ **decidido: postura C, sem CLI nova** | PR #33 |
 | B1–B3 | Achados da auditoria MAR pós-onda-1 (case-sensitivity do floor, teste de desfecho do `\|\| exit 2`, sombra de venv no preflight) | ✅ entregues | PR #28 |
-| F1–F8 | Achados do dogfood real em `miojo-simulator-3.0` (`DOGFOOD-miojo-simulator-2026-07-27.md`) | ✅ entregues | PR #31 |
+| F1–F8 | Achados do dogfood real no projeto-alvo do dogfood venv-Windows (`DOGFOOD-venv-windows-2026-07-27.md`) | ✅ entregues | PR #31 |
 
 **Suíte: 879 testes verdes, `ruff check src tests` limpo, v0.21.0.**
 
@@ -63,10 +63,10 @@ pendente que dependa disso hoje.
 **Esforço:** S. **Prioridade:** baixa — só vale a pena se a decisão da postura C
 precisar ser revisitada.
 
-### 2. (BAIXO, opcional) Validar em sessão real dentro de `miojo-simulator-3.0`
+### 2. (BAIXO, opcional) Validar em sessão real dentro do projeto-alvo
 
-O dogfood contra `C:\Projetos\miojo-simulator-3.0` validou o guard por payload
-direto (`PreToolUse` via stdin), não por uma sessão real do Claude Code
+O dogfood contra o projeto-alvo do dogfood venv-Windows validou o guard por
+payload direto (`PreToolUse` via stdin), não por uma sessão real do Claude Code
 trabalhando o contrato até o fim. Isso não bloqueia nada — a decisão da postura
 C não dependia desse número —, mas é a validação mais forte que falta fazer se
 alguém quiser reconfirmar o comportamento em condição de uso real.

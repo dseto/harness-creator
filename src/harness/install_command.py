@@ -4,7 +4,7 @@ Fonte ÚNICA do mapeamento que estava triplicado em `boundary_guard.py`,
 `session_permissions.py` e `templates.py` — cada cópia com o mesmo defeito, o
 que é a razão de existir este módulo e não só uma correção pontual.
 
-**O defeito (achado F2 do dogfood no MiojoSimulator 3.0).** O mapa dizia
+**O defeito (achado F2 do dogfood venv-Windows).** O mapa dizia
 `pip -> "pip install -e ."`, que exige um pacote instalável (`pyproject.toml`
 ou `setup.py` com metadados). A maioria dos serviços Python **não** é um
 pacote: declara dependências em `requirements.txt` e roda direto. Nesses

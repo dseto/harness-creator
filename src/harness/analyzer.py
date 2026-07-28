@@ -48,7 +48,7 @@ _SKIP_DIRS = {".harness", ".git", "__pycache__", ".venv", "node_modules",
 
 # Manifest -> linguagem. package.json/pyproject.toml tratados à parte porque
 # geram mais de um Finding (javascript+typescript; python via dois nomes).
-# `requirements.txt` entrou no achado F1 do dogfood no MiojoSimulator 3.0. Um
+# `requirements.txt` entrou no achado F1 do dogfood venv-Windows. Um
 # repo Python com `requirements.txt` (e sem `pyproject.toml`/`setup.py`) saía do
 # analyzer com `languages: []` e TUDO em `unknowns` — e a cascata era pior que a
 # detecção faltando: `preflight` devolvia NOT_READY num repo perfeitamente

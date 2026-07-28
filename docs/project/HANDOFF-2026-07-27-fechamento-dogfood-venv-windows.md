@@ -32,14 +32,14 @@ ciclos (`harness.metrics`). Resumo técnico completo no corpo do PR #31 e no
   estrutural). `compile-session` compara a leitura do pyyaml com a do hook e
   avisa quando divergem.
 
-### 1.2 Dogfood real contra `C:\Projetos\miojo-simulator-3.0`
+### 1.2 Dogfood real contra o projeto-alvo do dogfood venv-Windows
 
 Primeiro alvo real com as três condições do relato original: Python, venv,
 Windows. A/B entre o guard de `origin/main` (v0.18.0) e o desta sessão, com
 payloads `PreToolUse` reais via stdin — 6 decisões mudaram, todas dentro da
 classe de equivalência de forma; nenhum floor se mexeu.
 
-O dogfood achou 8 problemas (`docs/project/DOGFOOD-miojo-simulator-2026-07-27.md`),
+O dogfood achou 8 problemas (`docs/project/DOGFOOD-venv-windows-2026-07-27.md`),
 **todos corrigidos** nesta sessão, no PR #31:
 
 - **F1** (causa-raiz) — `requirements.txt` não era manifesto reconhecido pelo
@@ -113,7 +113,7 @@ os laudos `AUDIT-*.md`, o `BACKLOG-testes-isentos-2026-07-27.md` (ainda aberto,
 |---|---|---|---|
 | `Harness-creator` | `main` | PRs #31, #32, #33 mergeados pelo usuário | sim |
 | `Harness-creator` | (esta sessão) | consolidação de docs (este handoff + backlog novo + descarte) | branch nova, PR a abrir |
-| `miojo-simulator-3.0` | `main` | harness instalado e armado (decisão do usuário), árvore com 2 arquivos modificados (`frontend/app.js`, `frontend/styles.css`) | não tocado nesta sessão |
+| projeto-alvo do dogfood venv-Windows | `main` | harness instalado e armado (decisão do usuário), árvore com 2 arquivos modificados (`frontend/app.js`, `frontend/styles.css`) | não tocado nesta sessão |
 
 `main` do `Harness-creator` está em `457a5b4`, v0.21.0, 879 testes verdes,
 `ruff` limpo.
@@ -178,7 +178,7 @@ mas isso não quebra nada executável):
   canônica de política citada por código e por outros docs.
 - `BACKLOG-testes-isentos-2026-07-27.md` — ainda **aberto**, 9 itens
   pendentes, decisão explícita do usuário de deixá-los em aberto.
-- `DOGFOOD-miojo-simulator-2026-07-27.md` — evidência recente (esta sessão),
+- `DOGFOOD-venv-windows-2026-07-27.md` — evidência recente (esta sessão),
   todos os 8 achados já corrigidos e registrados nele.
 - Os três `HANDOFF-*.md` anteriores — texto de cada um pede explicitamente
   para não apagar ("mantido no repo como histórico").
@@ -191,10 +191,10 @@ mas isso não quebra nada executável):
    único, só documentação e `.gitignore`, sem mudança de comportamento.
 2. **Nenhum item do dogfood venv-Windows está bloqueando nada.** Os dois
    resíduos (contagem de deny por comando; validação em sessão real no
-   miojo-simulator) estão em `BACKLOG-dogfood-venv-windows.md`, ambos
+   projeto-alvo) estão em `BACKLOG-dogfood-venv-windows.md`, ambos
    opcionais e de baixa prioridade.
-3. Se for retomar `miojo-simulator-3.0`: decidir primeiro o destino do
-   trabalho pendente (`frontend/app.js` sem `data.progress` — o commit
+3. Se for retomar o projeto-alvo do dogfood venv-Windows: decidir primeiro o
+   destino do trabalho pendente (`frontend/app.js` sem `data.progress` — o commit
    `c4ba99d` daquele repo reescreveu o arquivo por cima da feature) antes de
    tentar `compile-session` de novo lá.
 4. Backlog geral do produto que segue de pé, fora do escopo desta sessão:

@@ -177,7 +177,7 @@ def test_load_protected_branches_defaults_without_yaml(tmp_path: Path) -> None:
 def test_dirty_tree_message_names_the_files_and_the_three_ways_out(
     tmp_path: Path,
 ) -> None:
-    """Achado F6 do dogfood no MiojoSimulator 3.0. A mensagem antiga dizia
+    """Achado F6 do dogfood venv-Windows. A mensagem antiga dizia
     "commit ou stash antes de compilar a sessão" e parava aí. No alvo real os
     arquivos sujos ERAM os `files[]` do próprio contrato — o trabalho já estava
     em andamento quando o harness foi instalado, que é o caso de quem adota a

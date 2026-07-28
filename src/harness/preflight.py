@@ -774,7 +774,7 @@ def _with_manual_overrides(profile: RepoProfile, target_dir: Path) -> RepoProfil
     """Aplica sobre `profile` (recém-inferido) as entradas que um humano
     corrigiu à mão com `harness profile set`.
 
-    Achado F3 do dogfood no MiojoSimulator 3.0: o preflight re-inferia tudo e
+    Achado F3 do dogfood venv-Windows: o preflight re-inferia tudo e
     ignorava o `repo-profile.json` do disco. Depois de o usuário corrigir o
     `test_command`, o laudo repetia `test_runner_detected: FAIL` **com a mesma
     instrução de fix que ele acabara de aplicar** — dois comandos do mesmo

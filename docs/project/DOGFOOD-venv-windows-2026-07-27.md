@@ -1,9 +1,9 @@
-# Dogfood das ondas 2–4 contra `C:\Projetos\miojo-simulator-3.0`
+# Dogfood das ondas 2–4 contra o projeto-alvo do dogfood venv-Windows
 
-**Data:** 2026-07-27. **Alvo:** MiojoSimulator 3.0 — FastAPI + Python 3.14 com
-`.venv` no Windows, frontend estático. É o primeiro alvo que reúne as condições
-do relato original do dogfood venv-Windows: Python **com venv**, Windows, e
-um contrato real já autorado (`.harness/work/frontend-progress-bar/`).
+**Data:** 2026-07-27. **Alvo:** FastAPI + Python 3.14 com `.venv` no Windows,
+frontend estático. É o primeiro alvo que reúne as condições do relato original
+do dogfood venv-Windows: Python **com venv**, Windows, e um contrato real já
+autorado (`.harness/work/frontend-progress-bar/`).
 
 **Versões comparadas:** `origin/main` **v0.18.0** (`45ea0ca`) contra a branch
 `feat/ondas-2-5` **v0.19.0**, instaladas lado a lado em duas cópias do
@@ -214,7 +214,7 @@ alvo real:
 O `settings.local.json` que `harness compile` escreveu neste alvo contém:
 
 ```json
-{ "type": "command", "command": "python \"C:\\Projetos\\miojo-simulator-3.0\\.harness\\hooks\\guard_tests.py\"" }
+{ "type": "command", "command": "python \"C:\\Projetos\\<projeto-alvo>\\.harness\\hooks\\guard_tests.py\"" }
 ```
 
 Interpretador **nu**, resolvido pelo PATH no momento da tool call, e **sem** o
@@ -293,6 +293,6 @@ guard, executadas de fora: `friction.disable_enable_cycles` = **0**, mas com
 `compile-session` = 1 e nenhuma sessão de agente. O contador está instalado e
 funcionando; falta rodá-lo.
 
-Para fechar o gate, é preciso abrir o Claude Code **dentro** de
-`C:\Projetos\miojo-simulator-3.0` e trabalhar o contrato até o fim. Só então
+Para fechar o gate, é preciso abrir o Claude Code **dentro** do projeto-alvo
+do dogfood venv-Windows e trabalhar o contrato até o fim. Só então
 `harness status` responde a pergunta que decide entre as posturas B e C.
