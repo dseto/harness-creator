@@ -147,11 +147,12 @@ início da próxima sessão).
 
 Mostre ao usuário os artefatos gerados (a saída JSON do comando lista os
 paths reais). Deixe explícito que o runtime floor — segredos (`.env`,
-`.pem`, `id_rsa`, `*credentials*`), rede não planejada (`curl`, `wget`,
-`npm publish`, `pip upload`, `twine upload`, `gh release`) e `git push` —
-**nunca** vira `allow`, nem mesmo depois desta compilação: o
-`boundary_guard.py` bloqueia essas ações incondicionalmente, com ou sem
-contrato ativo.
+`.pem`, `id_rsa`, `*credentials*`) e rede não planejada (`curl`, `wget`,
+`npm publish`, `pip upload`, `twine upload`, `gh release`) — **nunca** vira
+`allow`, nem mesmo depois desta compilação: o `boundary_guard.py` bloqueia
+essas ações incondicionalmente, com ou sem contrato ativo. `git push` tem
+uma exceção estreita — só da branch do contrato ativo (`contract/<slug>`)
+para ela mesma, sem `--force` nem refspec explícito.
 
 Se o comando sair com **exit 1** por `.harness/feature_list.json` ausente,
 volte ao Passo 6 — `compile-session` nunca roda sem um contrato já

@@ -1,5 +1,67 @@
 # Changelog
 
+## v0.24.0 — push da branch do contrato deixa de exigir humano
+
+Onda 2 do backlog do dogfood miojo: o item que mexe no runtime floor. A entrega
+original (PR #46) foi mergeada por engano na branch da onda 1, que já havia ido
+para a `main` — o commit ficou órfão e nunca chegou à `main`. Este release o
+recupera intacto a partir de `refs/pull/46/head`.
+
+### Mudança de segurança — `git push` deixa de ser deny incondicional
+
+`git push` era negado em qualquer branch, avaliado antes até de o contrato ser
+carregado — inclusive na `contract/<slug>` que a própria sessão criou via
+`ensure_contract_branch`, e inclusive depois de o contrato inteiro estar verde
+(o allow-all de "contrato concluído" fica DEPOIS do floor, então nunca
+alcançava o push). O humano tinha que rodar o push à mão no fim de todo ciclo,
+num ponto onde a aprovação real — o contrato — já havia acontecido e não
+restava decisão nenhuma a tomar.
+
+A abertura é uma exceção estreita, não um buraco no floor. `git push` é
+liberado apenas quando **todas** valem:
+
+- a branch atual é exatamente `contract/<slug>` do contrato ativo;
+- existe contrato ativo (sem `feature_list.json`, negado);
+- a branch é conhecida — detached HEAD, worktree linkado ou repo ilegível são
+  **deny**. Postura oposta à do floor de commit, que é fail-open nesses casos:
+  não saber a branch é exatamente o caso em que o push pode ir para onde não
+  devia;
+- a branch não está em `governance.protected_branches`;
+- as flags estão na whitelist `-u`/`--set-upstream` — `--force`,
+  `--force-with-lease`, `--mirror`, `--delete`, `--all` e `--tags` são negadas
+  por não estarem nela, e qualquer flag futura do git nasce negada;
+- não há refspec explícito (qualquer `:` no argumento), a forma capaz de
+  empurrar para uma branch protegida de dentro da branch do contrato;
+- o destino, se declarado, é a própria branch atual;
+- o comando é isolado — nenhum metacaractere de shell. `git push && curl evil`
+  casaria o floor pela janela do push e entraria na exceção com carga junto.
+
+**`FLOOR_BASH_SEQUENCES` não mudou**, e isso é deliberado:
+`is_floor_bash_command` continua dizendo que `git push` é floor, que é o que
+mantém as outras camadas estritas — `verify.run_verify` e o dry-check de
+`compile-contract` seguem recusando um `verify_cmd` que empurra, e
+`session_permissions` segue impedindo que qualquer regra compilada ecoe
+`Bash(git push...)` no `settings.local.json`. A exceção vive dentro dos dois
+avaliadores do guard e é a autoridade sobre push em todos os caminhos: roda
+antes do allow-all de contrato concluído, que assim nunca chega a ver um push.
+
+Aplicada igualmente ao `_evaluate_powershell` — `is_floor_powershell_network`
+reusa `is_floor_bash_command`, então as duas superfícies de comando precisam
+responder igual sobre push. Os cmdlets de rede nativos (`iwr`/`irm`) não têm
+exceção nenhuma.
+
+Abrir o PR continua sendo passo humano. `gh pr create` já é alcançado pelo
+allow-all de contrato concluído, que é exatamente o momento do ciclo em que o
+PR nasce — o gate legível do passo 15 do lifecycle segue intacto.
+
+Docs de produto (`GUIDE.md`, `TUTORIAL.md`, `skills/plan/SKILL.md`) corrigidos:
+afirmavam que push era incondicional.
+
+19 testes novos em `tests/test_boundary_guard.py` (formas seguras, branch
+errada, detached HEAD, sem contrato, todas as flags perigosas, refspec,
+destino divergente, encadeamento, PowerShell, contrato concluído, override de
+`protected_branches`, e a regressão de que o resto do floor não afrouxou).
+
 ## v0.23.1 — o preflight volta a ser read-only
 
 Item 8 do backlog do dogfood miojo, fechado revertendo a primeira tentativa.

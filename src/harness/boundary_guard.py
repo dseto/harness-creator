@@ -296,6 +296,7 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
+from harness.branching import CONTRACT_BRANCH_PREFIX
 from harness.config import HarnessConfig
 from harness.hook_launcher import hook_command
 from harness.install_command import (
@@ -639,6 +640,182 @@ def _current_git_branch(cwd: str) -> str | None:
     prefix = "ref: refs/heads/"
     if text.startswith(prefix):
         return text[len(prefix):]
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Exceção do floor de push (item 6 do backlog do dogfood miojo).
+#
+# `git push` era deny incondicional — qualquer branch, inclusive a
+# `contract/<slug>` que a PRÓPRIA sessão criou via `ensure_contract_branch`, e
+# inclusive depois de o contrato inteiro estar verde. O humano tinha que rodar
+# o push à mão toda vez, no fim de um ciclo cuja aprovação real (o contrato) já
+# tinha acontecido lá atrás. Para uma sessão longa e autônoma, isso é uma
+# parada obrigatória num ponto onde não há mais nada a decidir.
+#
+# **`FLOOR_BASH_SEQUENCES` NÃO muda.** `is_floor_bash_command` continua
+# dizendo que `git push` é floor, e é isso que mantém as outras camadas
+# estritas: `verify.run_verify` e `contract._dry_check_verify_cmd` seguem
+# recusando um `verify_cmd` que empurra, e `session_permissions` segue
+# impedindo que qualquer regra compilada ecoe `Bash(git push...)` no
+# `settings.local.json`. A abertura é uma EXCEÇÃO estreita avaliada dentro do
+# `_evaluate_bash`/`_evaluate_powershell`, não um buraco no floor.
+#
+# **Fail-closed, ao contrário do floor de commit.** `_current_git_branch`
+# devolve `None` em detached HEAD, worktree linkado ou repo ilegível, e o
+# floor de commit trata isso como fail-open (o enforcement definitivo dele é a
+# branch protection server-side). Aqui a postura se inverte: sem saber em que
+# branch está, o push é negado. Não saber a branch é exatamente o caso em que
+# um push poderia ir para onde não devia.
+# ---------------------------------------------------------------------------
+
+#: Flags aceitas num `git push` da branch do contrato. WHITELIST, nunca
+#: blacklist: `--force`, `--force-with-lease`, `--mirror`, `--delete`, `-d`,
+#: `--all` e `--tags` são negadas por não estarem aqui — e qualquer flag futura
+#: do git nasce negada, em vez de nascer permitida até alguém notar.
+PUSH_ALLOWED_FLAGS: tuple[str, ...] = ("-u", "--set-upstream")
+
+#: Metacaracteres de shell que tiram o push da forma simples. Um `git push`
+#: encadeado (`git push && curl evil`) casaria o floor pela janela do push e
+#: entraria nesta exceção com carga arbitrária junto; a exceção só vale para o
+#: comando isolado. `_split_shell_segments` resolveria isso, mas ela só existe
+#: dentro do script gerado — esta peça é importável, então checa a string crua.
+_PUSH_FORBIDDEN_CHARS: tuple[str, ...] = (
+    ";", "&", "|", "<", ">", "`", "$", "(", ")", "\n", "\r",
+)
+
+#: Forma aceita de remote e branch. Recusa `:` de propósito: é o que mata
+#: refspec explícito (`HEAD:main`, `contract/x:main`), a forma que permitiria
+#: empurrar para uma branch protegida de dentro de uma branch de contrato.
+_PUSH_ARG_PATTERN = re.compile(r"^[A-Za-z0-9._/-]+$")
+
+
+def is_git_push_command(command: str) -> bool:
+    """True se `command` invoca `git push` como comando de cabeça.
+
+    Avalia a forma normalizada, pelo mesmo motivo de `is_floor_bash_command`:
+    `.venv/Scripts/git.exe push` e `uv run git push` são o mesmo comando. É o
+    que separa, dentro do floor, o caso que tem exceção (push) dos que não têm
+    (`curl`, `npm publish`, `Invoke-WebRequest`) — e é match de PREFIXO, não de
+    janela: `echo x && git push` não é um push isolado e não entra na exceção.
+    """
+    return normalize_invocation_tokens(_tokenize_command(command))[:2] == ["git", "push"]
+
+
+def contract_branch_push_problem(
+    command: str,
+    branch: str | None,
+    contract_slug: str,
+    protected_branches: Any,
+) -> str | None:
+    """`None` se `command` é um `git push` seguro da branch do contrato ativo;
+    senão, a razão do deny.
+
+    Só devolve `None` quando TODAS valem: o comando é um `git push` isolado
+    (sem metacaractere de shell); existe contrato ativo; a branch atual é
+    conhecida, não é protegida e é exatamente `contract/<slug>` do contrato
+    ativo; as flags estão em `PUSH_ALLOWED_FLAGS`; os posicionais são no
+    máximo dois, sem `:`, com o remote fora da lista de protegidas e o
+    refspec, se houver, igual à branch atual.
+
+    Não decide se `command` é floor — quem chama já sabe disso, e os dois
+    avaliadores do guard só chamam esta função depois de `is_git_push_command`.
+    A primeira guarda abaixo é redundante com isso de propósito: é o contrato
+    da função valendo para qualquer chamador, hoje ou depois.
+    """
+    if not is_git_push_command(command):
+        return (
+            "runtime floor: comando de push/publicacao/rede nao planejado - "
+            "bloqueio incondicional, independente de contrato ativo"
+        )
+
+    tokens = normalize_invocation_tokens(_tokenize_command(command))
+
+    if any(ch in (command or "") for ch in _PUSH_FORBIDDEN_CHARS):
+        return (
+            "runtime floor: `git push` so e liberado ISOLADO, sem encadeamento "
+            "nem substituicao de comando - rode o push sozinho, numa tool call "
+            "propria (o `git commit` que vem antes ja e allow por si)"
+        )
+
+    if not contract_slug:
+        return (
+            "runtime floor: `git push` sem contrato ativo - a excecao de push "
+            "existe para a branch do contrato aprovado, e sem "
+            ".harness/feature_list.json nao ha contrato de onde derivar branch "
+            "nenhuma. Compile o contrato antes (`harness compile-contract`), ou "
+            "rode o push no SEU terminal"
+        )
+
+    if branch is None:
+        return (
+            "runtime floor: `git push` com branch atual indeterminada (detached "
+            "HEAD, worktree linkado ou repo ilegivel) - negado por seguranca. "
+            "Nao saber a branch e exatamente o caso em que o push pode ir para "
+            "onde nao devia; posicione o repo numa branch nomeada "
+            "(`harness compile-session` posiciona em contract/<slug>)"
+        )
+
+    protected = set(protected_branches or ())
+    if branch in protected:
+        return (
+            "runtime floor: `git push` a partir da branch protegida '" + branch
+            + "' - proibido, so via PR"
+        )
+
+    expected = CONTRACT_BRANCH_PREFIX + contract_slug
+    if branch != expected:
+        return (
+            "runtime floor: `git push` a partir de '" + branch + "', que nao e a "
+            "branch do contrato ativo ('" + expected + "') - a excecao de push "
+            "vale so para a branch que a propria sessao criou. Rode `harness "
+            "compile-session` para posicionar o repo nela, ou rode o push no "
+            "SEU terminal"
+        )
+
+    positionals = []
+    for token in tokens[2:]:
+        if token.startswith("-"):
+            if token not in PUSH_ALLOWED_FLAGS:
+                return (
+                    "runtime floor: `git push` com a flag '" + token + "' - a "
+                    "excecao aceita so " + " e ".join(PUSH_ALLOWED_FLAGS)
+                    + ". Reescrita de historico e publicacao em massa "
+                    "(--force, --force-with-lease, --mirror, --delete, --all, "
+                    "--tags) continuam floor incondicional"
+                )
+            continue
+        positionals.append(token)
+
+    if len(positionals) > 2:
+        return (
+            "runtime floor: `git push` com argumentos demais - a excecao aceita "
+            "no maximo `<remote> <branch>`"
+        )
+
+    for token in positionals:
+        if _PUSH_ARG_PATTERN.match(token) is None:
+            return (
+                "runtime floor: `git push` com refspec/argumento '" + token
+                + "' - a excecao nao aceita refspec explicito (`<origem>:"
+                "<destino>`), que e a forma capaz de empurrar para uma branch "
+                "protegida de dentro da branch do contrato"
+            )
+
+    if positionals and positionals[0] in protected:
+        return (
+            "runtime floor: `git push` para o remote '" + positionals[0]
+            + "', que tem o nome de uma branch protegida - negado por "
+            "ambiguidade"
+        )
+
+    if len(positionals) == 2 and positionals[1] != branch:
+        return (
+            "runtime floor: `git push` para a branch '" + positionals[1]
+            + "', diferente da branch atual '" + branch + "' - a excecao "
+            "empurra a branch do contrato para ela mesma, nada alem disso"
+        )
+
     return None
 
 
@@ -1987,6 +2164,12 @@ def render_boundary_guard(protected_branches: list[str] | None = None) -> str:
         inspect.getsource(_has_sequence_normalized),
         inspect.getsource(is_floor_bash_command),
         inspect.getsource(_current_git_branch),
+        f"CONTRACT_BRANCH_PREFIX = {CONTRACT_BRANCH_PREFIX!r}",
+        f"PUSH_ALLOWED_FLAGS = {PUSH_ALLOWED_FLAGS!r}",
+        f"_PUSH_FORBIDDEN_CHARS = {_PUSH_FORBIDDEN_CHARS!r}",
+        f"_PUSH_ARG_PATTERN = re.compile({_PUSH_ARG_PATTERN.pattern!r})",
+        inspect.getsource(is_git_push_command),
+        inspect.getsource(contract_branch_push_problem),
         inspect.getsource(is_floor_secret_path),
         inspect.getsource(is_floor_bash_secret_redirect),
         DISABLED_CHECK_SRC,
@@ -2170,6 +2353,24 @@ def _protected_branch_commit_problem(command, cwd):
         "(ex.: feat/minha-mudanca) e commite la; ou rode `harness "
         "compile-session`, que posiciona em contract/<slug> automaticamente "
         "quando ha contrato ativo"
+    )
+
+
+def _push_floor_problem(command, cwd):
+    """Razao de deny para um comando que bateu no floor, ou `None` quando e um
+    `git push` seguro da branch do contrato ativo (item 6 do backlog do
+    dogfood miojo).
+
+    Roda SO para comando que ja casou `is_floor_bash_command` — comando que
+    bateu no floor por outro motivo (curl, npm publish) nao tem a forma
+    `git push` e recebe de volta a razao generica de floor. Le o slug do
+    contrato do `feature_list.json`; sem contrato, o push e negado."""
+    feature_list = _load_json(cwd, FEATURE_LIST_PATH)
+    contract_slug = ""
+    if isinstance(feature_list, dict):
+        contract_slug = str(feature_list.get("contract") or "")
+    return contract_branch_push_problem(
+        command, _current_git_branch(cwd), contract_slug, PROTECTED_BRANCHES
     )
 
 
@@ -2703,6 +2904,21 @@ def _no_contract_command_deny(command):
 
 def _evaluate_bash(command, cwd):
     if is_floor_bash_command(command):
+        # O floor de push tem UMA excecao estreita: a branch do contrato ativo
+        # (item 6). Ela e avaliada aqui, antes de qualquer carga de contrato, e
+        # e a autoridade sobre push em TODOS os caminhos — inclusive o allow-all
+        # de contrato concluido mais abaixo, que assim nunca chega a ver um
+        # comando de push. Todo o resto do floor segue incondicional.
+        if is_git_push_command(command):
+            push_problem = _push_floor_problem(command, cwd)
+            if push_problem is not None:
+                return "deny", push_problem
+            return "allow", (
+                "git push da branch do contrato ativo para ela mesma - a "
+                "aprovacao do contrato ja autorizou este passo. Floor de push "
+                "segue incondicional para branch protegida, refspec explicito, "
+                "--force/--mirror/--delete e push encadeado a outro comando"
+            )
         return "deny", (
             "runtime floor: comando de push/publicacao/rede nao planejado - "
             "bloqueio incondicional, independente de contrato ativo"
@@ -2746,7 +2962,8 @@ def _evaluate_bash(command, cwd):
         return "allow", (
             "contrato concluido (todas as features com passes:true) - boundary_guard "
             "se aposenta da superficie de comando ate o proximo /harness-creator:plan; "
-            "floor (segredo/rede/push/kill-switch/branch protegida) continua incondicional"
+            "floor (segredo/rede/kill-switch/branch protegida) continua incondicional, "
+            "e push segue restrito a branch do contrato ativo"
         )
 
     if "$(" in command or "`" in command:
@@ -2881,6 +3098,20 @@ def _evaluate_powershell(command, cwd):
     de superficie de COMANDO do Bash (verify_cmd/lint/build/install/git
     local/harness), sem as negacoes especificas de sintaxe Bash."""
     if is_floor_powershell_network(command):
+        # Mesma excecao de push do _evaluate_bash (item 6) — `is_floor_powershell_network`
+        # reusa `is_floor_bash_command`, entao `git push` cai aqui tambem, e as
+        # duas superficies de comando precisam responder igual sobre ele. Os
+        # cmdlets de rede nativos (iwr/irm) nao tem excecao nenhuma.
+        if is_git_push_command(command):
+            push_problem = _push_floor_problem(command, cwd)
+            if push_problem is not None:
+                return "deny", push_problem
+            return "allow", (
+                "git push da branch do contrato ativo para ela mesma - a "
+                "aprovacao do contrato ja autorizou este passo. Floor de push "
+                "segue incondicional para branch protegida, refspec explicito, "
+                "--force/--mirror/--delete e push encadeado a outro comando"
+            )
         return "deny", (
             "runtime floor: comando de rede/publicacao (PowerShell) nao "
             "planejado - bloqueio incondicional, independente de contrato ativo"
@@ -2915,7 +3146,8 @@ def _evaluate_powershell(command, cwd):
         return "allow", (
             "contrato concluido (todas as features com passes:true) - boundary_guard "
             "se aposenta da superficie de comando ate o proximo /harness-creator:plan; "
-            "floor (segredo/rede/push/kill-switch/branch protegida) continua incondicional"
+            "floor (segredo/rede/kill-switch/branch protegida) continua incondicional, "
+            "e push segue restrito a branch do contrato ativo"
         )
 
     target = _extract_powershell_write_target(command)

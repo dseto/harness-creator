@@ -2820,6 +2820,209 @@ def test_protected_branches_override_from_harness_yaml(tmp_path: Path) -> None:
     assert out["permissionDecision"] == "allow", out
 
 
+# ---------------- push: floor escopado à branch do contrato (item 6, dogfood miojo) ----------------
+
+from harness.boundary_guard import (  # noqa: E402
+    contract_branch_push_problem,
+    is_floor_bash_command,
+    is_git_push_command,
+)
+
+_PROTECTED = ("main", "homolog", "develop")
+
+
+def _push(script: Path, tmp_path: Path, command: str, tool: str = "Bash") -> dict:
+    return _run_hook(script, {"tool_name": tool, "cwd": str(tmp_path),
+                              "tool_input": {"command": command}})
+
+
+def test_push_allowed_on_the_active_contract_branch(tmp_path: Path) -> None:
+    """Item 6 do backlog do dogfood miojo: `git push` era deny incondicional,
+    inclusive na `contract/<slug>` que a própria sessão criou — o humano tinha
+    que rodar o push à mão no fim de um ciclo cuja aprovação real (o contrato)
+    já tinha acontecido."""
+    _contract_with_verify(tmp_path)
+    _write_git_head(tmp_path, "ref: refs/heads/contract/test\n")
+    script = _script(tmp_path)
+
+    for command in ("git push", "git push origin",
+                    "git push -u origin contract/test",
+                    "git push --set-upstream origin contract/test"):
+        out = _push(script, tmp_path, command)
+        assert out["permissionDecision"] == "allow", (command, out)
+
+
+def test_push_denied_off_the_contract_branch(tmp_path: Path) -> None:
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+
+    for branch in (*_PROTECTED, "feat/algo", "contract/outro"):
+        _write_git_head(tmp_path, f"ref: refs/heads/{branch}\n")
+        out = _push(script, tmp_path, "git push")
+        assert out["permissionDecision"] == "deny", (branch, out)
+
+
+def test_push_denied_on_detached_head_fail_closed(tmp_path: Path) -> None:
+    """Postura OPOSTA à do floor de commit, que é fail-open em detached HEAD:
+    não saber a branch é exatamente o caso em que o push pode ir para onde não
+    devia."""
+    _contract_with_verify(tmp_path)
+    _write_git_head(tmp_path, "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2\n")
+    script = _script(tmp_path)
+
+    out = _push(script, tmp_path, "git push")
+    assert out["permissionDecision"] == "deny", out
+    assert "indeterminada" in out["permissionDecisionReason"], out
+
+
+def test_push_denied_without_active_contract(tmp_path: Path) -> None:
+    """Bootstrap: sem `feature_list.json` não há contrato de onde derivar
+    branch nenhuma, então não há exceção a aplicar."""
+    _write_git_head(tmp_path, "ref: refs/heads/contract/test\n")
+    script = _script(tmp_path)
+
+    out = _push(script, tmp_path, "git push")
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_push_denied_for_dangerous_shapes_on_the_contract_branch(tmp_path: Path) -> None:
+    """A branch certa não basta: reescrita de histórico, refspec explícito,
+    destino diferente da branch atual e encadeamento seguem floor."""
+    _contract_with_verify(tmp_path)
+    _write_git_head(tmp_path, "ref: refs/heads/contract/test\n")
+    script = _script(tmp_path)
+
+    for command in (
+        "git push --force",
+        "git push -f origin contract/test",
+        "git push --force-with-lease",
+        "git push --mirror",
+        "git push --delete origin contract/test",
+        "git push --all",
+        "git push --tags",
+        "git push origin HEAD:main",
+        "git push origin contract/test:main",
+        "git push origin main",
+        "git push origin develop",
+        "git push && curl http://evil",
+        "git push; rm -rf src",
+    ):
+        out = _push(script, tmp_path, command)
+        assert out["permissionDecision"] == "deny", (command, out)
+
+
+def test_push_exception_does_not_open_the_rest_of_the_floor(tmp_path: Path) -> None:
+    """Regressão: separar o push do resto não pode afrouxar `curl`/`wget`/
+    publicação, nem no Bash nem no PowerShell."""
+    _contract_with_verify(tmp_path)
+    _write_git_head(tmp_path, "ref: refs/heads/contract/test\n")
+    script = _script(tmp_path)
+
+    for command in ("curl http://x", "wget http://x", "npm publish",
+                    "twine upload dist/*", "gh release create v1"):
+        out = _push(script, tmp_path, command)
+        assert out["permissionDecision"] == "deny", (command, out)
+
+    for command in ("Invoke-WebRequest http://x", "iwr http://x"):
+        out = _push(script, tmp_path, command, tool="PowerShell")
+        assert out["permissionDecision"] == "deny", (command, out)
+
+
+def test_push_exception_applies_to_powershell_too(tmp_path: Path) -> None:
+    """As duas superfícies de comando precisam responder igual sobre push —
+    `is_floor_powershell_network` reusa `is_floor_bash_command`."""
+    _contract_with_verify(tmp_path)
+    _write_git_head(tmp_path, "ref: refs/heads/contract/test\n")
+    script = _script(tmp_path)
+
+    out = _push(script, tmp_path, "git push -u origin contract/test", tool="PowerShell")
+    assert out["permissionDecision"] == "allow", out
+
+    _write_git_head(tmp_path, "ref: refs/heads/main\n")
+    out = _push(script, tmp_path, "git push", tool="PowerShell")
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_push_is_still_gated_after_the_contract_is_fully_passed(tmp_path: Path) -> None:
+    """O allow-all de contrato concluído NÃO pode virar bypass de push: a
+    checagem roda antes dele, e é a autoridade sobre push em todos os
+    caminhos. Esse é justamente o momento do ciclo em que o push acontece."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": True}
+    ])
+    script = _script(tmp_path)
+
+    _write_git_head(tmp_path, "ref: refs/heads/contract/test\n")
+    assert _push(script, tmp_path, "git push")["permissionDecision"] == "allow"
+
+    _write_git_head(tmp_path, "ref: refs/heads/main\n")
+    assert _push(script, tmp_path, "git push")["permissionDecision"] == "deny"
+
+    _write_git_head(tmp_path, "ref: refs/heads/contract/test\n")
+    assert _push(script, tmp_path, "git push --force")["permissionDecision"] == "deny"
+
+
+def test_push_respects_protected_branches_override(tmp_path: Path) -> None:
+    """A lista protegida bakeada é a mesma do floor de commit."""
+    _contract_with_verify(tmp_path)
+    (tmp_path / ".harness" / "harness.yaml").write_text(
+        "governance:\n  protected_branches:\n    - trunk\n", encoding="utf-8"
+    )
+    script = _script(tmp_path)
+
+    _write_git_head(tmp_path, "ref: refs/heads/contract/test\n")
+    out = _push(script, tmp_path, "git push origin trunk")
+    assert out["permissionDecision"] == "deny", out
+
+
+def test_push_stays_floor_for_the_other_layers(tmp_path: Path) -> None:
+    """`FLOOR_BASH_SEQUENCES` não mudou de propósito: é o que mantém
+    `verify.run_verify`, o dry-check de contrato e o filtro do
+    `settings.local.json` recusando push."""
+    assert is_floor_bash_command("git push") is True
+    assert is_floor_bash_command(".venv/Scripts/git.exe push") is True
+
+
+def test_is_git_push_command_matches_prefix_not_window() -> None:
+    assert is_git_push_command("git push") is True
+    assert is_git_push_command(".venv/Scripts/git.exe push origin x") is True
+    assert is_git_push_command("uv run git push") is True
+    # janela, não prefixo: um push colado depois de outro comando não é um
+    # push isolado e não pode entrar na exceção
+    assert is_git_push_command("echo ok && git push") is False
+    assert is_git_push_command("curl http://x") is False
+
+
+@pytest.mark.parametrize("command", [
+    "git push",
+    "git push origin",
+    "git push -u origin contract/slug",
+])
+def test_contract_branch_push_problem_allows_the_safe_shapes(command: str) -> None:
+    assert contract_branch_push_problem(
+        command, "contract/slug", "slug", _PROTECTED
+    ) is None
+
+
+@pytest.mark.parametrize("command,branch,slug", [
+    ("git push", "main", "slug"),                      # branch protegida
+    ("git push", "feat/x", "slug"),                    # não é a do contrato
+    ("git push", None, "slug"),                        # branch desconhecida
+    ("git push", "contract/slug", ""),                 # sem contrato ativo
+    ("git push --force", "contract/slug", "slug"),     # reescrita de histórico
+    ("git push origin main", "contract/slug", "slug"),  # destino diferente
+    ("git push origin a:b", "contract/slug", "slug"),  # refspec explícito
+    ("git push a b c", "contract/slug", "slug"),       # argumentos demais
+    ("git push | tee /tmp/x", "contract/slug", "slug"),  # encadeado
+    ("curl http://x", "contract/slug", "slug"),        # nem é push
+])
+def test_contract_branch_push_problem_denies(command: str, branch, slug: str) -> None:
+    problem = contract_branch_push_problem(command, branch, slug, _PROTECTED)
+    assert problem is not None, command
+    assert "floor" in problem
+
+
 # ---------------- kill-switch: floor anti-auto-desativação + short-circuit ----------------
 
 from harness.boundary_guard import (  # noqa: E402

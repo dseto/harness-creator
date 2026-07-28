@@ -213,12 +213,25 @@ Isso compila a **Fase 2** do roadmap (Execução Autônoma no Raio de Impacto):
 
 **O runtime floor nunca vira `allow`**, com ou sem contrato ativo: **escrita**
 em arquivo de segredo (`.env`, `.pem`, `id_rsa`, `*credentials*`) — incluindo
-redirecionamento de shell (`>`, `>>`, `tee`) —, rede/publicação não planejada
-(`curl`, `wget`, `npm publish`, `pip upload`, `twine upload`, `gh release`) e
-`git push` continuam fora da superfície liberada, verificados
-incondicionalmente antes de qualquer outra checagem do `boundary_guard.py`.
-O floor avalia o comando bruto **e** a forma normalizada (abaixo), então
-`.venv/Scripts/git.exe push` é tão negado quanto `git push`.
+redirecionamento de shell (`>`, `>>`, `tee`) — e rede/publicação não planejada
+(`curl`, `wget`, `npm publish`, `pip upload`, `twine upload`, `gh release`)
+continuam fora da superfície liberada, verificadas incondicionalmente antes de
+qualquer outra checagem do `boundary_guard.py`. O floor avalia o comando bruto
+**e** a forma normalizada (abaixo), então `.venv/Scripts/git.exe curl` é tão
+negado quanto `curl`.
+
+`git push` é o único item do floor com exceção, e ela é estreita: o push é
+liberado **apenas** a partir da branch do contrato ativo (`contract/<slug>`,
+a que `harness compile-session` cria), **apenas** para ela mesma, e **apenas**
+com `-u`/`--set-upstream`. Tudo o mais segue negado — branch protegida,
+qualquer outra branch, branch indeterminada (detached HEAD, worktree linkado:
+aqui a postura é fail-**closed**, ao contrário do floor de commit), sem
+contrato ativo, refspec explícito (`HEAD:main`), `--force`/`--force-with-lease`/
+`--mirror`/`--delete`/`--all`/`--tags`, e push encadeado a outro comando. A
+razão da exceção: depois de contrato aprovado e `verify` verde, empurrar a
+branch que o próprio harness criou não é uma decisão nova — é o passo mecânico
+de um ciclo já autorizado, e pará-lo obrigava um humano a rodar `git push` à
+mão no fim de toda sessão autônoma. Abrir o PR continua sendo passo humano.
 
 ### Quando o guard atrapalha: três escapes, nenhum deles adivinhação
 
