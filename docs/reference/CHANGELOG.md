@@ -1,5 +1,98 @@
 # Changelog
 
+## v0.23.0 — o verify fecha a tarefa
+
+Onda 1 do backlog do dogfood miojo: os quatro achados de atrito diário, os que
+não tocam no runtime floor. O critério de corte foi fluidez — cada item é um
+ponto onde o agente parava, pedia ajuda ou precisava de workaround manual
+embora a governança já tivesse a informação necessária para seguir sozinha.
+
+### Mudança de comportamento — `harness verify` marca `passes:true` por padrão
+
+`harness verify <id>` rodava o comando, gravava evidência com `exit_code: 0`,
+sincronizava a coluna de status do `progress.md` — e deixava `passes` em
+`false`. Como `supervisor.ready_features` decide só por `passes`, `harness
+supervise` devolvia a MESMA tarefa indefinidamente, com prova verde em disco.
+A flag que resolvia isso (`--mark-passed`) era opt-in e não aparecia em lugar
+nenhum da saída do verify, então não havia de onde deduzir o passo que faltava.
+
+- Marcar passa a ser o default; `--no-mark-passed` mantém o comportamento
+  antigo, para fleets com múltiplos agentes escrevendo o mesmo
+  `feature_list.json` (a escrita não tem lock entre processos). O lifecycle
+  passo 6 manda trabalhar UMA feature por vez, então sequencial é o default
+  honesto.
+- `--mark-passed` continua aceito como no-op, para não quebrar script existente.
+- A saída passa a DIZER em que estado a tarefa ficou, em stderr — o stdout
+  segue sendo só o JSON da evidência, consumido por `json.loads` mundo afora.
+- `mark_feature_passed` grava de forma atômica (temporário + `os.replace`): a
+  corrida de lost-update entre processos continua existindo, mas nenhuma delas
+  pode deixar o `feature_list.json` truncado — e um truncamento nele derruba o
+  boundary_guard inteiro para o caminho de bootstrap.
+
+### Corrigido — `verify_cmd` ancorado no venv não executava no Windows
+
+O `boundary_guard` reconhece `.venv/Scripts/pytest.exe` como forma equivalente
+ao binário nu, e o `preflight` recomenda exatamente essa forma. Mas o guard só
+precisa CASAR o texto; quem executa é o `run_verify`, com `shell=True`, o que
+no Windows passa pelo `cmd.exe` — que corta o token do comando no primeiro `/`
+e responde `'.venv' não é reconhecido como um comando interno ou externo`. A
+mesma string passava numa metade do caminho e falhava na outra.
+
+- `normalize_command_head` troca `/` por `\` SÓ no primeiro token, e só no
+  Windows. Argumento com `/` (regex, URL, `--cov=src/...`) fica intacto: ali a
+  barra é significado, não forma de invocação.
+- Aplicado no `run_verify` e no dry-check de `compile-contract
+  --dry-run-verify`, para os dois não darem veredictos opostos sobre a mesma
+  string no mesmo repo.
+- A evidência continua gravando o TEXTO DO CONTRATO, não a forma executável.
+
+### Corrigido — a seção "Última atualização" do `progress.md` ficava vazia
+
+A sincronização automática cobria a coluna de status da tabela; o texto livre
+continuava 100% manual (passo 12 do lifecycle) e ficava vazio até alguém
+lembrar. O arquivo existe para a próxima sessão retomar sem perder contexto, e
+cumpria mal esse papel.
+
+- `run_verify` carimba um bloco delimitado por `<!-- harness:auto -->` dentro
+  da seção, uma linha por prova gravada, guardando as 10 mais recentes.
+- Os delimitadores existem para o carimbo e a prosa do agente coexistirem: o
+  bloco nunca reescreve o que não é dele, e o placeholder original segue no
+  lugar.
+- Usa o MESMO timestamp da evidência — dois carimbos divergentes para o mesmo
+  evento seriam piores que a seção vazia.
+
+### Corrigido — `pyproject.toml` só de tooling sequestrava o comando de instalação
+
+Criar um `pyproject.toml` com só `[tool.ruff]` (para calar um warning de lint
+do preflight) trocava `package_manager.evidence` de `requirements.txt` para
+`pyproject.toml`. Como `install_command_for` decide por evidência, o comando
+inferido virava `pip install -e .` — que nem funciona num repo sem `[project]`
+— e `pip install -r requirements.txt` caía fora da superfície liberada pelo
+guard, exigindo `extra_allowed_commands` manual para contornar.
+
+- `_detect_package_manager` passa a ler o conteúdo: `pyproject.toml` só conta
+  como manifesto de pacote com `[project]` ou `[build-system]`.
+- Rebaixa, não descarta. Num repo cujo único manifesto é esse, descartar
+  apagaria a detecção inteira e transformaria um repo governável em `unknowns`.
+- Isso dá uso real a `_PYTHON_PACKAGE_MANIFESTS`, que estava no módulo sem
+  nenhuma referência, documentada exatamente para esta decisão.
+
+### Corrigido — a suíte testava o pacote instalado, não a árvore de trabalho
+
+Achado durante esta onda, e o mais grave dos quatro: sem `pythonpath` no
+`[tool.pytest.ini_options]`, num ambiente onde `harness-creator` foi instalado
+de forma não-editável, o `import harness` dos testes resolvia para
+site-packages. A suíte passava verde sobre código que não era o editado, sem
+nenhum sinal na saída do pytest. Corrigido com `pythonpath = ["src"]`.
+
+Também corrigido o helper `_run` de `tests/e2e/test_contract_flow.py`, que
+decodificava a saída do subprocess com o codec do locale — no Windows pt-BR as
+mensagens acentuadas do CLI viravam mojibake e a asserção falhava por causa do
+leitor, não do produto. Passa a usar `encoding="utf-8"` explícito, mesmo padrão
+já aplicado nos helpers irmãos.
+
+Suíte completa: 947 passam, 1 skip (teste POSIX-only, rodando em Windows).
+
 ## v0.22.2 — a razão do gate de teste cita o contrato
 
 Issue #41, PR #42.

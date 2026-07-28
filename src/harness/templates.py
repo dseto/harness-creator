@@ -76,6 +76,20 @@ _NO_TEST_COMMAND_COMMENT = "nenhum test_command detectado"
 _CONTRACT_LINE_PREFIX = "Contrato: `"
 _LAST_UPDATE_HEADING = "## Última atualização"
 
+#: Delimitadores do trecho AUTOMÁTICO dentro de `## Última atualização`
+#: (item 4 do backlog do dogfood miojo). Existem para o carimbo do
+#: `run_verify` e a prosa do agente coexistirem no mesmo arquivo: sem
+#: fronteira explícita, ou o automático sobrescreve a nota humana, ou o
+#: humano precisa desviar do automático. Comentário HTML porque não aparece
+#: no markdown renderizado.
+_AUTO_NOTE_BEGIN = "<!-- harness:auto -->"
+_AUTO_NOTE_END = "<!-- /harness:auto -->"
+
+#: Quantas entradas automáticas o bloco guarda. O propósito do arquivo é a
+#: próxima sessão retomar o contexto, não manter um log completo — a
+#: evidência em `.harness/evidence/` é que é o registro permanente.
+_AUTO_NOTE_MAX_ENTRIES = 10
+
 
 # ---------------------------------------------------------------------------
 # .harness/progress.md
@@ -328,3 +342,62 @@ def update_progress_status(target_dir: Path, feature_id: str, status: str) -> bo
     if changed:
         progress_path.write_text("".join(lines), encoding="utf-8")
     return changed
+
+
+def render_last_update_note(text: str, note: str) -> str | None:
+    """`text` do `progress.md` com `note` acrescentada ao bloco automático da
+    seção `## Última atualização`. `None` se o heading não existir.
+
+    Puro (não toca disco) para o comportamento ser testável sem fixture de
+    arquivo — mesma divisão de `render_progress_template`.
+
+    - Bloco já presente: acrescenta a entrada e trunca em
+      `_AUTO_NOTE_MAX_ENTRIES`, mantendo as mais recentes.
+    - Bloco ausente: insere logo abaixo do heading, ANTES do texto que já
+      estiver lá. O placeholder `_(vazio — ...)_` e qualquer prosa do agente
+      seguem intactos embaixo — este bloco nunca reescreve o que não é dele.
+    - Heading ausente (agente reescreveu o arquivo à mão): `None`, e o
+      chamador não escreve nada. Fabricar a estrutura de volta seria impor um
+      formato a um arquivo declaradamente runtime-mutável.
+    """
+    if _LAST_UPDATE_HEADING not in text:
+        return None
+
+    entry = f"- {note}"
+    begin = text.find(_AUTO_NOTE_BEGIN)
+    end = text.find(_AUTO_NOTE_END)
+
+    if begin != -1 and end > begin:
+        previous = [
+            line for line in text[begin + len(_AUTO_NOTE_BEGIN):end].splitlines()
+            if line.strip().startswith("- ")
+        ]
+        entries = (previous + [entry])[-_AUTO_NOTE_MAX_ENTRIES:]
+        block = _AUTO_NOTE_BEGIN + "\n" + "\n".join(entries) + "\n"
+        return text[:begin] + block + text[end:]
+
+    insert_at = text.find(_LAST_UPDATE_HEADING) + len(_LAST_UPDATE_HEADING)
+    block = f"\n\n{_AUTO_NOTE_BEGIN}\n{entry}\n{_AUTO_NOTE_END}\n"
+    return text[:insert_at] + block + text[insert_at:]
+
+
+def append_progress_note(target_dir: Path, note: str) -> bool:
+    """Acrescenta `note` ao bloco automático de `## Última atualização` do
+    `.harness/progress.md` de `target_dir`. `True` se o arquivo foi reescrito.
+
+    Chamada por `harness.verify.run_verify` a cada prova gravada. NO-OP
+    silencioso (retorna `False`, nunca levanta) quando o arquivo não existe ou
+    não tem o heading — mesma regra de `update_progress_status`: sincronizar o
+    rastro legível jamais pode ser motivo de uma verificação falhar.
+    """
+    progress_path = Path(target_dir) / PROGRESS_FILE
+    if not progress_path.is_file():
+        return False
+
+    text = progress_path.read_text(encoding="utf-8")
+    updated = render_last_update_note(text, note)
+    if updated is None or updated == text:
+        return False
+
+    progress_path.write_text(updated, encoding="utf-8")
+    return True

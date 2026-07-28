@@ -153,10 +153,15 @@ def main() -> None:
     ver.add_argument("feature_id", help="Id da feature em .harness/feature_list.json")
     ver.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
     ver.add_argument(
-        "--mark-passed", action="store_true",
-        help="Se exit_code==0, grava passes:true na feature em feature_list.json "
-        "(opt-in; sessão orquestradora sequencial únicas — não usar com múltiplos "
-        "agentes em paralelo no mesmo feature_list.json)",
+        "--no-mark-passed", action="store_false", dest="mark_passed", default=True,
+        help="Não grava passes:true mesmo com exit_code==0 — só a evidência. "
+        "Para fleets com múltiplos agentes escrevendo o mesmo "
+        "feature_list.json em paralelo (a escrita não tem lock entre "
+        "processos). Sessão sequencial normal não precisa disto",
+    )
+    ver.add_argument(
+        "--mark-passed", action="store_true", dest="mark_passed", default=True,
+        help="(compat) no-op — marcar passou a ser o default na v0.23.0",
     )
     ver.add_argument(
         "--timeout", type=int, default=None, metavar="SEGUNDOS",
@@ -501,6 +506,7 @@ def main() -> None:
         sys.exit(0)
 
     if args.command == "verify":
+        from harness.contract import FEATURE_LIST_FILE
         from harness.verify import (
             _VERIFY_TIMEOUT_SECONDS,
             VerifyError,
@@ -526,8 +532,26 @@ def main() -> None:
             print(f"erro: {exc}", file=sys.stderr)
             sys.exit(1)
 
+        # Item 3 do backlog do dogfood miojo: a saída precisa DIZER em que
+        # estado a tarefa ficou. Antes, o verify verde não marcava `passes` e
+        # não mencionava a flag que faria isso — `harness supervise` seguia
+        # devolvendo a mesma tarefa e não havia de onde deduzir o porquê.
+        # stderr, nunca stdout: o stdout é o JSON da evidência, consumido por
+        # `json.loads` mundo afora.
         if args.mark_passed:
             mark_feature_passed(Path(args.dir), args.feature_id)
+            print(
+                f"{args.feature_id}: passes:true gravado em "
+                f"{FEATURE_LIST_FILE} — tarefa fechada",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"{args.feature_id}: evidência gravada, mas passes continua "
+                "false (--no-mark-passed) — `harness supervise` vai devolver "
+                "esta tarefa de novo",
+                file=sys.stderr,
+            )
 
         from harness.supervisor import on_feature_verified
 

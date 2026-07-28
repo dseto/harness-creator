@@ -55,11 +55,15 @@ _SKIP_DIRS = {".harness", ".git", "__pycache__", ".venv", "node_modules",
 # governável, `test_glob` ficava `null` (deixando `_is_test_diff` inerte, sem
 # sinal) e o check de sombra de venv nunca disparava, porque ele depende de haver
 # um `test_command` inferido. É o layout mais comum de serviço Python que não é
-# um pacote. Fica DEPOIS de pyproject/setup na ordenação (`_first` desempata por
-# profundidade e depois alfabeticamente), então um repo com os dois continua
-# provando a linguagem pelo manifesto mais forte.
+# um pacote. Para a LINGUAGEM, qual dos três prova o achado é indiferente —
+# `_first` desempata por profundidade e depois alfabeticamente (o que, note,
+# põe `requirements.txt` ANTES de `setup.py`, não depois). Para o PACKAGE
+# MANAGER não é indiferente, porque a evidência decide o comando de
+# instalação: ver `_detect_package_manager`.
 _PYTHON_MANIFESTS = {"pyproject.toml", "setup.py", "requirements.txt"}
 #: Manifestos que descrevem um pacote INSTALÁVEL (`pip install -e .` funciona).
+#: `pyproject.toml` só entra de fato quando o conteúdo confirma — ver
+#: `_is_installable_package_manifest`.
 _PYTHON_PACKAGE_MANIFESTS = {"pyproject.toml", "setup.py"}
 #: Arquivo exclusivo do pytest: se existe, o runner é pytest, sem ambiguidade.
 _PYTEST_MARKER_FILENAME = "conftest.py"
@@ -179,7 +183,7 @@ def analyze_project(target_dir: Path) -> RepoProfile:
     files = _list_files(target_dir)
 
     language_findings, manifests = _detect_languages(files)
-    package_manager = _detect_package_manager(files)
+    package_manager = _detect_package_manager(target_dir, files)
 
     primary_language = language_findings[0].value if language_findings else None
     test_command = _detect_test_command(target_dir, primary_language, manifests, files)
@@ -292,17 +296,70 @@ def _detect_languages(files: list[Path]) -> tuple[list[Finding], dict[str, Path]
     return findings, manifests
 
 
-def _detect_package_manager(files: list[Path]) -> Finding | None:
+def _is_installable_package_manifest(target_dir: Path, rel: Path) -> bool:
+    """True se `rel` é um manifesto que de fato descreve um pacote instalável
+    (`pip install -e .` funciona). `setup.py` sempre é; `pyproject.toml` só
+    quando tem `[project]` ou `[build-system]`.
+
+    Item 2 do backlog do dogfood miojo. Um `pyproject.toml` com só
+    `[tool.ruff]` (criado para calar um warning de lint do preflight) não é
+    manifesto de pacote nenhum: é arquivo de configuração de ferramenta. Mas
+    a detecção era por PRESENÇA do nome do arquivo, então ele virava
+    `package_manager.evidence`, e `install_command_for` — que decide por
+    evidência — trocava `pip install -r requirements.txt` por
+    `pip install -e .`. Silenciosamente, num repo onde `pip install -e .` nem
+    funciona (sem `[project]`, não há o que instalar), e derrubando o comando
+    real para fora da superfície liberada pelo guard.
+
+    `[build-system]` sozinho conta: metadados podem estar no `setup.py`/
+    `setup.cfg` e `pip install -e .` funciona. TOML ilegível conta como NÃO
+    instalável — na dúvida, preservar o `requirements.txt`, que é o caminho
+    que executa.
+    """
+    if rel.name not in _PYTHON_PACKAGE_MANIFESTS:
+        return False
+    if rel.name != "pyproject.toml":
+        return True
+    try:
+        data = tomllib.loads((target_dir / rel).read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError):
+        return False
+    return "project" in data or "build-system" in data
+
+
+def _detect_package_manager(target_dir: Path, files: list[Path]) -> Finding | None:
     for rel in files:
         manager = _LOCKFILE_MANAGERS.get(rel.name)
         if manager is not None:
             return Finding(manager, rel.as_posix(), 1.0)
+
     # Nenhum lockfile: projeto Python sem lockfile usa pip por definição
     # (não existe "linguagem Python sem package manager") — inferência com
     # confidence menor que 1.0 porque não veio de um lockfile explícito.
-    python_manifest = _first(files, _PYTHON_MANIFESTS)
-    if python_manifest is not None:
-        return Finding("pip", python_manifest.as_posix(), 0.6)
+    #
+    # A escolha de QUAL manifesto vira evidência não é indiferente: ela decide
+    # o comando de instalação (`install_command_for`). Um `pyproject.toml` que
+    # só configura ferramenta é rebaixado a último recurso — perde para
+    # `requirements.txt` e `setup.py`, ganha só de nada. Rebaixar, e não
+    # descartar: num repo cujo ÚNICO manifesto é esse, descartar apagaria a
+    # detecção de package manager inteira e transformaria um repo governável
+    # em `unknowns`.
+    demoted: Path | None = None
+    for rel in files:
+        if rel.name not in _PYTHON_MANIFESTS:
+            continue
+        tooling_only = (
+            rel.name in _PYTHON_PACKAGE_MANIFESTS
+            and not _is_installable_package_manifest(target_dir, rel)
+        )
+        if tooling_only:
+            if demoted is None:
+                demoted = rel
+            continue
+        return Finding("pip", rel.as_posix(), 0.6)
+
+    if demoted is not None:
+        return Finding("pip", demoted.as_posix(), 0.6)
     return None
 
 

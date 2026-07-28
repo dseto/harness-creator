@@ -34,3 +34,9 @@ line-length = 100
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# A suíte testa a ÁRVORE DE TRABALHO, não o wheel instalado. Sem isto, num
+# ambiente onde `harness-creator` foi instalado de forma não-editável, o
+# `import harness` dos testes resolve para site-packages e a suíte passa
+# verde sobre código que não é o que está sendo editado — falso-verde
+# silencioso, sem nenhum sinal na saída do pytest.
+pythonpath = ["src"]

@@ -443,3 +443,56 @@ def test_requirements_becomes_the_package_manager_evidence(tmp_path: Path) -> No
     assert install_command_for(
         profile.package_manager.value, profile.package_manager.evidence
     ) == "pip install -r requirements.txt"
+
+
+def test_tooling_only_pyproject_does_not_hijack_requirements(tmp_path: Path) -> None:
+    """Item 2 do backlog do dogfood miojo.
+
+    Criar um `pyproject.toml` com só `[tool.ruff]` — para calar um warning de
+    lint do preflight — trocava a evidência do package manager e, com ela, o
+    comando de instalação: `pip install -r requirements.txt` virava
+    `pip install -e .`, que nem funciona num repo sem `[project]`. O comando
+    real caía fora da superfície liberada pelo guard, exigindo
+    `extra_allowed_commands` manual para contornar."""
+    from harness.install_command import install_command_for
+
+    _write(tmp_path / "pyproject.toml", '[tool.ruff]\nline-length = 100\n')
+    _write(tmp_path / "requirements.txt", "fastapi\n")
+    _write(tmp_path / "tests" / "test_x.py", "def test_x():\n    assert True\n")
+
+    profile = analyze_project(tmp_path)
+
+    assert profile.package_manager is not None
+    assert profile.package_manager.evidence == "requirements.txt"
+    assert install_command_for(
+        profile.package_manager.value, profile.package_manager.evidence
+    ) == "pip install -r requirements.txt"
+
+
+def test_build_system_alone_counts_as_installable_package(tmp_path: Path) -> None:
+    """Metadados podem viver no `setup.py`/`setup.cfg`: `[build-system]` sem
+    `[project]` ainda é um pacote instalável, e vence o `requirements.txt`."""
+    _write(
+        tmp_path / "pyproject.toml",
+        '[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n',
+    )
+    _write(tmp_path / "requirements.txt", "fastapi\n")
+
+    profile = analyze_project(tmp_path)
+
+    assert profile.package_manager is not None
+    assert profile.package_manager.evidence == "pyproject.toml"
+
+
+def test_tooling_only_pyproject_alone_still_detects_pip(tmp_path: Path) -> None:
+    """Rebaixar, não descartar: num repo cujo ÚNICO manifesto é um
+    `pyproject.toml` de tooling, apagar a detecção transformaria um repo
+    governável em `unknowns` — regressão pior que o comando errado."""
+    _write(tmp_path / "pyproject.toml", '[tool.ruff]\nline-length = 100\n')
+
+    profile = analyze_project(tmp_path)
+
+    assert profile.package_manager is not None
+    assert profile.package_manager.value == "pip"
+    assert profile.package_manager.evidence == "pyproject.toml"
+    assert "package_manager: nenhum lockfile detectado" not in profile.unknowns
