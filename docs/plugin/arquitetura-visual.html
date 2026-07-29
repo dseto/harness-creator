@@ -780,22 +780,35 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
       <text x="472" y="138" class="sv-tx3" text-anchor="middle">política + TDD viram permissions e hooks</text>
       <path d="M472,88 L472,102" class="sv-ln" stroke-width="1.6" marker-end="url(#fa)"/>
 
-      <!-- plan -->
-      <rect x="38" y="164" width="240" height="46" rx="9" fill="var(--panel)" stroke="var(--acc2)" stroke-width="1.4"/>
-      <text x="158" y="184" class="sv-tx" text-anchor="middle">descreve a demanda</text>
-      <text x="158" y="200" class="sv-tx3" text-anchor="middle">linguagem natural, sem formato</text>
+      <!-- demanda -->
+      <rect x="38" y="152" width="240" height="42" rx="9" fill="var(--panel)" stroke="var(--acc2)" stroke-width="1.4"/>
+      <text x="158" y="171" class="sv-tx" text-anchor="middle">descreve a demanda</text>
+      <text x="158" y="186" class="sv-tx3" text-anchor="middle">linguagem natural, sem formato</text>
 
-      <rect x="666" y="164" width="256" height="46" rx="9" fill="var(--panel)" stroke="var(--line2)"/>
-      <text x="794" y="184" class="sv-tx" text-anchor="middle">/harness-creator:plan</text>
-      <text x="794" y="200" class="sv-tx3" text-anchor="middle">redige spec.md (o quê) + Plans.md (o como)</text>
-      <path d="M278,187 L664,187" class="sv-ln" stroke-width="1.6" marker-end="url(#fa)"/>
+      <!-- assess: portao da demanda -->
+      <rect x="666" y="146" width="256" height="44" rx="9" fill="var(--panel)" stroke="var(--bad)" stroke-width="1.4"/>
+      <text x="794" y="164" class="sv-tx" text-anchor="middle">/harness-creator:assess</text>
+      <text x="794" y="179" class="sv-tx3" text-anchor="middle">laudo read-only · código, docs, git, contratos</text>
+      <path d="M278,170 L664,170" class="sv-ln" stroke-width="1.6" marker-end="url(#fa)"/>
+
+      <path d="M924,168 L946,168" class="sv-ln" stroke="var(--bad)" stroke-width="1.4" marker-end="url(#fab)"/>
+      <text x="936" y="140" class="sv-tx3" text-anchor="middle">⛔</text>
+      <text x="936" y="196" class="sv-tx3" text-anchor="middle">fora de</text>
+      <text x="936" y="208" class="sv-tx3" text-anchor="middle">escopo</text>
+
+      <!-- plan -->
+      <rect x="666" y="200" width="256" height="42" rx="9" fill="var(--panel)" stroke="var(--line2)"/>
+      <text x="794" y="218" class="sv-tx" text-anchor="middle">/harness-creator:plan</text>
+      <text x="794" y="233" class="sv-tx3" text-anchor="middle">redige spec.md (o quê) + Plans.md (o como)</text>
+      <path d="M794,192 L794,198" class="sv-ln" stroke-width="1.6" marker-end="url(#fa)"/>
+      <text x="700" y="198" class="sv-tx3" text-anchor="end">✅⚠️ segue</text>
 
       <!-- gate -->
       <path d="M158,232 L272,272 L158,312 L44,272 Z" fill="var(--panel)" stroke="var(--amb)" stroke-width="1.8"/>
       <text x="158" y="266" class="sv-tx" text-anchor="middle">GATE ÚNICO</text>
       <text x="158" y="284" class="sv-tx3" text-anchor="middle">aprova o contrato?</text>
-      <path d="M794,212 L794,240 L276,240 L200,258" class="sv-ln" stroke-width="1.6" marker-end="url(#fa)"/>
-      <text x="470" y="234" class="sv-tx3" text-anchor="middle">apresenta para aprovação</text>
+      <path d="M794,244 L794,256 L276,256 L200,264" class="sv-ln" stroke-width="1.6" marker-end="url(#fa)"/>
+      <text x="470" y="250" class="sv-tx3" text-anchor="middle">apresenta para aprovação</text>
 
       <text x="80" y="330" class="sv-tx3">não → replaneja</text>
       <path d="M44,272 L22,272 L22,340 L158,340 L158,318" class="sv-ln" stroke="var(--bad)" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#fab)"/>
@@ -845,7 +858,7 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
       <path d="M158,438 L158,575 L350,575" class="sv-ln" stroke-width="1.6" marker-end="url(#fa)"/>
       <text x="240" y="566" class="sv-tx3" text-anchor="middle">tudo verde</text>
     </svg>
-    <div class="figcap">Fig. 5 — O ciclo. Note que a CLI, não o agente, é quem cria branch, compila contrato e grava evidência.</div>
+    <div class="figcap">Fig. 5 — O ciclo. Dois portões read-only antes de qualquer escrita (preflight no repo, assess na demanda); e a CLI, não o agente, é quem cria branch, compila contrato e grava evidência.</div>
   </div>
 
   <div class="grid g3">
@@ -1533,10 +1546,11 @@ function seq(el,spec){
 }
 seq(document.getElementById('seq1'),{
  cap:'Seq. A — Da demanda ao contrato compilado. O único gate humano obrigatório por demanda.',
- actors:[{n:'Humano',c:'--acc2'},{n:'Skill|/plan'},{n:'contract.py|CLI',c:'--acc'},
+ actors:[{n:'Humano',c:'--acc2'},{n:'Skill|/assess → /plan'},{n:'contract.py|CLI',c:'--acc'},
          {n:'.harness/work|spec + Plans',c:'--vio'},{n:'feature_list|+ branch',c:'--vio'}],
  rows:[
   {k:'msg',from:0,to:1,t:'"quero que o guard pare de bloquear X"'},
+  {k:'self',from:1,t:'assess: 4 fontes → laudo (⛔ fora de escopo pararia aqui)',c:'--bad'},
   {k:'msg',from:1,to:3,t:'redige spec.md + Plans.md',s:'escopo, critérios, stop conditions, files[], verify_cmd'},
   {k:'msg',from:1,to:0,t:'apresenta o contrato para aprovação',c:'--amb'},
   {k:'note',from:0,t:'GATE HUMANO ÚNICO',c:'--amb'},

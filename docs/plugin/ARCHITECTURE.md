@@ -57,7 +57,7 @@ contagem de tokens a hooks.
 | Camada | Módulos | Responsabilidade | O que ela NÃO faz |
 |---|---|---|---|
 | **0 · Host** | Claude Code | Executa: lê `permissions`, dispara hooks, carrega skills e subagentes | — |
-| **1a · Skills** | `skills/` (6) | Conduz a conversa com o humano | Não escreve nada direto — toda escrita passa pela CLI |
+| **1a · Skills** | `skills/` (7) | Conduz a conversa com o humano | Não escreve nada direto — toda escrita passa pela CLI |
 | **1b · CLI** | `cli.py` | Dispatch dos 19 subcomandos, validação de `--dir` | Não decide `allow`/`deny` em runtime |
 | **2 · Compiladores** | `compiler`, `contract`, `analyzer`, `session_permissions`, `lifecycle`, `templates`, `branching`, `profile_edit`, `install_command` | Transformam entrada humana em artefato. Determinísticos, zero LLM, zero rede | Não rodam no caminho da tool call |
 | **3 · Enforcement** | `boundary_guard`, `guard_tests`, `guard_test_runner`, `session_start`, `stop_hook` | Decidem `allow`/`ask`/`deny` a cada tool call | Não importam a biblioteca — stdlib puro |
@@ -208,6 +208,32 @@ payload antes da checagem — senão a âncora produziria falso-deny.
 
 ## 5. O contrato como único ponto de autoridade
 
+### Os dois portões, antes do contrato
+
+O ciclo tem duas avaliações read-only que precedem qualquer escrita, e é útil
+não confundi-las — uma julga o **repositório**, a outra a **demanda**:
+
+| | `preflight` | `assess` |
+|---|---|---|
+| Avalia | o repositório está pronto para o harness? | esta demanda é executável aqui? |
+| Roda | uma vez por projeto, antes do `init` | uma vez por demanda, antes do `plan` |
+| Fontes | git, manifesto, runner de teste, linter | código, docs, git, `.harness/work/` |
+| Veredito | `READY` / `READY_WITH_WARNINGS` / `NOT_READY` | `COERENTE` / `PRECISA_ESCLARECER` / `CONFLITANTE` / `FORA_DE_ESCOPO` |
+| Bloqueia? | `NOT_READY` | só `FORA_DE_ESCOPO` |
+| Implementação | Python (`preflight.py`) — determinístico | prompt (`skills/assess/`) — semântico |
+
+A assimetria de implementação é deliberada. Prontidão de repositório é
+verificável por checagem objetiva; aderência de demanda não é. Um `files[]`
+apontando arquivo inexistente é normal (arquivo novo); um `verify_cmd` que
+falha é normal (TDD). **Todo sinal estático disponível é indistinguível do caso
+legítimo** — daí o `assess` ser julgamento, não parser, e daí a Fase 5 propor
+um juiz semântico para o contrato em vez de mais validação.
+
+`assess` **não substitui o gate humano** — é insumo para ele. `COERENTE`
+significa "não achei impedimento nas quatro dimensões", nunca "deve ser feito".
+
+### O contrato
+
 Toda autoridade humana se concentra em **um** artefato aprovável: o par
 `spec.md` (o quê — escopo, critérios executáveis, `stop_conditions`) +
 `Plans.md` (o como — tarefas, `files[]`, `verify:`).
@@ -288,24 +314,28 @@ insere as novas, preservando regra e hook manuais.
 ## 7. Fluxo de dados de ponta a ponta
 
 ```
-repositório ──analyze──► repo-profile.json ─┐
-                                            ├─► session_permissions ──► settings.local.json
-harness.yaml ──compile──► permissions       │                              │
-             │            guard_tests       │                              ▼
-             │            AGENTS.md         │                     boundary_guard.py
-             │                              │                     guard_tests.py
-spec + Plans ──compile-contract──► feature_list.json ─────────────┤ session_start.py
-                    ▲                       │                     stop_hook.py
-                    │                       │                              │
-              GATE HUMANO                   │                              ▼
-           (approved_by/at)                 │                     decisão allow/deny
-                                            │                     por tool call
-                                            ▼
-                             verify ──► evidence/<contrato>/<id>.json
-                                            │
-                                            ▼
-                              feature-lock  ·  review  ·  supervise  ·  finish
+repositório ──preflight──► READY? ──► analyze ──► repo-profile.json ─┐
+                                                                     ├─► session_permissions ──► settings.local.json
+harness.yaml ──compile──► permissions                                │                              │
+             │            guard_tests                                │                              ▼
+             │            AGENTS.md                                  │                     boundary_guard.py
+             │                                                       │                     guard_tests.py
+demanda ──assess──► laudo ──► spec + Plans ──compile-contract──► feature_list.json ───────┤ session_start.py
+   (4 fontes)   FORA_DE_ESCOPO      ▲                                │                     stop_hook.py
+                     barra          │                                │                              │
+                                GATE HUMANO                          │                              ▼
+                             (approved_by/at)                        │                     decisão allow/deny
+                                                                     │                     por tool call
+                                                                     ▼
+                                                      verify ──► evidence/<contrato>/<id>.json
+                                                                     │
+                                                                     ▼
+                                       feature-lock  ·  review  ·  supervise  ·  finish
 ```
+
+Os dois pontos onde o fluxo pode parar antes de qualquer escrita são os
+portões: `preflight` com `NOT_READY` e `assess` com `FORA_DE_ESCOPO`. Todo o
+resto ou segue, ou para no gate humano do contrato.
 
 ---
 

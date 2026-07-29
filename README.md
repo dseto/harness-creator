@@ -25,6 +25,22 @@ Plugin do Claude Code que **cria, avalia e compila** estrutura de harness
 - **Orçamento** vira orientação no AGENTS.md (o Claude Code não expõe tokens a
   hooks — dito explicitamente, sem teatro de enforcement).
 
+O ciclo de uma demanda tem **dois portões read-only antes de qualquer
+escrita** — um sobre o repositório, outro sobre a demanda:
+
+```
+repositório ──preflight──► READY?          ← o repo tem o mínimo para o ciclo?
+demanda     ──assess────► laudo (4 fontes) ← ela pertence a este projeto?
+                            │                 já foi feita? contradiz algo?
+                            ▼
+                          plan ──► contrato ──► GATE HUMANO ──► sessão autônoma
+```
+
+`assess` avalia a demanda contra código, documentação, histórico do git e
+contratos anteriores. Só `FORA_DE_ESCOPO` barra; `PRECISA_ESCLARECER` e
+`CONFLITANTE` seguem como warning, porque são demandas legítimas com trabalho
+pendente — quem decide se vale a pena é o humano, no gate do `plan`.
+
 Uso no dia a dia (instalar → criar harness → trabalhar com os prompts de
 aprovação aparecendo sozinhos): ver [GUIDE.md](docs/plugin/GUIDE.md).
 

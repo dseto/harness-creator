@@ -394,14 +394,69 @@ Cenário: o `projeto-exemplo` já passou pela Parte A. Chega a demanda:
 > vira `LIMIT -1` no SQLite e devolve a tabela inteira. Validar o parâmetro:
 > mínimo 1, máximo 100, default 10. Cobrir com teste."*
 
-## B.1 `/harness-creator:plan` — transformar a demanda em contrato
+## B.1 `/harness-creator:assess` — a demanda faz sentido aqui?
 
-Abra a sessão no projeto (com `--plugin-dir`, porque vamos usar uma skill):
+Abra a sessão no projeto (com `--plugin-dir`, porque vamos usar skills):
 
 ```powershell
 cd C:\Projetos\projeto-exemplo
 claude --plugin-dir C:\Projetos\Harness-creator
 ```
+
+Antes de formalizar qualquer coisa:
+
+```
+/harness-creator:assess
+```
+
+Cole a demanda como ela chegou — sem limpar, sem reescrever. A skill avalia
+contra as **quatro fontes de verdade** do projeto e devolve um laudo
+**read-only** (não escreve um byte, não cria contrato):
+
+| # | Dimensão | Pergunta | Fonte |
+|---|---|---|---|
+| D1 | Pertinência | A demanda fala deste sistema? Os símbolos existem? | código + docs |
+| D2 | Coerência | Contradiz alguma regra ou decisão documentada? | `AGENTS.md` + docs |
+| D3 | Precedente | Já foi feita, tentada ou descartada por decisão? | git + `.harness/work/` |
+| D4 | Executabilidade | Dá para escrever critério com comando de prova? | perfil + testes |
+
+| Veredito | Sinal | O que fazer |
+|---|---|---|
+| `COERENTE` | ✅ OK | siga para B.2 |
+| `PRECISA_ESCLARECER` | ⚠️ WARNING | **siga** — as perguntas viram `unknowns` do `spec.md` |
+| `CONFLITANTE` | ⚠️ WARNING | **siga** — registre a decisão no `spec.md` |
+| `FORA_DE_ESCOPO` | ⛔ BLOQUEIA | pare — a demanda não é sobre este repositório |
+
+**Por que este passo existe.** O `plan` do B.2 formaliza o que você descrever e
+confia no gate de aprovação que vem no fim dele — nenhum dos dois confere se a
+demanda pertence ao projeto. Uma receita de bolo colada por engano como user story **compila**: o
+parser aceita `## [T-01] bater as claras`, `files[]` não toca o disco (path
+inexistente passa, porque arquivo novo é legítimo) e o único detector
+automático (`--dry-run-verify`) é explicitamente ensinado a ser ignorado, já
+que tarefa TDD recém-planejada também falha rápido por natureza.
+
+O resultado seria um contrato **bem formatado** sobre um sistema que não
+existe — e o formato é justamente o que faz uma demanda errada parecer legítima
+na hora de aprovar.
+
+Três coisas que o `assess` nunca faz, por regra:
+
+- **Não reescreve a demanda.** Se está ambígua, o produto é a pergunta. Uma
+  versão "consertada" pela skill seria escopo que você não pediu, e você
+  aprovaria achando que era o seu.
+- **Não afirma sem fonte.** Todo achado cita `arquivo:linha` ou hash de commit;
+  impressão sem evidência vira pergunta, não veredito.
+- **Não substitui o gate.** `COERENTE` significa "não achei impedimento", nunca
+  "deve ser feito".
+
+> **Dica de operação:** peça para rodar em subagente. Cada avaliação consome
+> ~64k tokens de leitura para produzir um laudo de ~1.2k — inline, isso tudo
+> fica na sua sessão. E um avaliador que acabou de ouvir você descrever a
+> demanda com entusiasmo é pior juiz dela que um subagente frio.
+
+## B.2 `/harness-creator:plan` — transformar a demanda em contrato
+
+Com o laudo em mãos (e as perguntas dele respondidas, se houver):
 
 ```
 /harness-creator:plan
@@ -442,7 +497,7 @@ inteiro, ge=1, le=100, default 10.
 ```
 
 > As `stop_conditions` ficam no **frontmatter**, não no corpo — é de lá que
-> o loop de auto-verificação (seção B.4) lê o disjuntor. Numa seção de corpo
+> o loop de auto-verificação (seção B.5) lê o disjuntor. Numa seção de corpo
 > elas nunca seriam lidas.
 
 **`Plans.md`** — o **como** (tarefas, arquivos afetados, verificador de cada
@@ -498,7 +553,7 @@ harness compile-contract --dir . --slug leaderboard-limit
 }
 ```
 
-## B.2 `harness compile-session` — compilar o raio de impacto
+## B.3 `harness compile-session` — compilar o raio de impacto
 
 ```powershell
 harness compile-session --dir .
@@ -571,7 +626,7 @@ Isso pega o contrato aprovado e compila a **sessão autônoma**:
 
 **Reabra a sessão** para as permissions valerem.
 
-## B.3 Trabalhar — a sessão autônoma no raio de impacto
+## B.4 Trabalhar — a sessão autônoma no raio de impacto
 
 Agora abra a sessão normal (sem `--plugin-dir`) e peça:
 
@@ -609,7 +664,7 @@ O que acontece, na prática:
    nega e devolve a razão **ao agente**, que se corrige. Você não é
    interrompido; o limite trabalha sozinho.
 
-## B.4 `harness verify` — o "pronto" com prova
+## B.5 `harness verify` — o "pronto" com prova
 
 Implementou? A tarefa **não fecha por alegação**. O agente (ou você) roda:
 
@@ -702,7 +757,7 @@ harness audit-runtime --dir .
 # todo passes:true com evidência válida
 ```
 
-## B.5 `harness finish` — encerrar a demanda
+## B.6 `harness finish` — encerrar a demanda
 
 Quando `harness supervise --dir .` devolve `next: null`, todas as tarefas
 passaram. O ciclo tem um fim explícito:
@@ -754,7 +809,7 @@ Um efeito colateral que importa: o `progress.md` reescrito é o que **destrava o
 contrato seguinte**. Sem ele, a sessão nova herdava o estado da demanda
 anterior e começava confusa.
 
-## B.6 Kill-switch — desligar tudo (e por que só você pode)
+## B.7 Kill-switch — desligar tudo (e por que só você pode)
 
 Se o guard atrapalhar de um jeito que os três escapes do GUIDE não resolvem, o
 kill-switch desliga **todos** os hooks de uma vez:
@@ -791,7 +846,7 @@ existe dentro da sessão do Claude Code.
 máquina — o número que diz se o produto ainda precisa de mais alguma porta de
 escape ou se as que existem bastam.
 
-## B.7 O ciclo completo da demanda, resumido
+## B.8 O ciclo completo da demanda, resumido
 
 ```
 demanda em linguagem natural
@@ -799,6 +854,11 @@ demanda em linguagem natural
         ▼
 /harness-creator:preflight   (opcional — o repo está pronto?)
         │
+        ▼
+/harness-creator:assess ──► laudo da demanda (read-only, 4 fontes)
+        │                    ⛔ FORA_DE_ESCOPO barra aqui
+        │                    ⚠️ WARNING segue, mas as perguntas/o conflito
+        │                       precisam viajar junto para o spec.md
         ▼
 /harness-creator:plan ──► spec.md + Plans.md   (IA rascunha)
         │
@@ -824,7 +884,7 @@ commit em estado retomável ──► harness supervise devolve next: null
 harness finish ──► audita o fecho + varre descartáveis   ◄── fim da demanda
 ```
 
-## B.8 (Opcional) Fase 4 — time de agentes com revisão independente
+## B.9 (Opcional) Fase 4 — time de agentes com revisão independente
 
 Para demandas maiores, em vez de uma sessão só:
 
