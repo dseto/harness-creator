@@ -1,5 +1,141 @@
 # Changelog
 
+## v0.27.0 — o ciclo ganha um portão para a demanda, e a documentação volta a bater com o produto
+
+Duas frentes. A skill `/harness-creator:assess`, que avalia a demanda antes de
+formalizá-la (PR #60), e a documentação, que tinha ficado quatro versões atrás
+do código.
+
+### A skill `assess` — o portão que faltava (PR #60)
+
+O ciclo avaliava o **repositório** (`preflight`) e formalizava a **demanda**
+(`plan`), mas nada conferia se a demanda pertence ao projeto. O `plan` é
+transcritor: ele entrevista, escreve o contrato e confia no gate humano.
+
+O furo foi demonstrado antes de existir correção: **uma receita de bolo colada
+como user story compila**. O parser aceita `## [T-01] bater as claras`; a
+validação de `files[]` é sintática de propósito e não toca o disco, então um
+path inexistente passa (arquivo novo é legítimo); e o único detector automático,
+`compile-contract --dry-run-verify`, sai em stderr sem bloquear — e a própria
+`skills/plan/SKILL.md` ensina a não tratar o aviso como bug, porque tarefa TDD
+recém-planejada também falha rápido por natureza. O resultado é um contrato
+**bem formatado** sobre um sistema que não existe, e o formato é justamente o
+que faz uma demanda errada parecer legítima na hora de aprovar.
+
+`assess` emite laudo read-only em 4 dimensões, cada uma sobre uma fonte de
+verdade do projeto: **pertinência** (código + docs), **coerência** (`AGENTS.md`
++ docs), **precedente** (git + `.harness/work/`) e **executabilidade** (existe
+comando de prova?). Todo achado cita `arquivo:linha` ou hash de commit.
+
+**Só `FORA_DE_ESCOPO` bloqueia.** `PRECISA_ESCLARECER` e `CONFLITANTE` seguem
+como warning: são demandas legítimas com trabalho pendente, e quem decide se
+esse trabalho vale a pena é o humano, no gate do `plan`. A razão é a mesma que
+governa o `boundary_guard` — um deny fácil demais treina o leitor a ignorar o
+laudo, e laudo ignorado é pior que nenhum.
+
+Três regras duras, todas contra o modo de falha do próprio avaliador:
+
+- **Sem fonte, não é achado.** Impressão sem evidência vira pergunta, não
+  veredito.
+- **Nunca reescreve a demanda.** Se está ambígua, o produto é a pergunta.
+  Reescrever fabrica escopo que o humano não pediu — e ele aprovaria a versão
+  do agente achando que era a dele.
+- **`COERENTE` não é aprovação.** Significa "não achei impedimento nas quatro
+  dimensões", nunca "deve ser feito".
+
+É **prompt puro, sem código Python**, e por decisão explícita: esta classe de
+problema não se resolve com mais validação estática. `files[]` apontando arquivo
+inexistente é normal; `verify_cmd` que falha é normal. Todo sinal estático
+disponível é indistinguível do caso legítimo — é o mesmo raciocínio que leva a
+Fase 5 a propor um juiz semântico para o contrato em vez de mais parser.
+
+**Validação:** 8 execuções em subagente de contexto limpo, contra
+`dseto/MinimumAPI` (repo .NET externo, 1 commit, zero contratos) e contra este
+repo (13 contratos, histórico denso). Vereditos corretos nos 8 casos, incluindo
+os três tipos de precedente — já implementado, não-objetivo declarado, avaliado
+e rejeitado. Mais de 40 citações conferidas uma a uma; uma única imprecisa, por
+duas linhas.
+
+O resultado mais útil foi contra o autor: a demanda de paginação saiu
+`PRECISA_ESCLARECER` porque a rota real era `/api/customers` (não `/customers`)
+e o projeto tem zero `OrderBy`, o que torna "pula os 5 primeiros" indefinido.
+Os dois defeitos estavam num contrato que o próprio autor havia escrito e
+apresentado para aprovação.
+
+Três achados dos agentes viraram correção na skill:
+
+- **Substring inverte o resultado.** `clara` bate em 47 arquivos por causa de
+  `declara`; `assar` em 22 por `passar`. Sem `\b<termo>\b`, uma receita de bolo
+  parece aderente ao código. Documentado com os números medidos em
+  `skills/assess/references/tecnica-de-busca.md`.
+- **Demanda em português encontra código em inglês.** Sem traduzir os conceitos
+  antes de buscar, a dimensão de pertinência produz falso-negativo silencioso —
+  conclui "não existe" sobre um domínio que existe com outro nome.
+- **O template precisava de um estado `n/a`.** Marcar `OK` uma dimensão que não
+  tinha fonte para ler afirma verificação que não houve. Um agente criou o
+  estado por necessidade; virou parte do template.
+
+A skill recomenda explicitamente **rodar em subagente**, com o número medido:
+~64k tokens e ~17 tool calls de levantamento por avaliação, para um laudo de
+~1.2k. Inline, ~98% vira ruído permanente na sessão. Mas o motivo mais forte não
+é contexto: a sessão que acabou de ouvir a demanda não é boa juíza dela — mesmo
+princípio de produtor ≠ revisor da Fase 4.
+
+`skills/plan/SKILL.md` ganhou junto uma checagem de sanidade no Passo 3,
+proibindo as duas rotas pelas quais uma demanda fora de contexto virava
+contrato: convertê-la em algo plausível para o repo, e fazer perguntas
+condutoras que fabricam escopo.
+
+### A documentação volta a bater com o produto
+
+`README.md`, `ARCHITECTURE.md`, `TUTORIAL.md` e `GUIDE.md` estavam na v0.22.2
+enquanto o código já era v0.26.0 — quatro versões de defasagem. O
+`ARCHITECTURE.md` era o pior caso: 23 linhas que paravam no pivot de 2026-07 e
+ignoravam contrato, `boundary_guard`, lifecycle, verificação, time, `finish` e
+kill-switch. Foi reescrito.
+
+Faltavam nas quatro: os subcomandos `finish`, `disable`, `enable`, `status` e
+`profile set`; as seções de kill-switch e de encerramento de demanda; e 15 dos
+30 módulos na árvore do repo.
+
+Um **erro factual** foi corrigido no `TUTORIAL.md`: ele afirmava que
+`harness verify` não marca `passes:true` por padrão e que `--mark-passed` é
+opt-in. É o inverso desde a v0.23.0 — marcar é o default, e o opt-out é
+`--no-mark-passed`. Quem seguisse o texto ficaria com a tarefa sem fechar e
+`harness supervise` devolvendo a mesma tarefa sem nada de onde deduzir o porquê.
+
+Novo: `docs/plugin/arquitetura-visual.html` — documento autocontido, sem CDN,
+com a arquitetura em diagramas interativos e um simulador da cascata de decisão
+do `boundary_guard`.
+
+### Higiene de versionamento
+
+`_descarte/` estava rastreado apesar de constar no `.gitignore` desde sempre: os
+13 arquivos vinham rastreados de `docs/project/` e mover arquivo versionado para
+dentro de pasta ignorada **não** o desversiona — `.gitignore` só age sobre o que
+não é rastreado. Saíram do índice; o conteúdo segue em disco. Quatro handoffs e
+laudos de sessão encerrada foram para lá junto.
+
+O nome do projeto-alvo do dogfood saiu de 26 ocorrências em 7 arquivos
+rastreados, incluindo código e CHANGELOG, num repositório público. Caminho
+Windows passou a usar `C:\Projetos\<projeto-alvo>`.
+
+`AGENTS.md` ganhou a seção que fixa o processo de release — bump nas três
+fontes, entrada no CHANGELOG e tag anotada, no mesmo commit de chore. Foi
+escrita porque as tags pararam na `v0.22.2` enquanto quatro versões seguiram
+para a `main`.
+
+### Achado registrado, não corrigido
+
+**Issue #59** — `harness verify` trata exit 0 como prova, mas há runner que sai
+0 sem executar teste nenhum. Confirmado: `dotnet test` num repo sem projeto de
+teste sai **0**. A cadeia inteira passa verde — evidência gravada,
+`passes:true`, feature-lock aceita, `finish` não acha bloqueador,
+`runtime_audit` confirma o invariante — sobre zero teste executado. É a inversão
+exata da promessa de prova executável, e pior que não ter prova, porque os
+laudos afirmam que tem. Achado por um agente avaliando outra coisa; fica para
+contrato próprio, porque mexe no núcleo do modelo de evidência.
+
 ## v0.26.0 — seis atritos do ciclo, e a suíte reduzida a uma tabela por regra
 
 Duas frentes: os atritos que apareceram ao rodar o ciclo com o guard de fato
