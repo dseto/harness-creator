@@ -3,21 +3,13 @@
 from harness.governance.approval import ApprovalPolicy
 
 
-def test_balanced_gates_execute() -> None:
+def test_balanced_gates_everything_that_changes_state() -> None:
     # Bug central do B1: run_terminal é "execute"; balanced tinha esquecido
     # de gatear essa classe, deixando-a se comportar como "auto".
     policy = ApprovalPolicy("balanced")
     assert policy.needs_approval("execute") is True
-
-
-def test_balanced_gates_edit_and_network() -> None:
-    policy = ApprovalPolicy("balanced")
     assert policy.needs_approval("edit") is True
     assert policy.needs_approval("network") is True
-
-
-def test_balanced_does_not_gate_read() -> None:
-    policy = ApprovalPolicy("balanced")
     assert policy.needs_approval("read") is False
 
 

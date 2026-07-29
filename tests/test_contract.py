@@ -388,7 +388,9 @@ def test_add_task_file_is_idempotent_when_path_already_present(tmp_path: Path) -
     assert plans_path.read_text(encoding="utf-8") == before
 
 
-def test_add_task_file_unknown_task_id_raises_and_writes_nothing(tmp_path: Path) -> None:
+def test_add_task_file_rejects_and_writes_nothing(tmp_path: Path) -> None:
+    """Recusa não pode deixar rastro: id inexistente e caractere que quebraria a
+    linha do `Plans.md` (crase, vírgula) abortam ANTES de escrever."""
     contract_dir = _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, BASIC_PLANS)
     plans_path = contract_dir / "Plans.md"
     before = plans_path.read_text(encoding="utf-8")
@@ -396,34 +398,16 @@ def test_add_task_file_unknown_task_id_raises_and_writes_nothing(tmp_path: Path)
     with pytest.raises(ContractError, match="T-99"):
         add_task_file(tmp_path, "exemplo-feature", "T-99", "novo/path.ts")
 
+    for path in ("ba`ck.ts", "a,b.ts"):
+        with pytest.raises(ContractError, match="caractere inválido"):
+            add_task_file(tmp_path, "exemplo-feature", "T-01", path)
+
     assert plans_path.read_text(encoding="utf-8") == before
 
 
 def test_add_task_file_missing_plans_raises(tmp_path: Path) -> None:
     with pytest.raises(ContractError):
         add_task_file(tmp_path, "inexistente", "T-01", "novo/path.ts")
-
-
-def test_add_task_file_rejects_path_with_backtick_and_writes_nothing(tmp_path: Path) -> None:
-    contract_dir = _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, BASIC_PLANS)
-    plans_path = contract_dir / "Plans.md"
-    before = plans_path.read_text(encoding="utf-8")
-
-    with pytest.raises(ContractError, match="caractere inválido"):
-        add_task_file(tmp_path, "exemplo-feature", "T-01", "ba`ck.ts")
-
-    assert plans_path.read_text(encoding="utf-8") == before
-
-
-def test_add_task_file_rejects_path_with_comma_and_writes_nothing(tmp_path: Path) -> None:
-    contract_dir = _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, BASIC_PLANS)
-    plans_path = contract_dir / "Plans.md"
-    before = plans_path.read_text(encoding="utf-8")
-
-    with pytest.raises(ContractError, match="caractere inválido"):
-        add_task_file(tmp_path, "exemplo-feature", "T-01", "a,b.ts")
-
-    assert plans_path.read_text(encoding="utf-8") == before
 
 
 def test_add_task_file_recompile_surfaces_new_file(tmp_path: Path) -> None:
@@ -719,12 +703,19 @@ def test_compile_contract_refuses_escaping_path_written_by_hand(
 
 
 def test_add_task_file_still_accepts_normal_relative_paths(tmp_path: Path) -> None:
-    """O outro lado: path relativo comum, inclusive subindo e voltando dentro
-    do repo, continua funcionando."""
+    """O outro lado, e é o principal: o item existe para BARATEAR a ampliação de
+    superfície de arquivo, não para estrangulá-la. Path relativo comum — inclusive
+    subindo e voltando dentro do repo — continua funcionando, e as duas áreas com
+    regra própria (`work`, `scratch`) não podem virar vítimas do floor, já que
+    são sempre graváveis de qualquer forma."""
     _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, BASIC_PLANS)
 
     assert add_task_file(tmp_path, "exemplo-feature", "T-01", "frontend/src/app/x.ts") is True
     assert add_task_file(tmp_path, "exemplo-feature", "T-01", "docs/../src/y.py") is True
+
+    for path in (".harness/work/outro/spec.md", ".harness/scratch/dump.html",
+                 "src/harness/novo.py", "docs/nota.md", "harness/x.py", ".harnessfoo/y.py"):
+        assert add_task_file(tmp_path, "exemplo-feature", "T-01", path), path
 
     plans = (tmp_path / ".harness" / "work" / "exemplo-feature" / "Plans.md").read_text(
         encoding="utf-8"
@@ -766,17 +757,3 @@ def test_add_task_file_refuses_control_plane_paths(tmp_path: Path) -> None:
     assert plans_path.read_bytes() == before
 
 
-def test_add_task_file_still_accepts_work_and_scratch(tmp_path: Path) -> None:
-    """As duas áreas com regra própria não podem ser vítimas do floor — elas
-    já são sempre graváveis, e recusá-las aqui quebraria fluxo legítimo."""
-    _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, BASIC_PLANS)
-    assert add_task_file(tmp_path, "exemplo-feature", "T-01", ".harness/work/outro/spec.md")
-    assert add_task_file(tmp_path, "exemplo-feature", "T-01", ".harness/scratch/dump.html")
-
-
-def test_add_task_file_still_accepts_ordinary_paths(tmp_path: Path) -> None:
-    """Regressão do caso comum: o item existe para BARATEAR a ampliação de
-    superfície de arquivo, não para estrangulá-la."""
-    _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, BASIC_PLANS)
-    for path in ("src/harness/novo.py", "docs/nota.md", "harness/x.py", ".harnessfoo/y.py"):
-        assert add_task_file(tmp_path, "exemplo-feature", "T-01", path), path

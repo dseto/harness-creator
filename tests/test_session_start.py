@@ -51,6 +51,9 @@ def _context(payload: dict) -> str:
 # ---------------- render_session_start_hook / execução do script ----------------
 
 def test_no_feature_list_mentions_no_active_contract(tmp_path: Path) -> None:
+    """Diretório cru: sem `feature_list.json`, sem `progress.md` e sem repo git.
+    Nenhuma dessas ausências pode quebrar o hook — ele ainda devolve JSON válido
+    com o resto do contexto."""
     script_path = _write_hook_script(tmp_path)
     payload = _run_hook(script_path, tmp_path)
 
@@ -110,12 +113,6 @@ def test_progress_file_content_appears_in_context(tmp_path: Path) -> None:
     assert "MARCA-UNICA-XYZ" in _context(payload)
 
 
-def test_no_progress_file_does_not_break(tmp_path: Path) -> None:
-    script_path = _write_hook_script(tmp_path)
-    payload = _run_hook(script_path, tmp_path)
-    assert "Nenhum contrato ativo" in _context(payload)
-
-
 def test_git_log_appears_when_repo_has_commits(tmp_path: Path) -> None:
     subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True, text=True, check=True)
     subprocess.run(["git", "config", "user.email", "a@b.com"], cwd=str(tmp_path), capture_output=True, text=True, check=True)
@@ -127,13 +124,6 @@ def test_git_log_appears_when_repo_has_commits(tmp_path: Path) -> None:
     script_path = _write_hook_script(tmp_path)
     payload = _run_hook(script_path, tmp_path)
     assert "commit inicial unico" in _context(payload)
-
-
-def test_no_git_repo_does_not_break_session(tmp_path: Path) -> None:
-    script_path = _write_hook_script(tmp_path)
-    payload = _run_hook(script_path, tmp_path)
-    # Não quebra: ainda retorna JSON válido com o resto do contexto.
-    assert "Nenhum contrato ativo" in _context(payload)
 
 
 def test_disabled_sentinel_makes_session_start_noop(tmp_path: Path) -> None:

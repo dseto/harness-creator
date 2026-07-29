@@ -37,22 +37,25 @@ from harness.preflight import (
 # Invariante do check: não-PASS sem `fix` é erro de construção do laudo
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("status", ["WARNING", "FAIL"])
-def test_check_non_pass_without_fix_raises(status: str) -> None:
-    with pytest.raises(ValueError):
-        PreflightCheck(code="x", status=status, message="algo", fix="", evidence=None)
+def test_a_non_pass_check_must_carry_a_fix() -> None:
+    """O laudo existe para ser ACIONÁVEL: um WARNING/FAIL sem `fix` é um beco
+    sem saída, e a construção falha em vez de emitir um. PASS não precisa."""
+    for status in ("WARNING", "FAIL"):
+        with pytest.raises(ValueError):
+            PreflightCheck(code="x", status=status, message="algo", fix="", evidence=None)
+
+    ok = PreflightCheck(code="x", status="PASS", message="ok", fix="",
+                        evidence="pyproject.toml")
+    assert ok.status == "PASS"
+    assert ok.fix == ""
+
+    com_fix = PreflightCheck(code="git_repo", status="FAIL", message="sem repo",
+                             fix="git init", evidence=None)
+    assert com_fix.fix == "git init"
 
 
-def test_check_pass_without_fix_is_allowed() -> None:
-    # PASS não precisa de fix — não deve levantar.
-    check = PreflightCheck(code="x", status="PASS", message="ok", fix="", evidence="pyproject.toml")
-    assert check.status == "PASS"
-    assert check.fix == ""
-
-
-def test_check_non_pass_with_fix_is_allowed() -> None:
-    check = PreflightCheck(code="git_repo", status="FAIL", message="sem repo", fix="git init", evidence=None)
-    assert check.fix == "git init"
+def test_preflight_error_is_exception() -> None:
+    assert issubclass(PreflightError, Exception)
 
 
 # ---------------------------------------------------------------------------
@@ -71,57 +74,41 @@ def _fail(code: str = "c") -> PreflightCheck:
     return PreflightCheck(code=code, status="FAIL", message="falhou", fix="conserte", evidence=None)
 
 
-def test_category_status_all_pass() -> None:
-    cat = PreflightCategory(id="git", title="Git", checks=[_pass("a"), _pass("b")])
-    assert cat.status == "PASS"
+def _cat(*checks: PreflightCheck) -> PreflightCategory:
+    return PreflightCategory(id="git", title="Git", checks=list(checks))
 
 
-def test_category_status_with_one_warning() -> None:
-    cat = PreflightCategory(id="git", title="Git", checks=[_pass("a"), _warning("b")])
-    assert cat.status == "WARNING"
-
-
-def test_category_status_fail_beats_warning() -> None:
-    cat = PreflightCategory(
-        id="git", title="Git", checks=[_warning("a"), _fail("b"), _warning("c")]
-    )
-    assert cat.status == "FAIL"
-
-
-def test_category_status_empty_is_pass() -> None:
-    cat = PreflightCategory(id="git", title="Git", checks=[])
-    assert cat.status == "PASS"
+def test_category_status_is_the_worst_check() -> None:
+    """Categoria vazia é PASS: ausência de check é ausência de problema, não
+    problema de ausência."""
+    assert _cat(_pass("a"), _pass("b")).status == "PASS"
+    assert _cat(_pass("a"), _warning("b")).status == "WARNING"
+    assert _cat(_warning("a"), _fail("b"), _warning("c")).status == "FAIL"
+    assert _cat().status == "PASS"
 
 
 # ---------------------------------------------------------------------------
 # Veredito global
 # ---------------------------------------------------------------------------
 
-def test_compute_verdict_ready_all_pass() -> None:
-    cats = [
+def test_compute_verdict_is_the_worst_category() -> None:
+    """WARNING não bloqueia — vira READY_WITH_WARNINGS. Só FAIL derruba para
+    NOT_READY, e sem categoria nenhuma o veredito é READY."""
+    assert compute_verdict([
         PreflightCategory(id="git", title="Git", checks=[_pass()]),
         PreflightCategory(id="manifest", title="Manifest", checks=[_pass()]),
-    ]
-    assert compute_verdict(cats) == "READY"
+    ]) == "READY"
 
-
-def test_compute_verdict_ready_with_warnings() -> None:
-    cats = [
+    assert compute_verdict([
         PreflightCategory(id="git", title="Git", checks=[_pass()]),
         PreflightCategory(id="lint", title="Lint", checks=[_warning()]),
-    ]
-    assert compute_verdict(cats) == "READY_WITH_WARNINGS"
+    ]) == "READY_WITH_WARNINGS"
 
-
-def test_compute_verdict_not_ready_on_any_fail() -> None:
-    cats = [
+    assert compute_verdict([
         PreflightCategory(id="git", title="Git", checks=[_warning()]),
         PreflightCategory(id="manifest", title="Manifest", checks=[_fail()]),
-    ]
-    assert compute_verdict(cats) == "NOT_READY"
+    ]) == "NOT_READY"
 
-
-def test_compute_verdict_empty_is_ready() -> None:
     assert compute_verdict([]) == "READY"
 
 
@@ -197,10 +184,6 @@ def test_report_to_json_roundtrips() -> None:
 
     parsed = json.loads(text)
     assert parsed == report.to_dict()
-
-
-def test_preflight_error_is_exception() -> None:
-    assert issubclass(PreflightError, Exception)
 
 
 # ---------------------------------------------------------------------------

@@ -9,7 +9,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
 
 from harness.boundary_guard import (
     BOUNDARY_HOOK_FILENAME,
@@ -151,18 +150,97 @@ def _transition_payload(tmp_path: Path, files: list[str] | None = None) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# Tabela de decisão
+#
+# O guard é um dispatcher de política: cada regra tem MUITOS casos que só
+# diferem no par (payload, desfecho). Escrever um `def test_` por caso fazia a
+# suíte crescer com o número de casos em vez de com o número de REGRAS — e cada
+# `def` pagava uma instalação de guard e um subprocesso Python só para variar
+# uma string.
+#
+# Aqui um teste = uma regra, e a tabela carrega os casos. O `why` de cada caso é
+# o que a mensagem de falha mostra, então a intenção não se perde ao colapsar.
+# `_expect` roda a tabela INTEIRA antes de falhar: uma regressão que quebra
+# cinco casos aparece de uma vez, não um por execução.
+# ---------------------------------------------------------------------------
+
+class Case:
+    """Um caso de decisão: o que chega no hook e o desfecho exigido.
+
+    `reason` é uma substring exigida em `permissionDecisionReason` (comparada em
+    minúsculas); `denied_reason` é uma substring que NÃO pode aparecer."""
+
+    __slots__ = ("tool", "inp", "decision", "reason", "absent", "why", "cwd", "before")
+
+    def __init__(self, tool: str, inp: dict, decision: str, reason: str | None = None,
+                 absent: str | None = None, why: str = "", cwd: str | None = None,
+                 before=None) -> None:
+        self.tool = tool
+        self.inp = inp
+        self.decision = decision
+        self.reason = reason
+        self.absent = absent
+        self.why = why or f"{tool}: {inp}"
+        # `cwd` do payload; por padrão a raiz do repo instalado. Sobrescrever
+        # simula o shell "derivado" (agente que rodou `cd sub/` e não voltou).
+        self.cwd = cwd
+        # callable opcional rodado antes do caso — para o estado que o hook lê
+        # do disco a cada chamada (ex.: trocar a branch em .git/HEAD).
+        self.before = before
+
+
+def bash(command: str, decision: str, reason: str | None = None,
+         absent: str | None = None, why: str = "", **kw) -> Case:
+    return Case("Bash", {"command": command}, decision, reason, absent,
+                why or f"Bash: {command}", **kw)
+
+
+def pwsh(command: str, decision: str, reason: str | None = None,
+         absent: str | None = None, why: str = "", **kw) -> Case:
+    return Case("PowerShell", {"command": command}, decision, reason, absent,
+                why or f"PowerShell: {command}", **kw)
+
+
+def write(file_path: str, decision: str, reason: str | None = None,
+          absent: str | None = None, why: str = "", **kw) -> Case:
+    return Case("Write", {"file_path": file_path, "content": "x"}, decision, reason,
+                absent, why or f"Write: {file_path}", **kw)
+
+
+def edit(file_path: str, decision: str, reason: str | None = None,
+         absent: str | None = None, why: str = "", **kw) -> Case:
+    return Case("Edit", {"file_path": file_path}, decision, reason, absent,
+                why or f"Edit: {file_path}", **kw)
+
+
+def _expect(script: Path, *cases: Case) -> None:
+    """Roda cada caso contra o MESMO guard instalado e falha uma vez só,
+    listando TODOS os casos que divergiram."""
+    root = script.parent.parent.parent
+    falhas: list[str] = []
+    for case in cases:
+        if case.before is not None:
+            case.before()
+        out = _run_hook(script, {"tool_name": case.tool,
+                                 "cwd": str(root) if case.cwd is None else case.cwd,
+                                 "tool_input": case.inp})
+        got = out["permissionDecision"]
+        reason = out.get("permissionDecisionReason", "") or ""
+        if got != case.decision:
+            falhas.append(f"{case.why}\n    esperado {case.decision}, veio {got}"
+                          f"\n    razao: {reason[:220]}")
+            continue
+        if case.reason and case.reason.lower() not in reason.lower():
+            falhas.append(f"{case.why}\n    decisao {got} ok, mas a razao nao cita "
+                          f"{case.reason!r}\n    razao: {reason[:220]}")
+        if case.absent and case.absent.lower() in reason.lower():
+            falhas.append(f"{case.why}\n    decisao {got} ok, mas a razao NAO podia citar "
+                          f"{case.absent!r}\n    razao: {reason[:220]}")
+    assert not falhas, "\n\n".join(falhas)
+
+
 # ---------------- sem contrato ativo ----------------
-
-def test_no_feature_list_denies_edit_by_default(tmp_path: Path) -> None:
-    """Fase 2: default-deny sem contrato ativo. Projeto com .harness/ presente
-    mas sem feature_list.json compilado (entre init e compile-session) nega
-    qualquer Edit/Write fora de .harness/scratch/."""
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "src/main.py"}})
-    assert out["permissionDecision"] == "deny"
-    assert "nenhum contrato ativo" in out["permissionDecisionReason"].lower()
-
 
 # ---------------- bootstrap: sem contrato, superfície mínima de COMANDO ----
 #
@@ -173,79 +251,99 @@ def test_no_feature_list_denies_edit_by_default(tmp_path: Path) -> None:
 # travam a superfície de bootstrap: git local, subcomandos do harness e
 # utilitários read-only passam; o resto continua deny.
 
-@pytest.mark.parametrize("command", [
-    "git status",
-    "git commit -m \"wip\"",
-    "git diff",
-    "harness analyze --dir .",
-    "harness compile-contract --dir . --slug demo",
-    "python -m harness.cli compile-session --dir .",
-    "harness --help",
-    "harness doctor --dir .",
-    "echo hello",
-    "ls -la",
-])
-def test_bootstrap_surface_allows_contract_creation_path(
-    tmp_path: Path, command: str
-) -> None:
+def test_bootstrap_surface_allows_the_contract_creation_path(tmp_path: Path) -> None:
+    """Sem contrato compilado, a superfície de COMANDO precisa bastar para
+    percorrer analyze -> compile-contract -> commit -> compile-session -> finish.
+
+    `finish` entra pela mesma razão de `compile-session` — é passo do ciclo
+    sancionado e escreve só dentro do `.harness/`. Não abre buraco no floor
+    porque nunca executa git nem gh: um `finish` que commitasse/pushasse viraria
+    bypass do floor por dentro de um subcomando permitido, que é justamente por
+    que `enable`/`disable` ficam de fora."""
+    _expect(
+        _script(tmp_path),
+        bash("git status", "allow"),
+        bash('git commit -m "wip"', "allow"),
+        bash("git diff", "allow"),
+        bash("harness analyze --dir .", "allow"),
+        bash("harness compile-contract --dir . --slug demo", "allow"),
+        bash("python -m harness.cli compile-session --dir .", "allow"),
+        bash("harness --help", "allow"),
+        bash("harness doctor --dir .", "allow"),
+        bash("harness finish --dir .", "allow"),
+        bash("python -m harness.cli finish --dir .", "allow"),
+        bash("echo hello", "allow"),
+        bash("ls -la", "allow"),
+        # Atrito 3 do ciclo `harness-finish`: `git status`/`log`/`diff` passavam e
+        # `git branch --show-current` não, apesar de ser leitura pura. O agente
+        # descobria a branch lendo a primeira linha do `git status` — rodeio sem
+        # ganho de segurança nenhum.
+        bash("git branch --show-current", "allow"),
+        # Atrito 1 do ciclo `harness-finish`: a skill `plan` EXIGE carimbar
+        # `approved_at` com o timestamp ISO do momento da aprovação humana, e o
+        # guard negava toda rota de obtê-lo. O agente ficava sem como cumprir uma
+        # regra do próprio processo — a saída foi rodar uma análise inteira do
+        # repo só para ler o relógio.
+        bash("date", "allow"),
+        bash("date -u +%Y-%m-%dT%H:%M:%SZ", "allow"),
+        bash("date --iso-8601=seconds", "allow"),
+    )
+
+
+def test_bootstrap_surface_denies_everything_outside_it(tmp_path: Path) -> None:
+    """O simétrico: a superfície mínima é uma allowlist, não um portão aberto.
+
+    `date` é read-only só até as flags que ESCREVEM o relógio da máquina — mesmo
+    padrão de `find` (`FIND_WRITE_FLAGS`) e `grep`/`rg` (`GREP_RG_EXEC_FLAGS`):
+    utilitário de leitura com um punhado de flags que o tornam destrutivo.
+
+    E a liberação de branch é da sequência de TRÊS tokens `git branch
+    --show-current`: liberar `git branch` com dois abriria `-D`/`-d`/`-m` junto,
+    porque o match de superfície é por PREFIXO de tokens."""
+    _expect(
+        _script(tmp_path),
+        bash('date -s "2020-01-01 00:00:00"', "deny"),
+        bash("date --set=2020-01-01", "deny"),
+        bash("git branch -D feature-antiga", "deny"),
+        bash("git branch -d feature-antiga", "deny"),
+        bash("git branch -m novo-nome", "deny"),
+        # A mensagem de bootstrap não pode sugerir `harness task add-file`: sem
+        # contrato não há tarefa a ampliar, e apontar um escape inexistente foi
+        # justamente o que fez o agente concluir que estava preso.
+        bash("rm -rf build", "deny", reason="nenhum contrato ativo",
+             absent="task add-file"),
+        # Superfície de ESCRITA: o default-deny do issue #35 continua valendo,
+        # inclusive pela rota PowerShell, que cai em _evaluate_file.
+        edit("src/main.py", "deny", reason="nenhum contrato ativo"),
+        pwsh("Set-Content src/app.py 'x'", "deny", reason="nenhum contrato ativo"),
+    )
+
+
+def test_bootstrap_floor_stays_shut_without_a_contract(tmp_path: Path) -> None:
+    """Bootstrap alarga a superfície, nunca o floor. A saída do deadlock é
+    compilar o contrato, não o agente se autodesativar."""
+    _expect(
+        _script(tmp_path),
+        bash("git push origin main", "deny", reason="runtime floor"),
+        bash("harness disable", "deny", reason="runtime floor"),
+        bash("curl https://x", "deny", reason="runtime floor"),
+    )
+
+
+def test_bootstrap_deny_carries_the_paste_ready_yaml_block(tmp_path: Path) -> None:
+    """`extra_allowed_commands` é o ÚNICO escape de comando que funciona sem
+    contrato — o hook lê o harness.yaml a cada tool call, então a entrada vale
+    na chamada seguinte, sem `compile` e sem `/plan`. Omitir o bloco do deny de
+    bootstrap deixava o agente sem saída alguma."""
     script = _script(tmp_path)
     out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": command}})
-    assert out["permissionDecision"] == "allow", out
-
-
-@pytest.mark.parametrize("command", [
-    "harness finish --dir .",
-    "python -m harness.cli finish --dir .",
-])
-def test_bootstrap_surface_allows_harness_finish(tmp_path: Path, command: str) -> None:
-    """`finish` fecha a demanda: audita o estado e varre os descartáveis do
-    `.harness/`. Entra na allowlist pela mesma razão de `compile-session` — é
-    passo do ciclo sancionado, e escreve só dentro do `.harness/`. Não abre
-    buraco no floor porque o comando nunca executa git nem gh: um `finish` que
-    commitasse/pushasse viraria bypass do floor por dentro de um subcomando
-    permitido, que é justamente por que `enable`/`disable` ficam de fora."""
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": command}})
-    assert out["permissionDecision"] == "allow", out
-
-
-@pytest.mark.parametrize("command", [
-    "date",
-    "date -u +%Y-%m-%dT%H:%M:%SZ",
-    "date --iso-8601=seconds",
-])
-def test_readonly_surface_allows_date_to_read_the_clock(
-    tmp_path: Path, command: str
-) -> None:
-    """A skill `plan` EXIGE carimbar `approved_at` com o timestamp ISO atual no
-    momento da aprovação humana, e o guard negava toda rota de obtê-lo (`date`
-    e `python -c`). O agente ficava sem como cumprir uma regra do próprio
-    processo — atrito 1 do ciclo do contrato `harness-finish`, onde a saída foi
-    rodar uma análise inteira do repo só para ler o relógio."""
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": command}})
-    assert out["permissionDecision"] == "allow", out
-
-
-@pytest.mark.parametrize("command", [
-    'date -s "2020-01-01 00:00:00"',
-    "date --set=2020-01-01",
-])
-def test_readonly_surface_denies_date_that_sets_the_clock(
-    tmp_path: Path, command: str
-) -> None:
-    """`date` é read-only só até as flags que ESCREVEM o relógio da máquina.
-    Mesmo padrão de `find` (`FIND_WRITE_FLAGS`) e `grep`/`rg`
-    (`GREP_RG_EXEC_FLAGS`): utilitário de leitura com um punhado de flags que o
-    tornam destrutivo. Mexer no relógio do host é mudança de configuração de
-    sistema, não leitura."""
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": command}})
+                              "tool_input": {"command": "git checkout -b chore/harness-init"}})
     assert out["permissionDecision"] == "deny", out
+    reason = out["permissionDecisionReason"]
+    assert "extra_allowed_commands:" in reason, reason
+    # e a entrada sugerida preserva o modo — não libera `git checkout .` junto
+    assert "- git checkout -b" in reason, reason
+    assert "- git checkout\n" not in reason, reason
 
 
 def test_surface_allows_the_profile_test_command_mid_contract(tmp_path: Path) -> None:
@@ -265,59 +363,18 @@ def test_surface_allows_the_profile_test_command_mid_contract(tmp_path: Path) ->
          "verify_cmd": "pytest tests/test_a.py -q", "passes": False},
     ])
     _write_profile(tmp_path)  # test_command = "pytest"
-    script = _script(tmp_path)
+    _expect(_script(tmp_path), bash("pytest tests -q", "allow"))
 
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "pytest tests -q"}})
-
-    assert out["permissionDecision"] == "allow", out
-
-
-def test_surface_denies_pytest_when_the_profile_test_command_is_absent(
-    tmp_path: Path,
-) -> None:
-    """A liberação vem do profile, não de um allow embutido para `pytest`: sem
-    `test_command` declarado, a superfície continua a de antes."""
-    _write_feature_list(tmp_path, [
+    # A liberação vem do profile, não de um allow embutido para `pytest`: sem
+    # `test_command` declarado, a superfície continua a de antes.
+    outro = tmp_path / "sem-test-command"
+    outro.mkdir()
+    _write_feature_list(outro, [
         {"id": "T-01", "files": ["src/a.py"],
          "verify_cmd": "pytest tests/test_a.py -q", "passes": False},
     ])
-    _write_profile(tmp_path, test_command=None)
-    script = _script(tmp_path)
-
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "pytest tests -q"}})
-
-    assert out["permissionDecision"] == "deny", out
-
-
-def test_git_surface_allows_branch_show_current(tmp_path: Path) -> None:
-    """Atrito 3 do ciclo do contrato `harness-finish`: `git status`/`log`/`diff`
-    passavam e `git branch --show-current` não, apesar de ser leitura pura. O
-    agente descobria a branch atual lendo a primeira linha do `git status` —
-    rodeio sem ganho de segurança nenhum."""
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "git branch --show-current"}})
-    assert out["permissionDecision"] == "allow", out
-
-
-@pytest.mark.parametrize("command", [
-    "git branch -D feature-antiga",
-    "git branch -d feature-antiga",
-    "git branch -m novo-nome",
-])
-def test_git_surface_still_denies_branch_write_beside_show_current(
-    tmp_path: Path, command: str
-) -> None:
-    """A liberação é da sequência de TRÊS tokens `git branch --show-current`.
-    Liberar `git branch` com dois tokens abriria `-D`/`-d`/`-m` junto, porque o
-    match de superfície é por PREFIXO de tokens — apagar branch entraria de
-    carona numa entrada que só queria ler o nome da atual."""
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": command}})
-    assert out["permissionDecision"] == "deny", out
+    _write_profile(outro, test_command=None)
+    _expect(_script(outro), bash("pytest tests -q", "deny"))
 
 
 def test_protected_branch_deny_names_the_chore_way_out(tmp_path: Path) -> None:
@@ -347,404 +404,154 @@ def test_protected_branch_deny_names_the_chore_way_out(tmp_path: Path) -> None:
     assert "humano" in reason.lower()     # e é decisão dele, não do agente
 
 
-def test_bootstrap_denies_command_outside_minimal_surface(tmp_path: Path) -> None:
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "rm -rf build"}})
-    assert out["permissionDecision"] == "deny", out
-    reason = out["permissionDecisionReason"].lower()
-    assert "nenhum contrato ativo" in reason
-    # A mensagem de bootstrap não pode sugerir `harness task add-file`: sem
-    # contrato não há tarefa a ampliar, e apontar um escape inexistente foi
-    # justamente o que fez o agente concluir que estava preso.
-    assert "task add-file" not in reason
-
-
-def test_bootstrap_deny_carries_the_paste_ready_yaml_block(tmp_path: Path) -> None:
-    """`extra_allowed_commands` é o ÚNICO escape de comando que funciona sem
-    contrato — o hook lê o harness.yaml a cada tool call, então a entrada vale
-    na chamada seguinte, sem `compile` e sem `/plan`. Omitir o bloco do deny de
-    bootstrap deixava o agente sem saída alguma."""
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "git checkout -b chore/harness-init"}})
-    assert out["permissionDecision"] == "deny", out
-    reason = out["permissionDecisionReason"]
-    assert "extra_allowed_commands:" in reason, reason
-    # e a entrada sugerida preserva o modo — não libera `git checkout .` junto
-    assert "- git checkout -b" in reason, reason
-    assert "- git checkout\n" not in reason, reason
-
-
-def test_bootstrap_still_denies_push_by_floor(tmp_path: Path) -> None:
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "git push origin main"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "runtime floor" in out["permissionDecisionReason"]
-
-
-def test_bootstrap_still_denies_self_disable(tmp_path: Path) -> None:
-    """`harness disable` continua floor mesmo em bootstrap — a saída do
-    deadlock é compilar o contrato, não o agente se autodesativar."""
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "harness disable"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "runtime floor" in out["permissionDecisionReason"]
-
-
-def test_bootstrap_powershell_write_target_still_denied(tmp_path: Path) -> None:
-    """PowerShell com alvo de escrita cai em _evaluate_file — que continua
-    negando sem contrato. A inversão do issue #35 fica intacta."""
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                              "tool_input": {"command": "Set-Content src/app.py 'x'"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "nenhum contrato ativo" in out["permissionDecisionReason"].lower()
-
-
 # ---------------- superfície do contrato: Edit/Write ----------------
 
-def test_edit_file_declared_in_contract_allows(tmp_path: Path) -> None:
+def test_contract_file_surface_is_what_files_declares(tmp_path: Path) -> None:
+    """A superfície de escrita sai de `files[]` — e `files[]` aceita arquivo
+    exato, prefixo de diretório e glob, sempre casando contra o PATH do
+    candidato, não contra o disco (senão um arquivo genuinamente novo, que ainda
+    não existe, nunca reconhece o próprio glob declarado).
+
+    Duas exceções permanentes convivem com ela: a autoria do PRÓXIMO contrato
+    (`.harness/work/<slug>/{spec,Plans}.md`), que nunca está no `files[]` do
+    contrato ativo e ficaria bloqueada pela superfície da demanda atual; e o
+    floor de segredo, que PRECEDE a exceção — um `.env` escondido lá dentro
+    continua barrado."""
     _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
+        {"id": "T-01", "desc": "x",
+         "files": ["src/main.py", "backend/Migrations/", "frontend/*.ts"],
+         "verify_cmd": "pytest -q", "depends": [], "passes": False}
     ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "src/main.py"}})
-    assert out["permissionDecision"] == "allow"
-
-
-def test_edit_file_not_declared_denies(tmp_path: Path) -> None:
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "src/other.py"}})
-    assert out["permissionDecision"] == "deny"
-
-
-def test_write_new_file_under_declared_directory_prefix_allows(tmp_path: Path) -> None:
-    """files[] pode declarar um diretorio (ex. "Migrations/") em vez de um
-    arquivo exato — uma migration nova dentro dele deve ser permitida mesmo
-    sem existir no disco ainda (Write cria arquivo que nao existe)."""
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["backend/Migrations/"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "backend/Migrations/20260718_New.cs",
-                                             "content": "x"}})
-    assert out["permissionDecision"] == "allow"
-
-
-def test_write_new_file_matching_declared_glob_allows_even_if_not_on_disk(tmp_path: Path) -> None:
-    """Glob em files[] deve casar contra o path do candidato diretamente,
-    nao depender de disco-walk — senao um arquivo genuinamente novo (que
-    ainda nao existe) nunca reconhece seu proprio glob declarado."""
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["backend/Migrations/*.cs"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "backend/Migrations/20260718_New.cs",
-                                             "content": "x"}})
-    assert out["permissionDecision"] == "allow"
-
-
-def test_write_contract_authoring_dir_allows_even_with_active_contract(tmp_path: Path) -> None:
-    """Autoria do PRÓXIMO contrato (.harness/work/<slug-novo>/{spec,Plans}.md)
-    nunca está em files[] do contrato ativo — deve ser sempre gravável, senão
-    planejar a próxima feature fica bloqueado pela superfície da atual."""
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    script = _script(tmp_path)
-    for rel in (".harness/work/nova-feature/spec.md",
-                ".harness/work/nova-feature/Plans.md"):
-        out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                                  "tool_input": {"file_path": rel, "content": "x"}})
-        assert out["permissionDecision"] == "allow", rel
-
-
-def test_secret_inside_work_dir_still_denies(tmp_path: Path) -> None:
-    """Floor de segredo precede a exceção de .harness/work/** — um .env
-    escondido lá dentro continua bloqueado."""
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": ".harness/work/x/.env", "content": "k=v"}})
-    assert out["permissionDecision"] == "deny"
+    _expect(
+        _script(tmp_path),
+        edit("src/main.py", "allow", why="arquivo exato declarado"),
+        edit("src/other.py", "deny", why="arquivo nao declarado"),
+        write("backend/Migrations/20260718_New.cs", "allow",
+              why="prefixo de diretorio declarado, arquivo novo fora do disco"),
+        write("frontend/app.ts", "allow",
+              why="glob declarado, arquivo novo fora do disco"),
+        write(".harness/work/nova-feature/spec.md", "allow",
+              why="autoria do proximo contrato"),
+        write(".harness/work/nova-feature/Plans.md", "allow",
+              why="autoria do proximo contrato"),
+        write(".harness/work/x/.env", "deny",
+              why="floor de segredo precede a excecao de .harness/work/**"),
+    )
 
 
 # ---------------- superfície do contrato: Bash ----------------
 
-def test_bash_exact_verify_cmd_allows(tmp_path: Path) -> None:
+def test_contract_command_surface_is_verify_cmd_plus_local_git(tmp_path: Path) -> None:
+    """`echo oi` deixou de ser o exemplo canônico de deny — desde a correção dos
+    issues 1-2 do dogfood aegis, utilitários read-only (echo incluso, sem
+    redirect) são sempre permitidos. `rm` segue fora da superfície."""
     _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -x --tb=short",
-         "depends": [], "passes": False}
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"],
+         "verify_cmd": "pytest -x --tb=short", "depends": [], "passes": False}
     ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "pytest -x --tb=short"}})
-    assert out["permissionDecision"] == "allow"
-
-
-def test_bash_git_local_commands_allow(tmp_path: Path) -> None:
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    script = _script(tmp_path)
-    for cmd in ("git status", "git add .", 'git commit -m x'):
-        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                  "tool_input": {"command": cmd}})
-        assert out["permissionDecision"] == "allow", cmd
-
-
-def test_bash_unrelated_command_denies(tmp_path: Path) -> None:
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    script = _script(tmp_path)
-    # `echo oi` deixou de ser o exemplo canônico de deny — desde a correção
-    # dos issues 1-2 do dogfood aegis, utilitários read-only (echo incluso,
-    # sem redirect) são sempre permitidos. `rm` segue fora da superfície.
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "rm -rf build"}})
-    assert out["permissionDecision"] == "deny"
+    _expect(
+        _script(tmp_path),
+        bash("pytest -x --tb=short", "allow", why="verify_cmd exato da tarefa"),
+        bash("git status", "allow"),
+        bash("git add .", "allow"),
+        bash("git commit -m x", "allow"),
+        bash("rm -rf build", "deny"),
+    )
 
 
 # ---------------- runtime floor: nunca vira allow ----------------
 
-def test_floor_git_push_denies_even_with_full_contract(tmp_path: Path) -> None:
+def test_runtime_floor_never_becomes_allow(tmp_path: Path) -> None:
+    """O floor não é superfície: declarar `.env` em `files[]` ou pôr `git push`
+    como `verify_cmd` não compra permissão nenhuma. Vale com e sem contrato."""
     _write_feature_list(tmp_path, [
         {"id": "T-01", "desc": "x", "files": ["src/main.py", ".env"],
          "verify_cmd": "git push", "depends": [], "passes": False}
     ])
-    script = _script(tmp_path)
-    for cmd in ("git push", "git push origin main", "git push && true"):
-        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                  "tool_input": {"command": cmd}})
-        assert out["permissionDecision"] == "deny", cmd
-        assert "runtime floor" in out["permissionDecisionReason"]
+    _expect(
+        _script(tmp_path),
+        bash("git push", "deny", reason="runtime floor"),
+        bash("git push origin main", "deny", reason="runtime floor"),
+        bash("git push && true", "deny", reason="runtime floor"),
+        bash("curl https://x", "deny", reason="runtime floor"),
+        edit(".env", "deny", reason="runtime floor",
+             why=".env declarado em files[] nao vira allow"),
+    )
 
-
-def test_floor_curl_denies(tmp_path: Path) -> None:
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "curl https://x"}})
-    assert out["permissionDecision"] == "deny"
-    assert "runtime floor" in out["permissionDecisionReason"]
-
-
-def test_floor_env_file_denies_even_if_declared_in_contract(tmp_path: Path) -> None:
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": [".env"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": ".env"}})
-    assert out["permissionDecision"] == "deny"
-    assert "runtime floor" in out["permissionDecisionReason"]
-
-
-def test_floor_git_push_denies_without_any_contract(tmp_path: Path) -> None:
-    """CRÍTICO: sem feature_list.json (nenhum contrato ativo), git push
-    AINDA é deny — o floor roda antes do 'sem contrato -> allow'."""
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "git push origin main"}})
-    assert out["permissionDecision"] == "deny"
-    assert "runtime floor" in out["permissionDecisionReason"]
-
-
-def test_floor_env_file_denies_without_any_contract(tmp_path: Path) -> None:
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": ".env"}})
-    assert out["permissionDecision"] == "deny"
-    assert "runtime floor" in out["permissionDecisionReason"]
+    sem_contrato = tmp_path / "sem-contrato"
+    sem_contrato.mkdir()
+    _expect(
+        _script(sem_contrato),
+        bash("git push", "deny", reason="runtime floor"),
+        edit(".env", "deny", reason="runtime floor"),
+    )
 
 
 # ---------------- achado B (dogfood 2026-07-22): memória do Claude Code ----------------
 
-def test_claude_memory_write_allowed_even_with_active_contract(tmp_path: Path) -> None:
+def test_claude_memory_is_always_writable(tmp_path: Path) -> None:
     """Escrita em ~/.claude/projects/<slug>/memory/ nunca está em files[] de
     nenhuma tarefa (mora fora do repo) — antes da correção, caía no deny
-    genérico de "fora da superfície do contrato ativo"."""
+    genérico de "fora da superfície do contrato ativo".
+
+    A exceção é específica desse caminho: um path qualquer fora de files[],
+    mesmo fora do repo, continua deny."""
+    memoria = str(Path.home() / ".claude" / "projects" / "some-slug" / "memory" / "x.md")
     _write_feature_list(tmp_path, [
         {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
          "depends": [], "passes": False}
     ])
-    script = _script(tmp_path)
-    memory_path = str(Path.home() / ".claude" / "projects" / "some-slug" / "memory" / "x.md")
-    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": memory_path, "content": "x"}})
-    assert out["permissionDecision"] == "allow", out
-    assert "memoria" in out["permissionDecisionReason"] or "memória" in out["permissionDecisionReason"]
+    _expect(
+        _script(tmp_path),
+        write(memoria, "allow", reason="mem", why="memoria com contrato ativo"),
+        edit("src/other.py", "deny", why="path fora de files[] nao pega carona"),
+    )
 
-
-def test_claude_memory_write_allowed_without_any_contract(tmp_path: Path) -> None:
-    script = _script(tmp_path)
-    memory_path = str(Path.home() / ".claude" / "projects" / "some-slug" / "memory" / "x.md")
-    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": memory_path}})
-    assert out["permissionDecision"] == "allow", out
-
-
-def test_non_memory_path_outside_contract_still_denies(tmp_path: Path) -> None:
-    """Regressão: a exceção é específica de .claude/projects/*/memory/ — um
-    path qualquer fora de files[] (mesmo fora do repo) continua deny."""
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "src/other.py"}})
-    assert out["permissionDecision"] == "deny", out
+    sem_contrato = tmp_path / "sem-contrato"
+    sem_contrato.mkdir()
+    _expect(_script(sem_contrato), edit(memoria, "allow", why="memoria sem contrato"))
 
 
 # ---------------- achado B (dogfood 2026-07-22): contrato concluído se aposenta ----------------
 
-def test_contract_fully_passed_allows_undeclared_file_write(tmp_path: Path) -> None:
-    """Todas as features com passes:true — contrato concluído. O guard não
-    deve mais restringir escrita ao files[] do contrato já encerrado (antes
-    da correção, isso travava até edição manual de .claude/settings.json)."""
+def test_contract_fully_passed_retires_the_surface(tmp_path: Path) -> None:
+    """Todas as features com passes:true — contrato concluído. O guard não deve
+    mais restringir ao files[] de um contrato já encerrado (antes da correção
+    isso travava até edição manual de .claude/settings.json).
+
+    A aposentadoria cobre arquivo E comando: a assimetria original deixava a CLI
+    do próprio produto negada com contrato 100% verde. E só dispara com 100% das
+    features verdes — uma pendente mantém a superfície inteira de pé."""
     _write_feature_list(tmp_path, [
         {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
          "depends": [], "passes": True}
     ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "src/anything_else.py", "content": "x"}})
-    assert out["permissionDecision"] == "allow", out
-    assert "concluido" in out["permissionDecisionReason"] or "concluído" in out["permissionDecisionReason"]
+    _expect(
+        _script(tmp_path),
+        write("src/anything_else.py", "allow", reason="conclu", why="arquivo nao declarado"),
+        bash("git branch feature/next", "allow", reason="conclu", why="comando nao declarado"),
+        pwsh("python -m mar_committee config-show", "allow", reason="conclu",
+             why="comando PowerShell nao declarado"),
+    )
 
-
-def test_contract_fully_passed_allows_undeclared_bash_command(tmp_path: Path) -> None:
-    """Assimetria corrigida: a aposentadoria do fim de contrato agora cobre
-    a superfície de COMANDO (Bash), não só arquivo — mesma fricção real que
-    motivou achado B (memória/self-edit do settings.json), observada
-    também com CLI do próprio produto (`python -m mar_committee ...`)
-    negado com contrato 100% verde antes desta correção."""
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": True}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "git branch feature/next"}})
-    assert out["permissionDecision"] == "allow", out
-    assert "concluido" in out["permissionDecisionReason"] or "concluído" in out["permissionDecisionReason"]
-
-
-def test_contract_fully_passed_allows_undeclared_powershell_command(tmp_path: Path) -> None:
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": True}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                              "tool_input": {"command": "python -m mar_committee config-show"}})
-    assert out["permissionDecision"] == "allow", out
-    assert "concluido" in out["permissionDecisionReason"] or "concluído" in out["permissionDecisionReason"]
-
-
-def test_contract_partially_passed_still_gates_undeclared_bash_command(tmp_path: Path) -> None:
-    """Regressão: aposentadoria só dispara com 100% das features passes:true
-    — contrato ainda em andamento continua enforçando a superfície normal
-    de comando."""
-    _write_feature_list(tmp_path, [
+    parcial = tmp_path / "parcial"
+    parcial.mkdir()
+    _write_feature_list(parcial, [
         {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
          "depends": [], "passes": True},
         {"id": "T-02", "desc": "y", "files": ["src/other.py"], "verify_cmd": "pytest -q",
          "depends": [], "passes": False},
     ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "git branch feature/next"}})
-    assert out["permissionDecision"] == "deny", out
+    _expect(
+        _script(parcial),
+        bash("git branch feature/next", "deny", why="uma feature pendente ainda gateia comando"),
+        write("src/unrelated.py", "deny", why="uma feature pendente ainda gateia arquivo"),
+    )
 
 
-def test_contract_fully_passed_still_denies_floor_bash_push(tmp_path: Path) -> None:
-    """Aposentadoria de comando não relaxa o runtime floor: git push
-    continua deny incondicional mesmo com contrato 100% verde."""
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": True}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "git push origin main"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "runtime floor" in out["permissionDecisionReason"]
-
-
-def test_contract_fully_passed_still_denies_floor_bash_secret_redirect(tmp_path: Path) -> None:
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": True}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "echo x > .env"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "runtime floor" in out["permissionDecisionReason"]
-
-
-def test_contract_fully_passed_still_denies_floor_bash_disable(tmp_path: Path) -> None:
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": True}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "python -m harness.cli disable"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "runtime floor" in out["permissionDecisionReason"]
-
-
-def test_contract_fully_passed_still_denies_floor_powershell_network(tmp_path: Path) -> None:
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": True}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                              "tool_input": {"command": "Invoke-WebRequest https://x"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "runtime floor" in out["permissionDecisionReason"]
-
-
-def test_contract_fully_passed_still_denies_floor_powershell_disable(tmp_path: Path) -> None:
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": True}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                              "tool_input": {"command": "python -m harness.cli disable"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "runtime floor" in out["permissionDecisionReason"]
-
-
-def test_contract_fully_passed_still_denies_bash_commit_on_protected_branch(tmp_path: Path) -> None:
-    """Aposentadoria de comando não relaxa a regra de branch protegida —
-    `git commit` em main continua deny mesmo com contrato 100% verde."""
+def test_contract_fully_passed_still_obeys_the_floor(tmp_path: Path) -> None:
+    """Aposentadoria relaxa a SUPERFÍCIE, nunca o floor nem a regra de branch
+    protegida."""
     _write_feature_list(tmp_path, [
         {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
          "depends": [], "passes": True}
@@ -752,195 +559,139 @@ def test_contract_fully_passed_still_denies_bash_commit_on_protected_branch(tmp_
     git_dir = tmp_path / ".git"
     git_dir.mkdir(parents=True, exist_ok=True)
     (git_dir / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "git commit -m x"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "protegida" in out["permissionDecisionReason"], out
-
-
-def test_contract_partially_passed_still_denies_undeclared_file(tmp_path: Path) -> None:
-    """Regressão: só relaxa quando TODAS as features passam — uma feature
-    ainda pendente continua enforçando a superfície normalmente."""
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": True},
-        {"id": "T-02", "desc": "y", "files": ["src/other.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False},
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "src/unrelated.py", "content": "x"}})
-    assert out["permissionDecision"] == "deny", out
-
-
-def test_contract_fully_passed_still_denies_floor_secret(tmp_path: Path) -> None:
-    """Contrato concluído não relaxa o runtime floor — .env continua deny."""
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": True}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": ".env"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "runtime floor" in out["permissionDecisionReason"]
-
-
-def test_contract_fully_passed_still_denies_floor_git_push(tmp_path: Path) -> None:
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": True}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "git push origin main"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "runtime floor" in out["permissionDecisionReason"]
-
+    _expect(
+        _script(tmp_path),
+        bash("git push origin main", "deny", reason="runtime floor"),
+        bash("echo x > .env", "deny", reason="runtime floor"),
+        bash("python -m harness.cli disable", "deny", reason="runtime floor"),
+        pwsh("Invoke-WebRequest https://x", "deny", reason="runtime floor"),
+        pwsh("python -m harness.cli disable", "deny", reason="runtime floor"),
+        edit(".env", "deny", reason="runtime floor"),
+        bash("git commit -m x", "deny", reason="protegida",
+             why="branch protegida continua valendo com contrato 100% verde"),
+    )
 
 # ---------------- proteção contra enfraquecimento de teste ----------------
 
-def test_test_file_declared_in_contract_allows(tmp_path: Path) -> None:
+def test_test_file_is_only_editable_when_the_contract_declares_it(tmp_path: Path) -> None:
+    """Arquivo que casa `test_glob` tem deny com razão PRÓPRIA — enfraquecer
+    teste é a falha que o harness existe para impedir, e a mensagem genérica de
+    superfície não ensinaria isso."""
     _write_profile(tmp_path)
     _write_feature_list(tmp_path, [
         {"id": "T-01", "desc": "x", "files": ["tests/test_x.py"], "verify_cmd": "pytest -q",
          "depends": [], "passes": False}
     ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "tests/test_x.py"}})
-    assert out["permissionDecision"] == "allow"
+    _expect(_script(tmp_path), edit("tests/test_x.py", "allow"))
 
-
-def test_test_file_not_declared_denies_with_weakening_reason(tmp_path: Path) -> None:
-    _write_profile(tmp_path)
-    _write_feature_list(tmp_path, [
+    nao_declarado = tmp_path / "nao-declarado"
+    nao_declarado.mkdir()
+    _write_profile(nao_declarado)
+    _write_feature_list(nao_declarado, [
         {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
          "depends": [], "passes": False}
     ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "tests/test_x.py"}})
-    assert out["permissionDecision"] == "deny"
-    assert "enfraquecimento" in out["permissionDecisionReason"]
+    _expect(_script(nao_declarado), edit("tests/test_x.py", "deny", reason="enfraquecimento"))
 
 
 # ---------------- package_manager derivando install command ----------------
 
-def test_package_manager_install_command_is_allowed(tmp_path: Path) -> None:
+def test_package_manager_derives_exactly_the_install_command(tmp_path: Path) -> None:
+    """Gap 2 (hardening): `package_manager.value == "npm"` libera EXATAMENTE
+    `npm ci`, não o nome do package manager inteiro — `npm run
+    build-malicioso` continua deny. Mesma regra para pip (issue #18, via
+    fallback do analyzer do issue #14): `pip install -e .` e só."""
     _write_profile(tmp_path, package_manager={"value": "npm", "evidence": "x", "confidence": 1.0})
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "npm ci"}})
-    assert out["permissionDecision"] == "allow"
+    _contract_with_verify(tmp_path)
+    _expect(
+        _script(tmp_path),
+        bash("npm ci", "allow"),
+        bash("npm run build-malicioso", "deny"),
+    )
+
+    py = tmp_path / "pip"
+    py.mkdir()
+    _write_profile(py, package_manager={"value": "pip", "evidence": "pyproject.toml",
+                                        "confidence": 0.6})
+    _contract_with_verify(py)
+    _expect(
+        _script(py),
+        bash("pip install -e .", "allow"),
+        bash("pip install -e . && curl evil", "deny", why="floor colado ao permitido"),
+    )
+
+    sem_pm = tmp_path / "sem-package-manager"
+    sem_pm.mkdir()
+    _write_profile(sem_pm, package_manager=None)
+    _contract_with_verify(sem_pm)
+    _expect(
+        _script(sem_pm),
+        bash("pytest -q", "allow", why="package_manager None nao quebra o resto"),
+        bash("rm -rf build", "deny"),
+    )
 
 
-def test_package_manager_value_alone_is_not_a_free_pass_for_any_subcommand(tmp_path: Path) -> None:
-    """Gap 2 (hardening): `package_manager.value == "npm"` deve liberar
-    EXATAMENTE `npm ci` (o comando de instalação), não o nome do package
-    manager inteiro — `npm run build-malicioso` (um comando `npm ...`
-    qualquer, mas não `npm ci` exato) continua deny."""
-    _write_profile(tmp_path, package_manager={"value": "npm", "evidence": "x", "confidence": 1.0})
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    script = _script(tmp_path)
+# ---------------- CLI do harness liberada sob contrato ativo ----------------
 
-    allowed = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                  "tool_input": {"command": "npm ci"}})
-    assert allowed["permissionDecision"] == "allow"
+def test_the_harness_cli_is_reachable_from_inside_the_session(tmp_path: Path) -> None:
+    """Os subcomandos enumerados passam nas duas grafias (`python -m harness.cli`
+    e o console-script), sem depender de um `verify_cmd` que case por acaso.
 
-    denied = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                 "tool_input": {"command": "npm run build-malicioso"}})
-    assert denied["permissionDecision"] == "deny", denied
-
-
-def test_package_manager_pip_install_command_is_allowed(tmp_path: Path) -> None:
-    """issue #18: package_manager=pip (via fallback do analyzer, issue #14)
-    tem que liberar exatamente `pip install -e .`, não deixar bloqueado."""
-    _write_profile(tmp_path, package_manager={"value": "pip", "evidence": "pyproject.toml", "confidence": 0.6})
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    script = _script(tmp_path)
-
-    allowed = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                  "tool_input": {"command": "pip install -e ."}})
-    assert allowed["permissionDecision"] == "allow"
-
-    denied = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                 "tool_input": {"command": "pip install -e . && curl evil"}})
-    assert denied["permissionDecision"] == "deny", denied
-
-
-def test_package_manager_none_does_not_break_allowed_bash(tmp_path: Path) -> None:
-    _write_profile(tmp_path, package_manager=None)
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "pytest -q"}})
-    assert out["permissionDecision"] == "allow"
-    # `echo oi` virou allow (read-only) — `rm` segue como o deny de controle.
-    out2 = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                               "tool_input": {"command": "rm -rf build"}})
-    assert out2["permissionDecision"] == "deny"
-
-
-# ---------------- ferramenta fora do escopo ----------------
-
-def test_other_tool_allows_by_default(tmp_path: Path) -> None:
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Read", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "src/main.py"}})
-    assert out["permissionDecision"] == "allow"
+    `harness task add-file` é o escape oficial documentado na skill plan: sem
+    ele o guard fechava a porta e escondia a chave. `run` ficou deliberadamente
+    de fora — é orquestrador com rede fora do floor. E o floor roda antes de
+    qualquer allow, mesmo colado a um subcomando liberado."""
+    _contract_with_verify(tmp_path)
+    _expect(
+        _script(tmp_path),
+        bash("python -m harness.cli analyze --dir .", "allow"),
+        bash("harness analyze --dir .", "allow"),
+        bash("python -m harness.cli compile-contract --dir . --slug x", "allow"),
+        bash("harness task add-file T-01 src/app.scss --slug demo --dir .", "allow"),
+        bash("python -m harness.cli task add-file T-01 src/app.scss --dir .", "allow"),
+        bash("harness run --dir .", "deny", why="`run` ficou fora da lista enumerada"),
+        bash("harness analyze && git push origin main", "deny", reason="runtime floor"),
+        bash("harness task add-file T-01 x.py --slug s && rm -rf src", "deny",
+             why="o prefixo `harness task` nao vira tunel"),
+    )
 
 
 # ------------- install_boundary_guard: settings.local.json + estado -------------
 
-def test_install_registers_hook_in_settings(tmp_path: Path) -> None:
+def test_install_registers_one_hook_and_bakes_the_absolute_interpreter(
+    tmp_path: Path,
+) -> None:
+    """Item 1 do backlog do dogfood venv-Windows: `python` nu é resolvido pelo
+    PATH só no instante da tool call. Se não resolver ali, o hook não roda — e a
+    tool call PASSA sem floor, sem proteção de segredo, sem bloqueio de push (só
+    exit 2 bloqueia; qualquer outro não-zero é erro não-bloqueante para o Claude
+    Code).
+
+    Instalar duas vezes não duplica a entrada, e a chave de estado convive com
+    as dos outros hooks."""
+    state_path = tmp_path / SESSION_STATE_FILE
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps({"session_permissions_hook_command": "sibling"}),
+                          encoding="utf-8")
+
     script = install_boundary_guard(tmp_path)
+    install_boundary_guard(tmp_path)
+
     settings = json.loads(
         (tmp_path / ".claude" / "settings.local.json").read_text(encoding="utf-8")
     )
     entries = settings["hooks"]["PreToolUse"]
     matching = [e for e in entries if e.get("matcher") == BOUNDARY_HOOK_MATCHER]
-    assert len(matching) == 1
-    assert str(script) in matching[0]["hooks"][0]["command"]
+    assert len(matching) == 1, "instalar duas vezes nao pode duplicar a entrada"
 
-
-def test_install_is_idempotent(tmp_path: Path) -> None:
-    install_boundary_guard(tmp_path)
-    install_boundary_guard(tmp_path)
-    settings = json.loads(
-        (tmp_path / ".claude" / "settings.local.json").read_text(encoding="utf-8")
-    )
-    entries = settings["hooks"]["PreToolUse"]
-    matching = [e for e in entries if e.get("matcher") == BOUNDARY_HOOK_MATCHER]
-    assert len(matching) == 1
-
-
-def test_install_bakes_absolute_interpreter_not_bare_python(tmp_path: Path) -> None:
-    """Item 1 do backlog do dogfood venv-Windows: `python` nu é resolvido
-    pelo PATH só no instante da tool call. Se não resolver ali, o hook não
-    roda — e a tool call PASSA sem floor, sem proteção de segredo, sem
-    bloqueio de push (só exit 2 bloqueia; qualquer outro não-zero é erro
-    não-bloqueante para o Claude Code)."""
-    install_boundary_guard(tmp_path)
-    settings = json.loads((tmp_path / ".claude" / "settings.local.json").read_text(encoding="utf-8"))
-    command = settings["hooks"]["PreToolUse"][-1]["hooks"][0]["command"]
+    command = matching[0]["hooks"][0]["command"]
+    assert str(script) in command
     assert sys.executable in command
     assert not command.startswith("python ")
 
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["session_permissions_hook_command"] == "sibling"
+    assert BOUNDARY_STATE_KEY in state
 
 def test_install_replaces_legacy_command_format_without_duplicating(tmp_path: Path) -> None:
     """Entrada no formato antigo AUSENTE do compiled-state-session.json (state
@@ -1010,128 +761,90 @@ def test_install_removes_legacy_guard_tests_hook(tmp_path: Path) -> None:
     assert len(new_entries) == 1
 
 
-def test_install_writes_state_key_preserving_siblings(tmp_path: Path) -> None:
-    state_path = tmp_path / SESSION_STATE_FILE
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(json.dumps({"session_permissions_hook_command": "sibling"}), encoding="utf-8")
-
-    install_boundary_guard(tmp_path)
-
-    state = json.loads(state_path.read_text(encoding="utf-8"))
-    assert state["session_permissions_hook_command"] == "sibling"
-    assert BOUNDARY_STATE_KEY in state
-
-
 # ---------------- feature-lock: edição do próprio feature_list.json ----------------
 
-def test_feature_list_transition_to_passes_true_denies_without_evidence(tmp_path: Path) -> None:
-    """Sem NENHUMA evidência gravada, uma edição que marca passes:true é deny."""
+def _transition_case(tmp_path: Path, decision: str, reason: str | None = None,
+                     why: str = "", before=None) -> Case:
+    """Marcar `passes:true` no feature_list é a única escrita que o agente
+    poderia usar para se autodeclarar pronto — por isso passa pelo feature-lock
+    em vez da superfície comum."""
+    payload = _transition_payload(tmp_path)
+    return Case("Write", payload["tool_input"], decision, reason, why=why, before=before)
+
+
+def test_feature_lock_requires_evidence_newer_than_the_last_commit(tmp_path: Path) -> None:
+    """A defesa é TEMPORAL: evidência mais antiga que o último commit não cobre
+    o diff atual. Sem evidência nenhuma, a mensagem manda rodar `harness verify`
+    — é o único caminho que grava a prova."""
     _write_feature_list(tmp_path, [
         {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
          "depends": [], "passes": False}
     ])
-    script = _script(tmp_path)
-    new_content = _feature_list_json([
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": True}
-    ])
-    out = _run_hook(script, {
-        "tool_name": "Write", "cwd": str(tmp_path),
-        "tool_input": {"file_path": ".harness/feature_list.json", "content": new_content},
-    })
-    assert out["permissionDecision"] == "deny"
-    assert "T-01" in out["permissionDecisionReason"]
-    assert "harness verify" in out["permissionDecisionReason"]
+    _expect(
+        _script(tmp_path),
+        _transition_case(tmp_path, "deny", reason="harness verify", why="sem evidencia nenhuma"),
+        _transition_case(tmp_path, "deny", reason="T-01", why="sem evidencia nenhuma"),
+    )
 
-
-def test_feature_list_transition_to_passes_true_denies_with_stale_evidence(tmp_path: Path) -> None:
-    """Evidência existe mas é MAIS ANTIGA que o último commit -> deny."""
-    _init_git_repo_with_commit(tmp_path, "2026-06-01T00:00:00+00:00")
-    _write_feature_list(tmp_path, [
+    velha = tmp_path / "evidencia-velha"
+    velha.mkdir()
+    _init_git_repo_with_commit(velha, "2026-06-01T00:00:00+00:00")
+    _write_feature_list(velha, [
         {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
          "depends": [], "passes": False}
     ])
-    _write_evidence(tmp_path, "T-01", recorded_at="2026-01-01T00:00:00+00:00")
-    script = _script(tmp_path)
-    new_content = _feature_list_json([
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": True}
-    ])
-    out = _run_hook(script, {
-        "tool_name": "Write", "cwd": str(tmp_path),
-        "tool_input": {"file_path": ".harness/feature_list.json", "content": new_content},
-    })
-    assert out["permissionDecision"] == "deny"
-    assert "T-01" in out["permissionDecisionReason"]
+    _write_evidence(velha, "T-01", recorded_at="2026-01-01T00:00:00+00:00")
+    _expect(
+        _script(velha),
+        _transition_case(velha, "deny", reason="T-01", why="evidencia anterior ao commit"),
+    )
 
-
-def test_feature_list_transition_to_passes_true_allows_with_fresh_evidence(tmp_path: Path) -> None:
-    """Evidência existe e é MAIS NOVA que o último commit -> allow."""
-    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
-    _write_feature_list(tmp_path, [
+    fresca = tmp_path / "evidencia-fresca"
+    fresca.mkdir()
+    _init_git_repo_with_commit(fresca, "2026-01-01T00:00:00+00:00")
+    _write_feature_list(fresca, [
         {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
          "depends": [], "passes": False}
     ])
-    _write_evidence(tmp_path, "T-01", recorded_at="2026-06-01T00:00:00+00:00")
-    script = _script(tmp_path)
-    new_content = _feature_list_json([
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": True}
-    ])
-    out = _run_hook(script, {
-        "tool_name": "Write", "cwd": str(tmp_path),
-        "tool_input": {"file_path": ".harness/feature_list.json", "content": new_content},
-    })
-    assert out["permissionDecision"] == "allow", out
-    assert "T-01" in out["permissionDecisionReason"]
+    _write_evidence(fresca, "T-01", recorded_at="2026-06-01T00:00:00+00:00")
+    _expect(
+        _script(fresca),
+        _transition_case(fresca, "allow", reason="T-01", why="evidencia posterior ao commit"),
+        # A checagem é da TRANSIÇÃO, não da tool: o Edit com old_string/new_string
+        # passa pelo mesmo lock.
+        Case("Edit", {"file_path": ".harness/feature_list.json",
+                      "old_string": '"passes": false', "new_string": '"passes": true'},
+             "allow", why="mesma transicao via Edit"),
+    )
 
-
-def test_feature_list_edit_variant_uses_old_string_new_string(tmp_path: Path) -> None:
-    """Via Edit (old_string/new_string), não só Write: mesma checagem de
-    feature-lock se aplica."""
-    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    _write_evidence(tmp_path, "T-01", recorded_at="2026-06-01T00:00:00+00:00")
-    script = _script(tmp_path)
-    out = _run_hook(script, {
-        "tool_name": "Edit", "cwd": str(tmp_path),
-        "tool_input": {
-            "file_path": ".harness/feature_list.json",
-            "old_string": '"passes": false',
-            "new_string": '"passes": true',
-        },
-    })
-    assert out["permissionDecision"] == "allow", out
-
-
-def test_feature_list_edit_without_passes_true_transition_keeps_current_behavior(tmp_path: Path) -> None:
-    """Edição a feature_list.json que NÃO transiciona nenhuma feature para
-    passes:true mantém o comportamento ATUAL (deny) — sem evidência
-    nenhuma, sem repo git algum."""
-    _write_feature_list(tmp_path, [
+    sem_transicao = tmp_path / "sem-transicao"
+    sem_transicao.mkdir()
+    _write_feature_list(sem_transicao, [
         {"id": "T-01", "desc": "x antigo", "files": ["src/main.py"], "verify_cmd": "pytest -q",
          "depends": [], "passes": False}
     ])
-    script = _script(tmp_path)
-    new_content = _feature_list_json([
-        {"id": "T-01", "desc": "x novo", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    out = _run_hook(script, {
-        "tool_name": "Write", "cwd": str(tmp_path),
-        "tool_input": {"file_path": ".harness/feature_list.json", "content": new_content},
-    })
-    assert out["permissionDecision"] == "deny"
+    _expect(
+        _script(sem_transicao),
+        Case("Write", {"file_path": ".harness/feature_list.json",
+                       "content": _feature_list_json([
+                           {"id": "T-01", "desc": "x novo", "files": ["src/main.py"],
+                            "verify_cmd": "pytest -q", "depends": [], "passes": False}])},
+             "deny", why="edicao que nao transiciona segue o comportamento comum"),
+    )
 
 
 # ---------------- feature-lock: veto do revisor (Fase 4, produtor-revisor) ----------------
 
-def test_feature_lock_without_manifest_keeps_phase3_behavior(tmp_path: Path) -> None:
-    """Sem `.harness/team/manifest.json`, evidência fresca já basta —
-    comportamento IDÊNTICO à Fase 3, sem checar revisão nenhuma."""
+def test_feature_lock_honors_the_reviewer_veto(tmp_path: Path) -> None:
+    """Fase 4. Sem `.harness/team/manifest.json` — ou com um que não declare os
+    DOIS papéis — a evidência fresca já basta: comportamento idêntico ao da Fase
+    3, sem checar revisão nenhuma. Com produtor+revisor declarados, a revisão
+    passa a ser condição.
+
+    A aprovação também tem frescor, e contra DOIS relógios: mais nova que o
+    último commit (aprovação anterior ao commit não cobre o diff) e mais nova
+    que `evidencia.recorded_at` — achado de reflect+judge, aprovação obsoleta
+    porque a evidência foi regravada DEPOIS dela."""
     _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
     _write_feature_list(tmp_path, [
         {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
@@ -1139,120 +852,48 @@ def test_feature_lock_without_manifest_keeps_phase3_behavior(tmp_path: Path) -> 
     ])
     _write_evidence(tmp_path, "T-01", recorded_at="2026-06-01T00:00:00+00:00")
     script = _script(tmp_path)
-    out = _run_hook(script, _transition_payload(tmp_path))
-    assert out["permissionDecision"] == "allow", out
 
+    def revisao(status: str, updated_at: str, **kw):
+        return lambda: _write_review(tmp_path, "T-01", status=status,
+                                     updated_at=updated_at, **kw)
 
-def test_feature_lock_with_manifest_missing_producer_or_reviewer_role_keeps_phase3_behavior(
-    tmp_path: Path,
-) -> None:
-    """Manifesto existe mas NÃO declara os dois papéis (só 'producer') ->
-    checagem de revisão continua pulada, comportamento da Fase 3."""
-    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    _write_evidence(tmp_path, "T-01", recorded_at="2026-06-01T00:00:00+00:00")
-    _write_manifest(tmp_path, roles=["producer"])
-    script = _script(tmp_path)
-    out = _run_hook(script, _transition_payload(tmp_path))
-    assert out["permissionDecision"] == "allow", out
+    _expect(
+        script,
+        _transition_case(tmp_path, "allow", why="sem manifesto: comportamento da Fase 3"),
+        _transition_case(tmp_path, "allow", why="manifesto sem os dois papeis",
+                         before=lambda: _write_manifest(tmp_path, roles=["producer"])),
+        _transition_case(tmp_path, "deny", reason="T-01",
+                         why="produtor+revisor declarados e nenhum registro de revisao",
+                         before=lambda: _write_manifest(tmp_path)),
+        _transition_case(tmp_path, "deny", reason="T-01", why="status rejected",
+                         before=revisao("rejected", "2026-09-01T00:00:00+00:00")),
+        _transition_case(tmp_path, "deny", reason="T-01", why="status in_review",
+                         before=revisao("in_review", "2026-09-01T00:00:00+00:00")),
+        _transition_case(tmp_path, "deny", reason="T-01", why="status pending",
+                         before=revisao("pending", "2026-09-01T00:00:00+00:00")),
+        _transition_case(tmp_path, "deny", reason="T-01",
+                         why="aprovacao anterior ao ultimo commit",
+                         before=revisao("approved", "2025-01-01T00:00:00+00:00")),
+        _transition_case(tmp_path, "deny", reason="T-01",
+                         why="aprovacao anterior a evidencia (2026-06-01)",
+                         before=revisao("approved", "2026-03-01T00:00:00+00:00")),
+    )
 
-
-def test_feature_lock_with_producer_reviewer_manifest_denies_without_review_record(
-    tmp_path: Path,
-) -> None:
-    """Manifesto declara producer+reviewer, evidência fresca, mas SEM
-    `.harness/review/T-01.json` -> deny (registro default é status='pending')."""
-    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    _write_evidence(tmp_path, "T-01", recorded_at="2026-06-01T00:00:00+00:00")
-    _write_manifest(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, _transition_payload(tmp_path))
-    assert out["permissionDecision"] == "deny", out
-    assert "T-01" in out["permissionDecisionReason"]
-
-
-def test_feature_lock_with_review_rejected_in_review_or_pending_denies(tmp_path: Path) -> None:
-    """status='rejected'/'in_review'/'pending' (não 'approved') -> deny,
-    mesmo com updated_at bem no futuro."""
-    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    _write_evidence(tmp_path, "T-01", recorded_at="2026-06-01T00:00:00+00:00")
-    _write_manifest(tmp_path)
-    script = _script(tmp_path)
-    for status in ("rejected", "in_review", "pending"):
-        _write_review(tmp_path, "T-01", status=status, updated_at="2026-09-01T00:00:00+00:00")
-        out = _run_hook(script, _transition_payload(tmp_path))
-        assert out["permissionDecision"] == "deny", (status, out)
-        assert "T-01" in out["permissionDecisionReason"]
-
-
-def test_feature_lock_with_review_approved_but_older_than_commit_denies(tmp_path: Path) -> None:
-    """status='approved' mas updated_at MAIS ANTIGO que o último commit ->
-    deny (aprovação anterior ao próprio commit não cobre o diff atual)."""
-    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    _write_evidence(tmp_path, "T-01", recorded_at="2026-06-01T00:00:00+00:00")
-    _write_manifest(tmp_path)
-    _write_review(tmp_path, "T-01", status="approved", updated_at="2025-01-01T00:00:00+00:00")
-    script = _script(tmp_path)
-    out = _run_hook(script, _transition_payload(tmp_path))
-    assert out["permissionDecision"] == "deny", out
-    assert "T-01" in out["permissionDecisionReason"]
-
-
-def test_feature_lock_with_review_approved_but_older_than_evidence_denies(tmp_path: Path) -> None:
-    """status='approved', updated_at mais novo que o commit, mas MAIS
-    ANTIGO que evidencia.recorded_at (achado de reflect+judge: aprovação
-    obsoleta porque a evidência foi regravada DEPOIS da aprovação) -> deny."""
-    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    _write_evidence(tmp_path, "T-01", recorded_at="2026-06-01T00:00:00+00:00")
-    _write_manifest(tmp_path)
-    _write_review(tmp_path, "T-01", status="approved", updated_at="2026-03-01T00:00:00+00:00")
-    script = _script(tmp_path)
-    out = _run_hook(script, _transition_payload(tmp_path))
-    assert out["permissionDecision"] == "deny", out
-    assert "T-01" in out["permissionDecisionReason"]
-
-
-def test_feature_lock_with_review_approved_fresh_allows(tmp_path: Path) -> None:
-    """status='approved' com updated_at mais novo que o commit E que a
-    evidência -> allow, e a mensagem de sucesso cita a revisão aprovada."""
-    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
+    # Aprovação mais nova que o commit E que a evidência -> allow.
     _write_evidence(tmp_path, "T-01", recorded_at="2026-03-01T00:00:00+00:00")
-    _write_manifest(tmp_path)
-    _write_review(tmp_path, "T-01", status="approved", updated_at="2026-06-01T00:00:00+00:00")
-    script = _script(tmp_path)
-    out = _run_hook(script, _transition_payload(tmp_path))
-    assert out["permissionDecision"] == "allow", out
-    assert "revis" in out["permissionDecisionReason"].lower()
+    _expect(
+        script,
+        _transition_case(tmp_path, "allow", reason="revis",
+                         why="aprovacao fresca contra os dois relogios",
+                         before=revisao("approved", "2026-06-01T00:00:00+00:00")),
+    )
 
 
-def test_feature_lock_test_diff_approved_without_justification_denies(tmp_path: Path) -> None:
-    """Feature transicionada cujo files[] toca o test_glob do repo-profile:
-    review aprovado fresco mas SEM justification -> deny (defesa em
-    profundidade — reconfirmação de leitura mesmo que review.py já
-    bloqueie isso na escrita)."""
+def test_feature_lock_requires_a_justification_for_a_test_diff(tmp_path: Path) -> None:
+    """Feature cujo `files[]` toca o `test_glob` do repo-profile precisa de
+    `justification` no registro de revisão — defesa em profundidade: uma
+    reconfirmação na LEITURA, mesmo que `review.py` já bloqueie isso na
+    escrita."""
     _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
     _write_profile(tmp_path)
     _write_feature_list(tmp_path, [
@@ -1261,30 +902,16 @@ def test_feature_lock_test_diff_approved_without_justification_denies(tmp_path: 
     ])
     _write_evidence(tmp_path, "T-01", recorded_at="2026-03-01T00:00:00+00:00")
     _write_manifest(tmp_path)
+    script = _script(tmp_path)
+    payload = _transition_payload(tmp_path, files=["tests/test_x.py"])
+
     _write_review(tmp_path, "T-01", status="approved", updated_at="2026-06-01T00:00:00+00:00",
                   justification=None)
-    script = _script(tmp_path)
-    out = _run_hook(script, _transition_payload(tmp_path, files=["tests/test_x.py"]))
-    assert out["permissionDecision"] == "deny", out
-    assert "justificativa" in out["permissionDecisionReason"]
+    _expect(script, Case("Write", payload["tool_input"], "deny", reason="justificativa"))
 
-
-def test_feature_lock_test_diff_approved_with_justification_allows(tmp_path: Path) -> None:
-    """Mesmo cenário acima, mas COM justification preenchida -> allow."""
-    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
-    _write_profile(tmp_path)
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["tests/test_x.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    _write_evidence(tmp_path, "T-01", recorded_at="2026-03-01T00:00:00+00:00")
-    _write_manifest(tmp_path)
     _write_review(tmp_path, "T-01", status="approved", updated_at="2026-06-01T00:00:00+00:00",
                   justification="expectativa mudou porque o contrato foi renegociado")
-    script = _script(tmp_path)
-    out = _run_hook(script, _transition_payload(tmp_path, files=["tests/test_x.py"]))
-    assert out["permissionDecision"] == "allow", out
-
+    _expect(script, Case("Write", payload["tool_input"], "allow"))
 
 # ---------------- Achado 1: command smuggling no guard de Bash ----------------
 
@@ -1296,78 +923,32 @@ def _contract_with_verify(target: Path, verify_cmd: str = "pytest -q") -> None:
     ])
 
 
-def test_bash_smuggle_after_verify_cmd_denies(tmp_path: Path) -> None:
-    """`<verify_cmd> && rm -rf src` -> DENY (o rm colado depois do allowed
-    não pode escapar)."""
+def test_bash_command_surface_is_matched_per_segment(tmp_path: Path) -> None:
+    """Achado 1: o match era sobre a linha inteira, então colar um comando
+    arbitrário ao lado de um permitido escapava. A correção segmenta por
+    operador de controle e exige prefixo estrito em CADA segmento — antes ou
+    depois do allowed, dá no mesmo.
+
+    Command substitution é barrada ANTES de segmentar: `$( )` e crase executam
+    sem virar segmento próprio. E o floor roda em qualquer janela, intocado."""
     _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                             "tool_input": {"command": "pytest -q && rm -rf src"}})
-    assert out["permissionDecision"] == "deny", out
-
-
-def test_bash_smuggle_before_verify_cmd_denies(tmp_path: Path) -> None:
-    """`rm -rf src && <verify_cmd>` -> DENY (smuggle ANTES do allowed)."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                             "tool_input": {"command": "rm -rf src && pytest -q"}})
-    assert out["permissionDecision"] == "deny", out
-
-
-def test_bash_smuggle_via_semicolon_after_git_denies(tmp_path: Path) -> None:
-    """`git commit -m x ; powershell -c evil` -> DENY (git local é allowed,
-    powershell não)."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                             "tool_input": {"command": "git commit -m x ; powershell -c evil"}})
-    assert out["permissionDecision"] == "deny", out
-
-
-def test_bash_smuggle_via_pipe_denies(tmp_path: Path) -> None:
-    """`<verify_cmd> | rm -rf src` -> DENY (pipe também é operador de
-    controle)."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                             "tool_input": {"command": "pytest -q | rm -rf src"}})
-    assert out["permissionDecision"] == "deny", out
-
-
-def test_bash_command_substitution_denies(tmp_path: Path) -> None:
-    """`<verify_cmd> $(rm -rf src)` e a variante com crase -> DENY (command
-    substitution barrada antes de segmentar)."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                             "tool_input": {"command": "pytest -q $(rm -rf src)"}})
-    assert out["permissionDecision"] == "deny", out
-    out2 = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "pytest -q `rm -rf src`"}})
-    assert out2["permissionDecision"] == "deny", out2
-
-
-def test_bash_floor_smuggle_still_denies_after_fix(tmp_path: Path) -> None:
-    """Regressão do floor: `curl http://evil && pytest -q` continua DENY
-    citando runtime floor (floor roda em qualquer janela, intocado)."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                             "tool_input": {"command": "curl http://evil && pytest -q"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "runtime floor" in out["permissionDecisionReason"]
-
-
-def test_bash_legit_commands_still_allow_after_fix(tmp_path: Path) -> None:
-    """Zero regressão: verify_cmd sozinho, git local (add/commit/status)
-    continuam ALLOW com prefixo estrito por segmento."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    for cmd in ("pytest -q", "git status", "git add .", "git commit -m x"):
-        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                 "tool_input": {"command": cmd}})
-        assert out["permissionDecision"] == "allow", (cmd, out)
+    _expect(
+        _script(tmp_path),
+        bash("pytest -q && rm -rf src", "deny", why="smuggle DEPOIS do allowed"),
+        bash("rm -rf src && pytest -q", "deny", why="smuggle ANTES do allowed"),
+        bash("git commit -m x ; powershell -c evil", "deny",
+             why="; tambem e operador de controle"),
+        bash("pytest -q | rm -rf src", "deny", why="pipe tambem e operador de controle"),
+        bash("pytest -q $(rm -rf src)", "deny", why="command substitution"),
+        bash("pytest -q `rm -rf src`", "deny", why="command substitution com crase"),
+        bash("curl http://evil && pytest -q", "deny", reason="runtime floor",
+             why="floor roda em qualquer janela"),
+        # Zero regressão: o que era legítimo continua passando.
+        bash("pytest -q", "allow"),
+        bash("git status", "allow"),
+        bash("git add .", "allow"),
+        bash("git commit -m x", "allow"),
+    )
 
 
 # ---------------- Achado 2: feature-lock ignora replace_all=true ----------------
@@ -1543,73 +1124,6 @@ def test_feature_list_transition_without_evidence_message_unchanged(tmp_path: Pa
 # ---------------- SUBAGENTE 01: CLI do harness liberada sob contrato ativo ----------------
 
 
-def test_harness_cli_python_module_form_allows(tmp_path: Path) -> None:
-    """python -m harness.cli <subcomando enumerado> deve ser allow, mesmo
-    sem nenhum verify_cmd/lint/build que case por acaso."""
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "python -m harness.cli analyze --dir ."}})
-    assert out["permissionDecision"] == "allow", out
-
-
-def test_harness_cli_console_script_form_allows(tmp_path: Path) -> None:
-    """A forma console-script (`harness <sub>`) tambem liberada."""
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "harness analyze --dir ."}})
-    assert out["permissionDecision"] == "allow", out
-
-
-def test_harness_compile_contract_via_python_module_allows(tmp_path: Path) -> None:
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {
-        "tool_name": "Bash", "cwd": str(tmp_path),
-        "tool_input": {"command": "python -m harness.cli compile-contract --dir . --slug x"},
-    })
-    assert out["permissionDecision"] == "allow", out
-
-
-def test_harness_cli_smuggled_with_floor_command_still_denies(tmp_path: Path) -> None:
-    """`harness analyze && git push origin main` continua deny — o floor
-    roda antes de qualquer allow, mesmo colado a um subcomando liberado."""
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {
-        "tool_name": "Bash", "cwd": str(tmp_path),
-        "tool_input": {"command": "harness analyze && git push origin main"},
-    })
-    assert out["permissionDecision"] == "deny", out
-    assert "runtime floor" in out["permissionDecisionReason"]
-
-
-def test_harness_run_subcommand_is_not_in_enumerated_allowlist(tmp_path: Path) -> None:
-    """Prova negativa: `run` (orquestrador com rede fora do floor) foi
-    deliberadamente deixado de fora da lista enumerada."""
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "harness run --dir ."}})
-    assert out["permissionDecision"] == "deny", out
-
-
 def test_feature_lock_replace_all_false_flips_only_first(tmp_path: Path) -> None:
     """Controle: replace_all ausente/false mantém count=1 — só a 1ª feature
     (feat-1, com evidência fresca) transiciona -> ALLOW."""
@@ -1649,485 +1163,249 @@ def test_boundary_hook_matcher_is_wildcard() -> None:
     assert BOUNDARY_HOOK_MATCHER == "*"
 
 
-def test_notebookedit_outside_surface_denies(tmp_path: Path) -> None:
-    """Achado #1: NotebookEdit nunca invocava o hook (matcher estreito) —
-    agora roteado explicitamente para _evaluate_file sobre notebook_path."""
+def _notebook(path: str, decision: str, reason: str | None = None, why: str = "") -> Case:
+    return Case("NotebookEdit", {"notebook_path": path}, decision, reason,
+                why=why or f"NotebookEdit: {path}")
+
+
+def _multiedit(path: str, decision: str, reason: str | None = None, why: str = "") -> Case:
+    return Case("MultiEdit",
+                {"file_path": path, "edits": [{"old_string": "a", "new_string": "b"}]},
+                decision, reason, why=why or f"MultiEdit: {path}")
+
+
+def test_every_write_tool_is_routed_to_the_file_rules(tmp_path: Path) -> None:
+    """Achado #1: com o matcher estreito (`Edit|Write|Bash`), NotebookEdit nunca
+    invocava o hook. MultiEdit era pior — invocava e caía no ramo de tool
+    desconhecida, onde o nome contendo "edit" virava deny sempre.
+
+    As duas passaram a ser roteadas explicitamente para `_evaluate_file`
+    (`notebook_path` e `file_path`), o que lhes dá a superfície inteira — files[],
+    `docs/**` — e também o floor inteiro."""
     _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
+        {"id": "T-01", "desc": "x", "files": ["src/main.py", "notebooks/analysis.ipynb"],
+         "verify_cmd": "pytest -q", "depends": [], "passes": False}
     ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "NotebookEdit", "cwd": str(tmp_path),
-                              "tool_input": {"notebook_path": "notebooks/analysis.ipynb"}})
-    assert out["permissionDecision"] == "deny", out
+    _expect(
+        _script(tmp_path),
+        _notebook("notebooks/analysis.ipynb", "allow", why="notebook declarado"),
+        _notebook("notebooks/outro.ipynb", "deny", why="notebook fora de files[]"),
+        _notebook(".env", "deny", reason="runtime floor"),
+        _multiedit("src/main.py", "allow"),
+        _multiedit("src/other.py", "deny"),
+        _multiedit("docs/x.md", "allow", why="MultiEdit tambem herda docs/**"),
+        _multiedit(".env", "deny", reason="runtime floor"),
+    )
 
 
-def test_notebookedit_in_surface_allows(tmp_path: Path) -> None:
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["notebooks/analysis.ipynb"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "NotebookEdit", "cwd": str(tmp_path),
-                              "tool_input": {"notebook_path": "notebooks/analysis.ipynb"}})
-    assert out["permissionDecision"] == "allow", out
-
-
-def test_notebookedit_secret_floor_denies(tmp_path: Path) -> None:
-    """NotebookEdit tocando um path de segredo cai no mesmo runtime floor de
-    Edit/Write — nunca vira allow, com ou sem contrato."""
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "NotebookEdit", "cwd": str(tmp_path),
-                              "tool_input": {"notebook_path": ".env"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "runtime floor" in out["permissionDecisionReason"]
-
-
-def test_multiedit_in_surface_allows(tmp_path: Path) -> None:
-    """Correção pós-implementação (achado adversarial Opus): MultiEdit é
-    tool de escrita REAL do Claude Code, não estava roteada e caía no ramo
-    de tool desconhecida (nome contém "edit" -> deny sempre). Roteada
-    explicitamente para _evaluate_file sobre tool_input.file_path."""
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {
-        "tool_name": "MultiEdit", "cwd": str(tmp_path),
-        "tool_input": {
-            "file_path": "src/main.py",
-            "edits": [
-                {"old_string": "a", "new_string": "b"},
-                {"old_string": "c", "new_string": "d"},
-            ],
-        },
-    })
-    assert out["permissionDecision"] == "allow", out
-
-
-def test_multiedit_secret_floor_denies(tmp_path: Path) -> None:
-    script = _script(tmp_path)
-    out = _run_hook(script, {
-        "tool_name": "MultiEdit", "cwd": str(tmp_path),
-        "tool_input": {"file_path": ".env", "edits": [{"old_string": "a", "new_string": "b"}]},
-    })
-    assert out["permissionDecision"] == "deny", out
-    assert "runtime floor" in out["permissionDecisionReason"]
-
-
-def test_multiedit_outside_surface_denies(tmp_path: Path) -> None:
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {
-        "tool_name": "MultiEdit", "cwd": str(tmp_path),
-        "tool_input": {"file_path": "src/other.py", "edits": [{"old_string": "a", "new_string": "b"}]},
-    })
-    assert out["permissionDecision"] == "deny", out
-
-
-def test_multiedit_docs_allows(tmp_path: Path) -> None:
-    """MultiEdit também se beneficia da superfície docs/** (Item 4)."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {
-        "tool_name": "MultiEdit", "cwd": str(tmp_path),
-        "tool_input": {"file_path": "docs/x.md", "edits": [{"old_string": "a", "new_string": "b"}]},
-    })
-    assert out["permissionDecision"] == "allow", out
-
-
-def test_ghost_mcp_write_tool_denies(tmp_path: Path) -> None:
-    """Tool de escrita fantasma (mcp__x__write, nome arbitrário não
-    enumerado) -> deny por padrão-de-nome, mesmo sem estar na allowlist
-    explícita de roteamento."""
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "mcp__filesystem__write_file", "cwd": str(tmp_path),
-                              "tool_input": {"path": "/etc/passwd", "content": "x"}})
-    assert out["permissionDecision"] == "deny", out
-
-
-def test_ghost_mcp_create_and_edit_tools_deny(tmp_path: Path) -> None:
-    script = _script(tmp_path)
-    for name in ("mcp__foo__create_file", "mcp__foo__edit_document", "mcp__bar__WRITE"):
-        out = _run_hook(script, {"tool_name": name, "cwd": str(tmp_path), "tool_input": {}})
-        assert out["permissionDecision"] == "deny", (name, out)
-
-
-def test_readonly_and_utility_tools_allow_without_regressing_to_default_deny(tmp_path: Path) -> None:
-    """Read/Glob/Grep (leitura) e Task/WebFetch/TodoWrite (utilitárias
-    conhecidas, incluindo Task — usada pelo próprio harness) continuam
-    allow — a regressão que um default-deny ingênuo causaria."""
-    script = _script(tmp_path)
-    for name in ("Read", "Glob", "Grep", "Task", "WebFetch", "TodoWrite"):
-        out = _run_hook(script, {"tool_name": name, "cwd": str(tmp_path),
-                                  "tool_input": {"file_path": "src/main.py"}})
-        assert out["permissionDecision"] == "allow", (name, out)
-
-
-def test_unknown_tool_without_write_name_pattern_allows_logged(tmp_path: Path) -> None:
-    """Tool desconhecida cujo nome NÃO contém write/create/edit -> allow
-    LOGADO (política mínima; risco residual assumido e documentado)."""
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "mcp__foo__persist_snapshot", "cwd": str(tmp_path),
-                              "tool_input": {}})
-    assert out["permissionDecision"] == "allow", out
-    assert "allow-logado" in out["permissionDecisionReason"]
+def test_unknown_tools_are_judged_by_the_name_pattern(tmp_path: Path) -> None:
+    """Tool de escrita fantasma (nome arbitrário, não enumerado) cai em deny pelo
+    padrão-de-nome. O contrapeso é a regressão que um default-deny ingênuo
+    causaria: leitura (Read/Glob/Grep) e utilitárias conhecidas — Task incluída,
+    que o próprio harness usa — continuam allow. Tool desconhecida cujo nome NÃO
+    casa write/create/edit vira allow LOGADO: política mínima, risco residual
+    assumido e documentado."""
+    _expect(
+        _script(tmp_path),
+        Case("mcp__filesystem__write_file", {"path": "/etc/passwd", "content": "x"}, "deny"),
+        Case("mcp__foo__create_file", {}, "deny"),
+        Case("mcp__foo__edit_document", {}, "deny"),
+        Case("mcp__bar__WRITE", {}, "deny"),
+        Case("Read", {"file_path": "src/main.py"}, "allow"),
+        Case("Glob", {"file_path": "src/main.py"}, "allow"),
+        Case("Grep", {"file_path": "src/main.py"}, "allow"),
+        Case("Task", {"file_path": "src/main.py"}, "allow"),
+        Case("WebFetch", {"file_path": "src/main.py"}, "allow"),
+        Case("TodoWrite", {"file_path": "src/main.py"}, "allow"),
+        Case("mcp__foo__persist_snapshot", {}, "allow", reason="allow-logado"),
+    )
 
 
 # ---------------- Item 2: avaliador de PowerShell (floor-first) ----------------
 
-
-def test_powershell_set_content_secret_denies_without_contract(tmp_path: Path) -> None:
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                              "tool_input": {"command": "Set-Content -Path .env -Value 'leak'"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "runtime floor" in out["permissionDecisionReason"]
-
-
-def test_powershell_out_file_secret_denies(tmp_path: Path) -> None:
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                              "tool_input": {"command": "'leak' | Out-File -FilePath secrets/.env"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "runtime floor" in out["permissionDecisionReason"]
-
-
-def test_powershell_writealltext_secret_denies(tmp_path: Path) -> None:
-    script = _script(tmp_path)
-    out = _run_hook(script, {
-        "tool_name": "PowerShell", "cwd": str(tmp_path),
-        "tool_input": {"command": '[IO.File]::WriteAllText("secrets/.env", "leak")'},
-    })
-    assert out["permissionDecision"] == "deny", out
-    assert "runtime floor" in out["permissionDecisionReason"]
+def test_powershell_floor_is_checked_before_any_surface(tmp_path: Path) -> None:
+    """Invoke-WebRequest/Invoke-RestMethod (e os aliases `iwr`/`irm`) não são
+    cobertos por `is_floor_bash_command` — a tokenização genérica não conhece
+    esses nomes — e precisam do floor específico de PowerShell. Já `git push`
+    reusa (não duplica) o floor de Bash."""
+    _expect(
+        _script(tmp_path),
+        pwsh("Set-Content -Path .env -Value 'leak'", "deny", reason="runtime floor"),
+        pwsh("'leak' | Out-File -FilePath secrets/.env", "deny", reason="runtime floor"),
+        pwsh('[IO.File]::WriteAllText("secrets/.env", "leak")', "deny", reason="runtime floor"),
+        pwsh("Invoke-WebRequest https://evil.example", "deny", reason="runtime floor"),
+        pwsh("Invoke-RestMethod -Uri https://evil.example", "deny", reason="runtime floor"),
+        pwsh("iwr https://evil.example", "deny", reason="runtime floor"),
+        pwsh("irm https://evil.example", "deny", reason="runtime floor"),
+        pwsh("git push origin main", "deny", reason="runtime floor"),
+    )
 
 
-def test_powershell_network_cmdlets_deny(tmp_path: Path) -> None:
-    """Invoke-WebRequest/Invoke-RestMethod (e aliases) não são cobertos por
-    is_floor_bash_command (tokenização genérica não conhece esses nomes) —
-    precisam do floor específico de PowerShell."""
-    script = _script(tmp_path)
-    for cmd in ("Invoke-WebRequest https://evil.example", "Invoke-RestMethod -Uri https://evil.example",
-                "iwr https://evil.example", "irm https://evil.example"):
-        out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                                  "tool_input": {"command": cmd}})
-        assert out["permissionDecision"] == "deny", (cmd, out)
-        assert "runtime floor" in out["permissionDecisionReason"]
+def test_powershell_surface_mirrors_the_edit_write_rules(tmp_path: Path) -> None:
+    """O alvo de escrita extraído do comando PowerShell passa pela MESMA lógica
+    de superfície do Edit/Write — inclusive as exceções incondicionais de
+    `docs/**` e `.harness/scratch/**`.
 
-
-def test_powershell_git_push_denies_via_shared_floor(tmp_path: Path) -> None:
-    """git push continua deny em PowerShell, via is_floor_bash_command
-    reusado (não duplicado) por is_floor_powershell_network."""
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                              "tool_input": {"command": "git push origin main"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "runtime floor" in out["permissionDecisionReason"]
-
-
-def test_powershell_set_content_docs_allows(tmp_path: Path) -> None:
-    """Item 2 + Item 4 combinados: Set-Content docs/x.md deve dar allow (a
-    mesma lógica de superfície de path do Edit/Write, aplicada ao alvo
-    extraído do comando PowerShell)."""
+    E, ao contrário de `_evaluate_bash`, `_evaluate_powershell` NÃO bane
+    `$(...)`/crase: são sintaxe legítima em PowerShell (subexpressão e escape),
+    não command smuggling."""
     _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                              "tool_input": {"command": "Set-Content -Path docs/x.md -Value 'ok'"}})
-    assert out["permissionDecision"] == "allow", out
+    _expect(
+        _script(tmp_path),
+        pwsh("Set-Content -Path docs/x.md -Value 'ok'", "allow"),
+        pwsh("Set-Content -Path .harness/scratch/api-dump.json -Value x", "allow"),
+        pwsh("Set-Content -Path other/file.txt -Value 'x'", "deny"),
+        pwsh("pytest -q", "allow", why="verify_cmd da tarefa"),
+        pwsh("pytest -q $(Get-Date)", "allow", absent="command substitution",
+             why="$() nao pode virar falso-deny em PowerShell"),
+        pwsh("Remove-Item -Recurse -Force src", "deny"),
+    )
 
 
-def test_powershell_set_content_outside_surface_denies(tmp_path: Path) -> None:
+def test_powershell_without_contract_follows_the_bootstrap_surface(tmp_path: Path) -> None:
+    """O caminho PowerShell também precisa conseguir CRIAR o contrato — git
+    local e subcomandos do harness passam; o resto é negado."""
+    _expect(
+        _script(tmp_path),
+        pwsh("git status", "allow"),
+        pwsh('git commit -m "wip"', "allow"),
+        pwsh("harness compile-contract --dir . --slug demo", "allow"),
+        pwsh("harness --help", "allow"),
+        pwsh("Remove-Item -Recurse -Force src", "deny", reason="nenhum contrato ativo"),
+    )
+
+
+# ---------------- Item 3: paridade do floor de segredo no caminho Bash ----------------
+
+def test_bash_secret_floor_has_parity_with_powershell(tmp_path: Path) -> None:
+    """Achado #3: antes da correção o floor de segredo só era checado no caminho
+    Edit/Write, e `echo LEAK > .env` retornava allow.
+
+    Os alvos entre aspas são a correção seguinte (validação adversarial Opus): a
+    regex antiga capturava as aspas junto do valor (`".env"` inteiro) e
+    `is_floor_secret_path` exige sufixo exato, então `".env"` falhava o match. O
+    fix foi tokenizar. O floor de PowerShell nunca teve esse furo — já
+    tokenizava desde o Item 2 —, e os dois casos abaixo travam isso."""
+    _expect(
+        _script(tmp_path),
+        bash("echo LEAK > .env", "deny", reason="runtime floor",
+             why="controle: sem aspas, ja funcionava antes"),
+        bash("echo LEAK >> config/.env", "deny", reason="runtime floor"),
+        bash("echo LEAK | tee .env", "deny", reason="runtime floor"),
+        bash('echo LEAK > ".env"', "deny", reason="runtime floor"),
+        bash("echo LEAK > '.env'", "deny", reason="runtime floor"),
+        bash('echo LEAK >> "id_rsa"', "deny", reason="runtime floor"),
+        bash('echo LEAK > "config/.env"', "deny", reason="runtime floor"),
+        pwsh('Set-Content -Path ".env" -Value "leak"', "deny", reason="runtime floor"),
+        pwsh("Set-Content -Path '.env' -Value 'leak'", "deny", reason="runtime floor"),
+    )
+
+
+def test_bash_secret_floor_is_scoped_to_writes_not_mentions(tmp_path: Path) -> None:
+    """O floor cobre redirecionamento/tee — não persegue todo comando que
+    meramente MENCIONA um path de segredo. E o simétrico: redirecionar para
+    arquivo normal fora do `verify_cmd` continua deny, mas pelo guard genérico
+    de Bash, sem citar floor (a razão certa manda o agente para `verify_cmd` ou
+    `extra_allowed_commands`)."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/app.py"],
+         "verify_cmd": "cat .env && pytest -q", "depends": [], "passes": False}
+    ])
+    _expect(
+        _script(tmp_path),
+        bash("cat .env", "allow", absent="runtime floor", why="leitura, sem redirect"),
+        bash("echo x > src/app.py", "deny", reason="superficie compilada",
+             absent="runtime floor", why="redirect nao-segredo fora do verify_cmd"),
+    )
+
+
+# ---------------- Item 4: superfície de docs via docs/** dedicado ----------------
+
+def test_docs_surface_is_the_docs_prefix_and_nothing_else(tmp_path: Path) -> None:
+    """Análoga a WORK_DIR_PREFIX: `docs/**` é sempre gravável, com ou sem
+    contrato ativo. A correção NÃO usa allowlist `*.md` na raiz (proposta
+    rejeitada) — por isso `README.md` na raiz continua exigindo declaração, e
+    `AGENTS.md`/`CLAUDE.md`/`Plans.md`/`spec.md` são protegidos explicitamente,
+    defense-in-depth, mesmo não estando fisicamente dentro de `docs/`.
+
+    `docs/../AGENTS.md` normaliza para `AGENTS.md`: traversal não escapa. E o
+    floor de segredo precede a exceção, como em work/ e scratch/."""
     _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                              "tool_input": {"command": "Set-Content -Path other/file.txt -Value 'x'"}})
-    assert out["permissionDecision"] == "deny", out
+    _expect(
+        _script(tmp_path),
+        write("docs/ARQUITETURA.md", "allow"),
+        write("docs/adr/0001-decisao.md", "allow"),
+        write("AGENTS.md", "deny"),
+        write("CLAUDE.md", "deny"),
+        write("Plans.md", "deny"),
+        write("spec.md", "deny"),
+        write(".harness/harness.yaml", "deny"),
+        write("README.md", "deny", why="raiz nao e docs/**"),
+        write("docs/../AGENTS.md", "deny", why="traversal normaliza para AGENTS.md"),
+        write("docs/.env", "deny", reason="runtime floor"),
+    )
+
+    sem_contrato = tmp_path / "sem-contrato"
+    sem_contrato.mkdir()
+    _expect(_script(sem_contrato), write("docs/README.md", "allow"))
 
 
-def test_powershell_verify_cmd_command_allows(tmp_path: Path) -> None:
+# ---------------- superfície de scratch (.harness/scratch/**) ----------------
+
+def test_scratch_surface_is_always_writable(tmp_path: Path) -> None:
+    """Artefato temporário de verificação (screenshot, dump) nunca está em
+    files[] de nenhuma tarefa — `.harness/scratch/**` tem que ser sempre
+    gravável, senão o agente acaba salvando na raiz do repo-alvo. Por isso a
+    deny message genérica de superfície ENSINA o destino correto: é o que
+    corrige o comportamento em sessão, sem depender de ele ter lido AGENTS.md."""
     _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                              "tool_input": {"command": "pytest -q"}})
-    assert out["permissionDecision"] == "allow", out
+    _expect(
+        _script(tmp_path),
+        write(".harness/scratch/login-page.png", "allow"),
+        write(".harness/scratch/ui-check/dump-rede.json", "allow"),
+        write(".harness/scratch/.env", "deny", reason="runtime floor"),
+        write(".harness/scratch/credentials.json", "deny", reason="runtime floor"),
+        write("screenshot-login.png", "deny", reason=".harness/scratch/",
+              why="a deny message ensina o destino de artefato temporario"),
+    )
+
+    sem_contrato = tmp_path / "sem-contrato"
+    sem_contrato.mkdir()
+    _expect(_script(sem_contrato), write(".harness/scratch/debug.html", "allow"))
 
 
-def test_powershell_dollar_paren_and_backtick_not_falso_deny(tmp_path: Path) -> None:
-    """Ao contrário de _evaluate_bash, _evaluate_powershell NÃO bane
-    '$(...)'/crase — são sintaxe legítima em PowerShell (subexpressão e
-    escape), não command smuggling. Um comando declarado que contenha essa
-    sintaxe não deve ser falso-negado por esse motivo."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                              "tool_input": {"command": "pytest -q $(Get-Date)"}})
-    assert out["permissionDecision"] == "allow", out
-    assert "command substitution" not in out["permissionDecisionReason"]
-
-
-def test_powershell_unrelated_command_denies(tmp_path: Path) -> None:
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                              "tool_input": {"command": "Remove-Item -Recurse -Force src"}})
-    assert out["permissionDecision"] == "deny", out
-
-
-def test_powershell_no_contract_denies_outside_bootstrap_surface(tmp_path: Path) -> None:
-    """Sem contrato ativo, PowerShell fora da superfície de bootstrap
-    (git local / harness / read-only) é negado."""
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                              "tool_input": {"command": "Remove-Item -Recurse -Force src"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "nenhum contrato ativo" in out["permissionDecisionReason"].lower()
-
-
-@pytest.mark.parametrize("command", [
-    "git status",
-    "git commit -m \"wip\"",
-    "harness compile-contract --dir . --slug demo",
-    "harness --help",
-])
-def test_powershell_no_contract_allows_bootstrap_surface(
-    tmp_path: Path, command: str
-) -> None:
-    """Contrapartida do teste acima: o caminho PowerShell também precisa
-    conseguir CRIAR o contrato — git local e subcomandos do harness passam."""
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                              "tool_input": {"command": command}})
-    assert out["permissionDecision"] == "allow", out
-
-
-def test_is_floor_powershell_network_importable() -> None:
-    from harness.boundary_guard import is_floor_powershell_network
+def test_floor_and_surface_predicates_are_importable() -> None:
+    """Os predicados são reusados pelo compilador e pelo audit, então precisam
+    ser corretos como FUNÇÃO, não só pelo desfecho do hook. `_is_work_surface_path`
+    carrega a regressão do fix de traversal: o check antigo era `startswith` sobre
+    o path bruto, e `.harness/work/../../qualquer.py` escapava."""
+    from harness.boundary_guard import (
+        _is_docs_surface_path,
+        _is_scratch_surface_path,
+        _is_work_surface_path,
+        is_floor_bash_secret_redirect,
+        is_floor_powershell_network,
+        is_floor_powershell_secret_write,
+    )
 
     assert is_floor_powershell_network("Invoke-WebRequest https://x") is True
     assert is_floor_powershell_network("iwr https://x") is True
     assert is_floor_powershell_network("git push origin main") is True
     assert is_floor_powershell_network("Get-ChildItem") is False
 
-
-def test_is_floor_powershell_secret_write_importable() -> None:
-    from harness.boundary_guard import is_floor_powershell_secret_write
-
     assert is_floor_powershell_secret_write("Set-Content -Path .env -Value x") is True
     assert is_floor_powershell_secret_write("Set-Content -Path docs/x.md -Value x") is False
     assert is_floor_powershell_secret_write("Get-Content .env") is False
-
-
-# ---------------- Item 3: paridade do floor de segredo no caminho Bash ----------------
-
-
-def test_bash_echo_redirect_secret_denies_without_contract(tmp_path: Path) -> None:
-    """Achado #3: antes da correção, isto retornava allow (o floor de
-    segredo só era checado no caminho Edit/Write)."""
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "echo LEAK > .env"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "runtime floor" in out["permissionDecisionReason"]
-
-
-def test_bash_append_redirect_secret_denies(tmp_path: Path) -> None:
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "echo LEAK >> config/.env"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "runtime floor" in out["permissionDecisionReason"]
-
-
-def test_bash_tee_secret_denies(tmp_path: Path) -> None:
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "echo LEAK | tee .env"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "runtime floor" in out["permissionDecisionReason"]
-
-
-def test_bash_redirect_quoted_secret_target_denies(tmp_path: Path) -> None:
-    """Correção de bug (validação adversarial Opus, pós-implementação): o
-    alvo do redirecionamento entre aspas duplas/simples escapava do floor
-    porque a regex antiga capturava as aspas junto do valor (`".env"`
-    inteiro), e is_floor_secret_path exige sufixo exato (`.endswith(".env")`)
-    — `".env"` com aspas falhava o match. Fix: tokenizar (remove aspas),
-    mesma técnica já usada no ramo `tee`. `echo LEAK > .env` (sem aspas)
-    já era pego corretamente antes — mantido como controle."""
-    script = _script(tmp_path)
-    for cmd in (
-        'echo LEAK > ".env"',
-        "echo LEAK > '.env'",
-        'echo LEAK >> "id_rsa"',
-        'echo LEAK > "config/.env"',
-        "echo LEAK > .env",  # controle: sem aspas, já funcionava antes
-    ):
-        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                  "tool_input": {"command": cmd}})
-        assert out["permissionDecision"] == "deny", (cmd, out)
-        assert "runtime floor" in out["permissionDecisionReason"], (cmd, out)
-
-
-def test_powershell_secret_write_quoted_target_still_denies(tmp_path: Path) -> None:
-    """Teste de regressão travando que o floor de PowerShell NÃO tem o
-    mesmo furo de aspas do Bash: is_floor_powershell_secret_write já
-    tokenizava o comando (via _tokenize_command, que trata aspas como
-    separador) desde a implementação original do Item 2 — nunca dependeu de
-    regex sobre o texto bruto."""
-    script = _script(tmp_path)
-    for cmd in (
-        'Set-Content -Path ".env" -Value "leak"',
-        "Set-Content -Path '.env' -Value 'leak'",
-    ):
-        out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                                  "tool_input": {"command": cmd}})
-        assert out["permissionDecision"] == "deny", (cmd, out)
-        assert "runtime floor" in out["permissionDecisionReason"], (cmd, out)
-
-
-def test_bash_read_secret_without_redirect_not_blocked_by_floor(tmp_path: Path) -> None:
-    """cat .env (leitura, sem redirecionamento) dentro de verify_cmd é permitido
-    e não é bloqueado pelo floor de segredo — escopo do floor restrito a
-    redirecionamento/tee (não persegue todo comando que meramente MENCIONA um
-    path de segredo)."""
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "cat .env && pytest -q",
-         "depends": [], "passes": False}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "cat .env"}})
-    assert out["permissionDecision"] == "allow", out
-    assert "runtime floor" not in out["permissionDecisionReason"]
-
-
-def test_bash_redirect_non_secret_still_denies_outside_verify_cmd(tmp_path: Path) -> None:
-    """Redirecionamento de escrita em arquivo normal (não secret) continua deny
-    quando FORA de verify_cmd. O floor de segredo não precisa citá-lo — é o
-    guard genérico de Bash que nega. Se o comando precisa rodar, deve estar
-    em verify_cmd ou extra_allowed_commands do harness.yaml."""
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/app.py"], "verify_cmd": "pytest -q",
-         "depends": [], "passes": False}
-    ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "echo x > src/app.py"}})
-    assert out["permissionDecision"] == "deny", out
-    # Floor não deve aparecer (não é secret/push/etc)
-    assert "runtime floor" not in out["permissionDecisionReason"]
-    # Razão real: fora da superfície de comando
-    assert "superficie compilada" in out["permissionDecisionReason"]
-
-
-def test_is_floor_bash_secret_redirect_importable() -> None:
-    from harness.boundary_guard import is_floor_bash_secret_redirect
 
     assert is_floor_bash_secret_redirect("echo x > .env") is True
     assert is_floor_bash_secret_redirect("echo x >> id_rsa") is True
     assert is_floor_bash_secret_redirect("echo x | tee credentials.json") is True
     assert is_floor_bash_secret_redirect("cat .env") is False
     assert is_floor_bash_secret_redirect("echo x > src/app.py") is False
-    # Regressão do bug de aspas (validação adversarial Opus): alvo entre
-    # aspas duplas/simples tinha que ser reconhecido tanto quanto sem aspas.
+    # Regressão do bug de aspas (validação adversarial Opus).
     assert is_floor_bash_secret_redirect('echo x > ".env"') is True
     assert is_floor_bash_secret_redirect("echo x > '.env'") is True
     assert is_floor_bash_secret_redirect('echo x >> "config/.env"') is True
-
-
-# ---------------- Item 4: superfície de docs via docs/** dedicado ----------------
-
-
-def test_write_docs_markdown_allows(tmp_path: Path) -> None:
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "docs/ARQUITETURA.md", "content": "x"}})
-    assert out["permissionDecision"] == "allow", out
-
-
-def test_write_docs_subdir_allows(tmp_path: Path) -> None:
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "docs/adr/0001-decisao.md", "content": "x"}})
-    assert out["permissionDecision"] == "allow", out
-
-
-def test_write_docs_allows_even_without_contract(tmp_path: Path) -> None:
-    """Análoga a WORK_DIR_PREFIX: docs/** é sempre gravável, com ou sem
-    contrato ativo — não é uma exceção só-sob-contrato."""
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "docs/README.md", "content": "x"}})
-    assert out["permissionDecision"] == "allow", out
-
-
-def test_write_agents_md_root_denies(tmp_path: Path) -> None:
-    """AGENTS.md protegido explicitamente (defense-in-depth) — nunca cai na
-    allowlist de docs/**, mesmo não estando fisicamente dentro de docs/."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "AGENTS.md", "content": "x"}})
-    assert out["permissionDecision"] == "deny", out
-
-
-def test_write_claude_plans_spec_md_root_deny(tmp_path: Path) -> None:
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    for name in ("CLAUDE.md", "Plans.md", "spec.md"):
-        out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                                  "tool_input": {"file_path": name, "content": "x"}})
-        assert out["permissionDecision"] == "deny", (name, out)
-
-
-def test_write_harness_yaml_denies(tmp_path: Path) -> None:
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": ".harness/harness.yaml", "content": "x"}})
-    assert out["permissionDecision"] == "deny", out
-
-
-def test_write_readme_root_denies_not_docs_prefix(tmp_path: Path) -> None:
-    """README.md na raiz NÃO é docs/** — continua exigindo declaração em
-    files[] (a correção NÃO usa allowlist *.md na raiz, proposta rejeitada)."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "README.md", "content": "x"}})
-    assert out["permissionDecision"] == "deny", out
-
-
-def test_write_docs_traversal_to_agents_md_denies(tmp_path: Path) -> None:
-    """docs/../AGENTS.md normaliza para AGENTS.md — não escapa a proteção
-    via segmentos de path traversal."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "docs/../AGENTS.md", "content": "x"}})
-    assert out["permissionDecision"] == "deny", out
-
-
-def test_secret_inside_docs_dir_still_denies(tmp_path: Path) -> None:
-    """Floor de segredo precede a exceção docs/** — um .env escondido lá
-    dentro continua bloqueado (mesmo padrão de test_secret_inside_work_dir_still_denies)."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "docs/.env", "content": "k=v"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "runtime floor" in out["permissionDecisionReason"]
-
-
-def test_is_docs_surface_path_importable() -> None:
-    from harness.boundary_guard import _is_docs_surface_path
 
     assert _is_docs_surface_path("docs/ARQUITETURA.md") is True
     assert _is_docs_surface_path("docs/sub/x.md") is True
@@ -2137,67 +1415,17 @@ def test_is_docs_surface_path_importable() -> None:
     assert _is_docs_surface_path("docs/../AGENTS.md") is False
     assert _is_docs_surface_path("docs/../CLAUDE.md") is False
 
+    assert _is_scratch_surface_path(".harness/scratch/shot.png") is True
+    assert _is_scratch_surface_path(".harness/scratch/sub/dump.html") is True
+    assert _is_scratch_surface_path(".harness/scratch") is False
+    assert _is_scratch_surface_path(".harness/scratch/../../src/main.py") is False
+    assert _is_scratch_surface_path(".harness/work/x.md") is False
+    assert _is_scratch_surface_path("src/main.py") is False
 
-# ---------------- superfície de scratch (.harness/scratch/**) ----------------
-
-
-def test_write_scratch_allows_with_active_contract(tmp_path: Path) -> None:
-    """Artefato temporário de verificação (screenshot, dump) nunca está em
-    files[] de nenhuma tarefa — .harness/scratch/** deve ser sempre gravável,
-    senão o agente acaba salvando na raiz do repo-alvo."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    for rel in (".harness/scratch/login-page.png",
-                ".harness/scratch/ui-check/dump-rede.json"):
-        out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                                  "tool_input": {"file_path": rel, "content": "x"}})
-        assert out["permissionDecision"] == "allow", (rel, out)
-
-
-def test_write_scratch_allows_even_without_contract(tmp_path: Path) -> None:
-    """Análoga a WORK_DIR_PREFIX/docs/**: scratch é incondicional, com ou sem
-    contrato ativo."""
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": ".harness/scratch/debug.html",
-                                             "content": "x"}})
-    assert out["permissionDecision"] == "allow", out
-
-
-def test_secret_inside_scratch_still_denies(tmp_path: Path) -> None:
-    """Floor de segredo precede a exceção de scratch — mesmo padrão de
-    test_secret_inside_work_dir_still_denies."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    for rel in (".harness/scratch/.env", ".harness/scratch/credentials.json"):
-        out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                                  "tool_input": {"file_path": rel, "content": "k=v"}})
-        assert out["permissionDecision"] == "deny", (rel, out)
-        assert "runtime floor" in out["permissionDecisionReason"]
-
-
-def test_powershell_write_to_scratch_allows(tmp_path: Path) -> None:
-    """PowerShell roteia alvo de escrita por _evaluate_file — scratch vale
-    também para Set-Content/Out-File, não só Edit/Write."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                              "tool_input": {"command":
-                                             "Set-Content -Path .harness/scratch/api-dump.json -Value x"}})
-    assert out["permissionDecision"] == "allow", out
-
-
-def test_deny_outside_surface_mentions_scratch(tmp_path: Path) -> None:
-    """A deny message genérica de superfície deve ENSINAR o destino correto de
-    artefato temporário — é o que corrige o comportamento do agente em sessão,
-    sem depender de ele ter lido AGENTS.md."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "screenshot-login.png",
-                                             "content": "x"}})
-    assert out["permissionDecision"] == "deny", out
-    assert ".harness/scratch/" in out["permissionDecisionReason"]
+    assert _is_work_surface_path(".harness/work/nova-feature/spec.md") is True
+    assert _is_work_surface_path(".harness/work/../../AGENTS.md") is False
+    assert _is_work_surface_path(".harness/work/../../src/evil.py") is False
+    assert _is_work_surface_path("docs/x.md") is False
 
 
 def test_install_creates_self_ignoring_scratch_gitignore(tmp_path: Path) -> None:
@@ -2213,28 +1441,6 @@ def test_install_creates_self_ignoring_scratch_gitignore(tmp_path: Path) -> None
     gitignore.write_text("# customizado\n*.png\n", encoding="utf-8")
     install_boundary_guard(tmp_path)
     assert gitignore.read_text(encoding="utf-8") == "# customizado\n*.png\n"
-
-
-def test_is_scratch_surface_path_importable() -> None:
-    from harness.boundary_guard import _is_scratch_surface_path
-
-    assert _is_scratch_surface_path(".harness/scratch/shot.png") is True
-    assert _is_scratch_surface_path(".harness/scratch/sub/dump.html") is True
-    assert _is_scratch_surface_path(".harness/scratch") is False
-    assert _is_scratch_surface_path(".harness/scratch/../../src/main.py") is False
-    assert _is_scratch_surface_path(".harness/work/x.md") is False
-    assert _is_scratch_surface_path("src/main.py") is False
-
-
-def test_is_work_surface_path_importable() -> None:
-    """Regressão do fix de traversal: o check antigo era startswith sobre o
-    path bruto — .harness/work/../../qualquer.py escapava."""
-    from harness.boundary_guard import _is_work_surface_path
-
-    assert _is_work_surface_path(".harness/work/nova-feature/spec.md") is True
-    assert _is_work_surface_path(".harness/work/../../AGENTS.md") is False
-    assert _is_work_surface_path(".harness/work/../../src/evil.py") is False
-    assert _is_work_surface_path("docs/x.md") is False
 
 
 def test_write_work_dir_traversal_denies(tmp_path: Path) -> None:
@@ -2255,39 +1461,21 @@ def test_write_work_dir_traversal_denies(tmp_path: Path) -> None:
 # -------- issue 3 do dogfood aegis: bookkeeping do harness + escape task --------
 
 
-def test_write_claude_progress_allows_with_active_contract(tmp_path: Path) -> None:
-    """.harness/progress.md é gerado/mantido pelo próprio harness (lifecycle
-    passo 12 manda atualizá-lo) — negar a escrita era auto-derrotante."""
+def test_progress_md_is_writable_but_only_the_canonical_one(tmp_path: Path) -> None:
+    """`.harness/progress.md` é gerado/mantido pelo próprio harness (o lifecycle,
+    passo 12, manda atualizá-lo) — negar a escrita era auto-derrotante. A
+    superfície é do arquivo canônico da RAIZ: homônimo em subdiretório não ganha
+    carona."""
     _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    for rel in (".harness/progress.md", ".HARNESS/PROGRESS.MD"):
-        out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                                  "tool_input": {"file_path": rel, "content": "x"}})
-        assert out["permissionDecision"] == "allow", (rel, out)
-
-
-def test_edit_claude_progress_allows_absolute_path(tmp_path: Path) -> None:
-    """Mesma superfície via Edit com path absoluto (forma que a tool manda
-    na prática)."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {
-        "tool_name": "Edit", "cwd": str(tmp_path),
-        "tool_input": {"file_path": str(tmp_path / ".harness/progress.md"),
-                       "old_string": "a", "new_string": "b"},
-    })
-    assert out["permissionDecision"] == "allow", out
-
-
-def test_write_claude_progress_in_subdir_still_denies(tmp_path: Path) -> None:
-    """Só o canônico da RAIZ é superfície — homônimo em subdiretório não
-    ganha carona (fora de files[] continua deny)."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "src/.harness/progress.md",
-                                             "content": "x"}})
-    assert out["permissionDecision"] == "deny", out
+    _expect(
+        _script(tmp_path),
+        write(".harness/progress.md", "allow"),
+        write(".HARNESS/PROGRESS.MD", "allow"),
+        Case("Edit", {"file_path": str(tmp_path / ".harness/progress.md"),
+                      "old_string": "a", "new_string": "b"},
+             "allow", why="path absoluto, a forma que a tool manda na pratica"),
+        write("src/.harness/progress.md", "deny", why="homonimo em subdiretorio"),
+    )
 
 
 def test_is_progress_file_path_importable() -> None:
@@ -2303,182 +1491,83 @@ def test_is_progress_file_path_importable() -> None:
     assert _is_progress_file_path("") is False
 
 
-def test_bash_harness_task_subcommand_allows(tmp_path: Path) -> None:
-    """harness task add-file é o escape oficial documentado na skill plan —
-    tinha que ser alcançável de dentro da sessão (guard fechava a porta e
-    escondia a chave)."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    for cmd in ("harness task add-file T-01 src/app.scss --slug demo --dir .",
-                "python -m harness.cli task add-file T-01 src/app.scss --dir ."):
-        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                  "tool_input": {"command": cmd}})
-        assert out["permissionDecision"] == "allow", (cmd, out)
-
-
-def test_bash_harness_task_smuggle_still_denies(tmp_path: Path) -> None:
-    """Prefixo `harness task` não vira túnel: comando arbitrário colado com
-    && continua negado pela regra de todo-segmento-prefixa."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command":
-                                  "harness task add-file T-01 x.py --slug s && rm -rf src"}})
-    assert out["permissionDecision"] == "deny", out
-
-
 # -------- issues 1-2 do dogfood aegis: shell read-only + cd intra-repo + 2>&1 --------
 
+def test_bash_readonly_utilities_and_intra_repo_cd_are_allowed(tmp_path: Path) -> None:
+    """Issue 1: `<allowed> | head -N` era o papercut nº1, e utilitário de
+    leitura sozinho não tinha ganho de segurança nenhum em ser negado.
 
-def test_bash_readonly_filter_after_pipe_allows(tmp_path: Path) -> None:
-    """`<allowed> | head -N` era o papercut nº1 do issue 1 — filtro
-    read-only pós-pipe agora passa."""
+    Duas adaptações vieram do parecer cético: `>` DENTRO de aspas é padrão de
+    busca (`->`, `<div>`), não redirect; e `2>&1` é duplicação de fd, nenhum
+    arquivo escrito — o splitter cortava no `&` e o segmento `1` órfão derrubava
+    o comando inteiro.
+
+    `cd <subdir> && <allowed>` é muscle-memory universal (issue 2). Sai do repo,
+    porém, é deny: `git add`/`commit` são liberados incondicionalmente e
+    operariam em OUTRO repositório."""
     _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    for cmd in ("pytest -q | head -40",
-                "pytest -q | tail -20",
-                "pytest -q | grep FAILED | wc -l"):
-        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                  "tool_input": {"command": cmd}})
-        assert out["permissionDecision"] == "allow", (cmd, out)
+    _expect(
+        _script(tmp_path),
+        bash("pytest -q | head -40", "allow"),
+        bash("pytest -q | tail -20", "allow"),
+        bash("pytest -q | grep FAILED | wc -l", "allow"),
+        bash("wc -l .harness/scratch/build.log", "allow"),
+        bash("tail -50 .harness/scratch/task.output", "allow"),
+        bash("ls -la src", "allow"),
+        bash("cat README.md", "allow"),
+        bash('grep -rn "TODO" src', "allow"),
+        bash('grep "->" -r src', "allow", why="> entre aspas e padrao de busca"),
+        bash('grep "=>" src/app.ts', "allow", why="> entre aspas e padrao de busca"),
+        bash("grep '>' arquivo.xml", "allow", why="> entre aspas e padrao de busca"),
+        bash("pytest -q 2>&1", "allow", why="2>&1 nao escreve arquivo"),
+        bash("pytest -q 2>&1 | tail -30", "allow"),
+        bash("find src -name '*.py' -type f", "allow", why="find de busca pura"),
+        bash("rg --pretty padrao src", "allow", why="--pretty nao executa nada"),
+        bash("cd frontend && pytest -q", "allow"),
+        bash(f'cd "{tmp_path.as_posix()}" && pytest -q', "allow",
+             why="path absoluto do proprio repo, em forma POSIX"),
+        bash("cd . && git status", "allow"),
+    )
 
 
-def test_bash_standalone_readonly_utility_allows(tmp_path: Path) -> None:
-    """`wc -l log`, `tail arquivo`, `ls` etc. sozinhos — leitura pura,
-    zero ganho de segurança em negar (issue 1)."""
+def test_bash_readonly_allowlist_never_covers_a_write_or_an_exec(tmp_path: Path) -> None:
+    """A guarda inegociável do issue 1: utilitário da allowlist + redirect de
+    escrita fora de aspas é escrita fora da superfície de arquivos.
+
+    Os três achados do cético estão aqui: `find` escreve SEM `>` via
+    `-fprint`/`-fprintf`/`-fls` (furaria até o floor de segredo com
+    `find . -fprint .env`) e executa via `-delete`/`-exec`/`-ok`; `rg --pre <cmd>`
+    executa comando arbitrário por arquivo; e `<(cmd)` executa o cmd sem que o
+    check de `$(`/crase o cubra.
+
+    E a mensagem cita QUAL segmento derrubou o comando — a genérica atrasava o
+    diagnóstico (issue 2)."""
     _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    for cmd in ("wc -l .harness/scratch/build.log",
-                "tail -50 .harness/scratch/task.output",
-                "ls -la src",
-                "cat README.md",
-                'grep -rn "TODO" src'):
-        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                  "tool_input": {"command": cmd}})
-        assert out["permissionDecision"] == "allow", (cmd, out)
-
-
-def test_bash_readonly_with_quoted_gt_pattern_allows(tmp_path: Path) -> None:
-    """Adaptação do parecer cético: `>` DENTRO de aspas é padrão de busca
-    (`->`, `<div>`), não redirect — negar seria fricção recorrente no caso
-    de uso central."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    for cmd in ('grep "->" -r src',
-                'grep "=>" src/app.ts',
-                "grep '>' arquivo.xml"):
-        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                  "tool_input": {"command": cmd}})
-        assert out["permissionDecision"] == "allow", (cmd, out)
-
-
-def test_bash_readonly_with_file_redirect_denies(tmp_path: Path) -> None:
-    """Guarda inegociável: utilitário da allowlist + redirect de escrita
-    fora de aspas = escrita fora da superfície de arquivos — deny."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    for cmd in ("echo x > src/app.py",
-                "cat a.txt > b.txt",
-                "grep -r TODO src >> dump.txt",
-                "head -1 f >&saida.txt"):
-        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                  "tool_input": {"command": cmd}})
-        assert out["permissionDecision"] == "deny", (cmd, out)
-
-
-def test_bash_find_write_flags_deny(tmp_path: Path) -> None:
-    """Achado do cético: find escreve SEM `>` via -fprint/-fprintf/-fls
-    (furaria até o floor de segredo: `find . -fprint .env`) e executa via
-    -delete/-exec/-ok — todas negadas; find de busca pura passa."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    for cmd in ("find . -name '*.py' -delete",
-                "find . -name '*.py' -exec rm {} ;",
-                "find . -fprint .env",
-                "find . -fprintf saida.txt %p",
-                "find . -fls listagem.txt",
-                "find . -okdir rm {} ;"):
-        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                  "tool_input": {"command": cmd}})
-        assert out["permissionDecision"] == "deny", (cmd, out)
-    ok = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                             "tool_input": {"command": "find src -name '*.py' -type f"}})
-    assert ok["permissionDecision"] == "allow", ok
-
-
-def test_bash_rg_grep_exec_flags_deny_but_pretty_allows(tmp_path: Path) -> None:
-    """Achado do cético: `rg --pre <cmd>` executa comando arbitrário por
-    arquivo. Match exato/`=` — `--pretty` continua liberado."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    for cmd in ("rg --pre malicioso padrao .",
-                "rg --pre=malicioso padrao",
-                "rg --hostname-bin=evil padrao",
-                "grep --pre x padrao f"):
-        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                  "tool_input": {"command": cmd}})
-        assert out["permissionDecision"] == "deny", (cmd, out)
-    ok = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                             "tool_input": {"command": "rg --pretty padrao src"}})
-    assert ok["permissionDecision"] == "allow", ok
-
-
-def test_bash_process_substitution_in_readonly_denies(tmp_path: Path) -> None:
-    """`<(cmd)` executa o cmd — o check de `$(`/crase não o cobre, o check
-    read-only precisa negar por conta própria."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "cat <(comando-malicioso)"}})
-    assert out["permissionDecision"] == "deny", out
-
-
-def test_bash_stderr_redirect_2gt1_allows(tmp_path: Path) -> None:
-    """Ponto cego apontado pelo cético: `2>&1` é duplicação de fd (nenhum
-    arquivo escrito), mas o splitter cortava no `&` e o segmento `1` órfão
-    derrubava tudo. `>&` agora não segmenta."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    for cmd in ("pytest -q 2>&1",
-                "pytest -q 2>&1 | tail -30"):
-        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                  "tool_input": {"command": cmd}})
-        assert out["permissionDecision"] == "allow", (cmd, out)
-
-
-def test_bash_cd_inside_repo_allows_outside_denies(tmp_path: Path) -> None:
-    """`cd <subdir> && <allowed>` é muscle-memory universal (issue 2); mas
-    `cd` para FORA do repo continua deny — git add/commit são liberados
-    incondicionalmente e operariam em outro repositório."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    # path absoluto em forma POSIX: em bash, backslash É escape — o
-    # splitter os consome, como um shell real faria.
-    for cmd in ("cd frontend && pytest -q",
-                f'cd "{tmp_path.as_posix()}" && pytest -q',
-                "cd . && git status"):
-        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                  "tool_input": {"command": cmd}})
-        assert out["permissionDecision"] == "allow", (cmd, out)
-    for cmd in ("cd C:/outro-repo && pytest -q",
-                "cd .. && git add .",
-                "cd $HOME && pytest -q",
-                "cd ~ && pytest -q",
-                "cd - && pytest -q"):
-        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                  "tool_input": {"command": cmd}})
-        assert out["permissionDecision"] == "deny", (cmd, out)
-
-
-def test_bash_deny_message_names_failing_segment(tmp_path: Path) -> None:
-    """Issue 2: a mensagem genérica atrasava o diagnóstico — o deny agora
-    cita QUAL segmento derrubou o comando."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "pytest -q && rm -rf src"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "segmento 'rm -rf src'" in out["permissionDecisionReason"], out
+    _expect(
+        _script(tmp_path),
+        bash("echo x > src/app.py", "deny"),
+        bash("cat a.txt > b.txt", "deny"),
+        bash("grep -r TODO src >> dump.txt", "deny"),
+        bash("head -1 f >&saida.txt", "deny"),
+        bash("find . -name '*.py' -delete", "deny"),
+        bash("find . -name '*.py' -exec rm {} ;", "deny"),
+        bash("find . -fprint .env", "deny"),
+        bash("find . -fprintf saida.txt %p", "deny"),
+        bash("find . -fls listagem.txt", "deny"),
+        bash("find . -okdir rm {} ;", "deny"),
+        bash("rg --pre malicioso padrao .", "deny"),
+        bash("rg --pre=malicioso padrao", "deny"),
+        bash("rg --hostname-bin=evil padrao", "deny"),
+        bash("grep --pre x padrao f", "deny"),
+        bash("cat <(comando-malicioso)", "deny", why="process substitution executa"),
+        bash("cd C:/outro-repo && pytest -q", "deny", why="cd para fora do repo"),
+        bash("cd .. && git add .", "deny"),
+        bash("cd $HOME && pytest -q", "deny"),
+        bash("cd ~ && pytest -q", "deny"),
+        bash("cd - && pytest -q", "deny"),
+        bash("pytest -q && rm -rf src", "deny", reason="segmento 'rm -rf src'",
+             why="o deny cita o segmento que derrubou"),
+    )
 
 
 def test_readonly_helpers_importable() -> None:
@@ -2514,123 +1603,68 @@ def test_readonly_helpers_importable() -> None:
 
 # ---------------- Item 6: raiz do repo fixada (deriva de cwd) ----------------
 
+def test_repo_root_anchor_survives_a_derived_cwd(tmp_path: Path) -> None:
+    """Cenário central do Item 6: o `cwd` do payload "derivou" (o agente rodou
+    `cd frontend/` e não voltou) mas `compile-session` já gravou `repo_root` em
+    `compiled-state-session.json`. A avaliação tem que se ancorar na raiz
+    gravada, para Edit e para Bash.
 
-def test_derived_cwd_with_repo_root_anchors_edit_correctly(tmp_path: Path) -> None:
-    """Cenário central do Item 6: `cwd` do payload "derivou" (ex.: o agente
-    rodou `cd frontend/` sem voltar) mas `compile-session` já gravou
-    `repo_root` em `compiled-state-session.json`. Um `Edit` sobre um arquivo
-    IN-SURFACE (path absoluto real, sob a raiz verdadeira) deve resolver
-    corretamente contra a raiz gravada — `allow`, com o motivo de
-    superfície (NÃO "sem contrato ativo": isso provaria o sintoma fail-open
-    que este item corrige, não a correção)."""
+    O motivo do allow importa tanto quanto o allow: "sem contrato ativo" seria o
+    SINTOMA fail-open que este item corrige, não a correção. E as provas
+    negativas garantem que a âncora não degenerou num allow geral."""
     _contract_with_verify(tmp_path)  # files=["src/main.py"], verify_cmd="pytest -q"
     script = _script(tmp_path)  # grava repo_root = str(tmp_path.resolve())
+    derivado = str(tmp_path / "frontend")  # não precisa existir em disco
+    _expect(
+        script,
+        Case("Edit", {"file_path": str(tmp_path / "src" / "main.py"),
+                      "old_string": "x", "new_string": "y"},
+             "allow", reason="declarado em files", absent="sem contrato ativo",
+             cwd=derivado, why="path absoluto in-surface, cwd derivado"),
+        Case("Edit", {"file_path": str(tmp_path / "unrelated" / "other.py"),
+                      "old_string": "x", "new_string": "y"},
+             "deny", reason="fora da superficie", cwd=derivado,
+             why="path absoluto out-of-surface nao vira allow geral"),
+        Case("Bash", {"command": "pytest -q"}, "allow", absent="sem contrato ativo",
+             cwd=derivado, why="a mesma ancora vale no caminho Bash"),
+        edit("src/main.py", "allow", reason="declarado em files",
+             why="regressao: sem deriva, o resultado e identico ao de antes"),
+    )
 
-    derived_cwd = str(tmp_path / "frontend")  # não precisa existir em disco
-    absolute_target = str(tmp_path / "src" / "main.py")
 
-    out = _run_hook(script, {
-        "tool_name": "Edit", "cwd": derived_cwd,
-        "tool_input": {"file_path": absolute_target, "old_string": "x", "new_string": "y"},
-    })
-    assert out["permissionDecision"] == "allow", out
-    assert "sem contrato ativo" not in out["permissionDecisionReason"], out
-    assert "declarado em files" in out["permissionDecisionReason"], out
+def test_derived_cwd_absolutizes_a_relative_path_before_anchoring(tmp_path: Path) -> None:
+    """Ressalva 3b (validação Opus pós-implementação): trocar `cwd` pela âncora
+    resolve certo para `file_path` ABSOLUTO, mas um `file_path` RELATIVO a um
+    `cwd` derivado (shell preso em `<repo>/frontend`, tool manda `x.ts` querendo
+    `frontend/x.ts`) precisa ser absolutizado contra o `cwd` ORIGINAL do payload
+    ANTES do strip pela âncora — senão `x.ts` cru seria avaliado contra a raiz e
+    daria falso-deny.
 
-
-def test_derived_cwd_relative_file_path_allows_when_in_surface(tmp_path: Path) -> None:
-    """Ressalva 3b (validação Opus pós-implementação): a troca incondicional
-    de `cwd` pela âncora resolve certo pra `file_path` ABSOLUTO (teste
-    acima), mas um `file_path` RELATIVO a um `cwd` derivado (shell preso em
-    `<repo>/frontend`, tool manda `x.ts` querendo `frontend/x.ts`) tinha que
-    ser absolutizado contra o `cwd` ORIGINAL do payload ANTES do strip pela
-    âncora — senão `x.ts` bruto seria avaliado contra a raiz ancorada e daria
-    falso-deny (fail-safe, mas exatamente a classe de bug que o Item 6
-    corrige). Com a correção: `x.ts` + `cwd` payload `<repo>/frontend` vira
-    `frontend/x.ts` (absolutizado contra o cwd do payload), que a âncora
-    depois resolve certinho contra `files[]=["frontend/x.ts"]` — `allow`."""
+    A prova negativa vem junto: a correção resolve o path, não abre allow."""
     _write_feature_list(tmp_path, [
         {"id": "T-01", "desc": "x", "files": ["frontend/x.ts"], "verify_cmd": "pytest -q",
          "depends": [], "passes": False}
     ])
-    script = _script(tmp_path)  # grava repo_root = str(tmp_path.resolve())
+    derivado = str(tmp_path / "frontend")
+    _expect(
+        _script(tmp_path),
+        Case("Edit", {"file_path": "x.ts", "old_string": "a", "new_string": "b"},
+             "allow", reason="declarado em files", absent="sem contrato ativo",
+             cwd=derivado, why="x.ts + cwd <repo>/frontend vira frontend/x.ts"),
+    )
 
-    derived_cwd = str(tmp_path / "frontend")
-    out = _run_hook(script, {
-        "tool_name": "Edit", "cwd": derived_cwd,
-        "tool_input": {"file_path": "x.ts", "old_string": "a", "new_string": "b"},
-    })
-    assert out["permissionDecision"] == "allow", out
-    assert "sem contrato ativo" not in out["permissionDecisionReason"], out
-    assert "declarado em files" in out["permissionDecisionReason"], out
-
-
-def test_derived_cwd_relative_file_path_denies_when_out_of_surface(tmp_path: Path) -> None:
-    """Prova negativa complementar: mesmo cwd derivado e mesma absolutização,
-    um `file_path` relativo que NÃO casa nenhum `files[]` continua negado —
-    a correção da Ressalva 3b não abre um allow geral, só corrige a
-    resolução do path relativo."""
-    _write_feature_list(tmp_path, [
+    fora = tmp_path / "fora-da-superficie"
+    fora.mkdir()
+    _write_feature_list(fora, [
         {"id": "T-01", "desc": "x", "files": ["frontend/y.ts"], "verify_cmd": "pytest -q",
          "depends": [], "passes": False}
     ])
-    script = _script(tmp_path)
-
-    derived_cwd = str(tmp_path / "frontend")
-    out = _run_hook(script, {
-        "tool_name": "Edit", "cwd": derived_cwd,
-        "tool_input": {"file_path": "x.ts", "old_string": "a", "new_string": "b"},
-    })
-    assert out["permissionDecision"] == "deny", out
-    assert "fora da superficie" in out["permissionDecisionReason"], out
-
-
-def test_no_drift_relative_file_path_still_allows_identically(tmp_path: Path) -> None:
-    """Regressão (caso comum, cwd NÃO derivado): `file_path` relativo com
-    `cwd` do payload igual à raiz real continua idêntico — absolutiza contra
-    `cwd_payload` (a própria raiz), a âncora (mesma raiz) faz o strip de
-    volta, resultado igual a antes da Ressalva 3b."""
-    _contract_with_verify(tmp_path)  # files=["src/main.py"]
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "src/main.py"}})
-    assert out["permissionDecision"] == "allow", out
-    assert "declarado em files" in out["permissionDecisionReason"], out
-
-
-def test_derived_cwd_with_repo_root_still_denies_out_of_surface_file(tmp_path: Path) -> None:
-    """Prova negativa complementar: com a mesma raiz ancorada e o mesmo cwd
-    derivado, um arquivo NÃO declarado em `files[]` continua negado — se a
-    correção tivesse degenerado num allow geral (fail-open disfarçado), este
-    teste pegaria."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-
-    derived_cwd = str(tmp_path / "frontend")
-    absolute_target = str(tmp_path / "unrelated" / "other.py")
-
-    out = _run_hook(script, {
-        "tool_name": "Edit", "cwd": derived_cwd,
-        "tool_input": {"file_path": absolute_target, "old_string": "x", "new_string": "y"},
-    })
-    assert out["permissionDecision"] == "deny", out
-    assert "fora da superficie" in out["permissionDecisionReason"], out
-
-
-def test_derived_cwd_with_repo_root_anchors_bash_verify_cmd(tmp_path: Path) -> None:
-    """A mesma âncora tem que valer pro caminho Bash (`_load_json` também é
-    usado por `_evaluate_bash`) — `verify_cmd` declarado no contrato roda
-    mesmo com `cwd` derivado, em vez de cair no "sem contrato ativo"."""
-    _contract_with_verify(tmp_path, verify_cmd="pytest -q")
-    script = _script(tmp_path)
-
-    derived_cwd = str(tmp_path / "frontend")
-    out = _run_hook(script, {
-        "tool_name": "Bash", "cwd": derived_cwd,
-        "tool_input": {"command": "pytest -q"},
-    })
-    assert out["permissionDecision"] == "allow", out
-    assert "sem contrato ativo" not in out["permissionDecisionReason"], out
+    _expect(
+        _script(fora),
+        Case("Edit", {"file_path": "x.ts", "old_string": "a", "new_string": "b"},
+             "deny", reason="fora da superficie", cwd=str(fora / "frontend"),
+             why="mesma absolutizacao, path que nao casa files[]"),
+    )
 
 
 def test_missing_repo_root_key_falls_back_to_current_cwd_behavior(tmp_path: Path) -> None:
@@ -2665,33 +1699,6 @@ def test_missing_repo_root_key_falls_back_to_current_cwd_behavior(tmp_path: Path
     assert "nenhum contrato ativo" in out["permissionDecisionReason"], out
 
 
-def test_missing_session_state_file_falls_back_without_crashing(tmp_path: Path) -> None:
-    """Sem `compiled-state-session.json` nenhum — o hook não pode quebrar;
-    só não há âncora pra aplicar (cai no `cwd` do payload, sem drift neste
-    teste)."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    (tmp_path / SESSION_STATE_FILE).unlink()
-
-    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "src/main.py"}})
-    assert out["permissionDecision"] == "allow", out
-
-
-def test_invalid_json_session_state_falls_back_without_crashing(tmp_path: Path) -> None:
-    """`compiled-state-session.json` corrompido (JSON inválido) — fallback
-    ao `cwd` do payload, sem lançar exceção/crash no hook (prova de execução
-    via subprocess: `proc.returncode == 0` é verificado dentro de
-    `_run_hook`)."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    (tmp_path / SESSION_STATE_FILE).write_text("{ isto nao e json valido", encoding="utf-8")
-
-    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "src/main.py"}})
-    assert out["permissionDecision"] == "allow", out
-
-
 def test_install_boundary_guard_writes_repo_root_preserving_other_keys(tmp_path: Path) -> None:
     """`install_boundary_guard` grava `REPO_ROOT_STATE_KEY` = raiz absoluta,
     sem apagar chaves já gravadas por outros mecanismos (merge
@@ -2707,6 +1714,38 @@ def test_install_boundary_guard_writes_repo_root_preserving_other_keys(tmp_path:
     assert state["managed_session_permissions"] == ["Bash(pytest -q)"]
     assert state[REPO_ROOT_STATE_KEY] == str(tmp_path.resolve())
     assert BOUNDARY_STATE_KEY in state
+
+
+def test_session_state_degrades_without_crashing(tmp_path: Path) -> None:
+    """Sem `compiled-state-session.json`, ou com ele corrompido, o hook não pode
+    quebrar — só não há âncora a aplicar, e cai no `cwd` do payload (sem drift
+    nestes casos). A prova de que não houve crash é o `proc.returncode == 0`
+    verificado dentro de `_run_hook`."""
+    _contract_with_verify(tmp_path)
+    script = _script(tmp_path)
+
+    (tmp_path / SESSION_STATE_FILE).unlink()
+    _expect(script, edit("src/main.py", "allow", why="state ausente"))
+
+    (tmp_path / SESSION_STATE_FILE).write_text("{ isto nao e json valido", encoding="utf-8")
+    _expect(script, edit("src/main.py", "allow", why="state com JSON invalido"))
+
+
+def test_find_session_state_path_climbs_until_it_finds_or_gives_up(tmp_path: Path) -> None:
+    """A busca sobe por VÁRIOS níveis, não só um — simula o script instalado bem
+    mais fundo que `.harness/hooks`. Não deveria acontecer na prática, mas prova
+    que o mecanismo não depende de uma profundidade fixa hardcoded."""
+    from harness.boundary_guard import _find_session_state_path
+
+    assert _find_session_state_path(tmp_path) is None
+
+    state_path = tmp_path / SESSION_STATE_FILE
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps({REPO_ROOT_STATE_KEY: str(tmp_path)}), encoding="utf-8")
+
+    deep_dir = tmp_path / "a" / "b" / "c" / "d"
+    deep_dir.mkdir(parents=True, exist_ok=True)
+    assert _find_session_state_path(deep_dir) == state_path.resolve()
 
 
 def test_resolve_repo_root_anchor_importable(tmp_path: Path) -> None:
@@ -2753,30 +1792,67 @@ def test_resolve_repo_root_anchor_importable(tmp_path: Path) -> None:
     assert _resolve_repo_root_anchor(str(fake_script)) is None
 
 
-def test_find_session_state_path_climbs_multiple_levels(tmp_path: Path) -> None:
-    """A busca sobe por VÁRIOS níveis, não só um — simula o script instalado
-    bem mais fundo que `.harness/hooks` (não deveria acontecer na prática,
-    mas prova que o mecanismo não depende de uma profundidade fixa
-    hardcoded)."""
-    from harness.boundary_guard import _find_session_state_path
-
-    state_path = tmp_path / SESSION_STATE_FILE
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(json.dumps({REPO_ROOT_STATE_KEY: str(tmp_path)}), encoding="utf-8")
-
-    deep_dir = tmp_path / "a" / "b" / "c" / "d"
-    deep_dir.mkdir(parents=True, exist_ok=True)
-
-    assert _find_session_state_path(deep_dir) == state_path.resolve()
-
-
-def test_find_session_state_path_returns_none_when_absent(tmp_path: Path) -> None:
-    from harness.boundary_guard import _find_session_state_path
-
-    assert _find_session_state_path(tmp_path) is None
-
-
 # ---------------- governance.extra_allowed_commands (harness.yaml) ----------------
+
+def test_load_extra_allowed_commands_degrades_to_empty(tmp_path: Path) -> None:
+    """YAML ausente ou quebrado nunca vira allow: a falta de configuração lê
+    como lista vazia, não como permissão."""
+    from harness.boundary_guard import load_extra_allowed_commands
+
+    assert load_extra_allowed_commands(tmp_path) == []
+
+    _write_harness_yaml(tmp_path, ["python -m mar_committee"])
+    assert load_extra_allowed_commands(tmp_path) == ["python -m mar_committee"]
+
+    (tmp_path / ".harness" / "harness.yaml").write_text(
+        "governance: [isto nao fecha", encoding="utf-8")
+    assert load_extra_allowed_commands(tmp_path) == []
+
+
+def test_extra_allowed_command_widens_by_token_prefix_and_nothing_else(
+    tmp_path: Path,
+) -> None:
+    """CLI do produto declarada em `extra_allowed_commands` fica liberada mesmo
+    sem `verify_cmd` cobrindo — cenário real do dogfood entebate. Vale nas duas
+    superfícies de comando.
+
+    O match continua sendo de TOKENS, não substring solta: um binário cujo nome
+    apenas COMEÇA com o declarado (`mar_committee_evil`) não passa. O Item 4
+    mudou o caso vizinho de propósito — `mar_committee --help` com `python -m
+    mar_committee` declarado é ALLOW, porque as duas formas invocam o mesmo
+    binário —, e o que este teste fixa é que a normalização não afrouxou a
+    fronteira de token.
+
+    E declarar uma sequência do runtime floor não a libera: o floor roda
+    incondicionalmente antes de qualquer checagem de superfície."""
+    _contract_with_verify(tmp_path)
+    _write_harness_yaml(tmp_path, ["python -m mar_committee"])
+    _expect(
+        _script(tmp_path),
+        bash("python -m mar_committee --help", "allow"),
+        bash("python -m mar_committee config-show", "allow"),
+        pwsh("python -m mar_committee config-show", "allow"),
+        bash("mar_committee_evil --help", "deny"),
+        bash("mar_committeex", "deny"),
+    )
+
+    no_floor = tmp_path / "declara-o-floor"
+    no_floor.mkdir()
+    _contract_with_verify(no_floor)
+    _write_harness_yaml(no_floor, ["git push"])
+    _expect(
+        _script(no_floor),
+        bash("git push origin main", "deny", reason="runtime floor"),
+    )
+
+    sem_yaml = tmp_path / "sem-yaml"
+    sem_yaml.mkdir()
+    _contract_with_verify(sem_yaml)
+    _expect(
+        _script(sem_yaml),
+        bash("python -m mar_committee --help", "deny",
+             why="sem harness.yaml o hook se comporta como antes da feature"),
+    )
 
 def _write_harness_yaml(target: Path, extra_allowed_commands: list[str]) -> None:
     path = target / ".harness" / "harness.yaml"
@@ -2784,95 +1860,6 @@ def _write_harness_yaml(target: Path, extra_allowed_commands: list[str]) -> None
     lines = ["governance:", "  extra_allowed_commands:"]
     lines.extend(f'    - "{cmd}"' for cmd in extra_allowed_commands)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-
-def test_load_extra_allowed_commands_reads_harness_yaml(tmp_path: Path) -> None:
-    from harness.boundary_guard import load_extra_allowed_commands
-
-    _write_harness_yaml(tmp_path, ["python -m mar_committee"])
-    assert load_extra_allowed_commands(tmp_path) == ["python -m mar_committee"]
-
-
-def test_load_extra_allowed_commands_missing_yaml_returns_empty(tmp_path: Path) -> None:
-    from harness.boundary_guard import load_extra_allowed_commands
-
-    assert load_extra_allowed_commands(tmp_path) == []
-
-
-def test_load_extra_allowed_commands_invalid_yaml_returns_empty(tmp_path: Path) -> None:
-    from harness.boundary_guard import load_extra_allowed_commands
-
-    path = tmp_path / ".harness" / "harness.yaml"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("governance: [isto nao fecha", encoding="utf-8")
-    assert load_extra_allowed_commands(tmp_path) == []
-
-
-def test_extra_allowed_command_allows_bash_declared_prefix(tmp_path: Path) -> None:
-    """CLI do produto declarado em `extra_allowed_commands` fica liberado
-    mesmo sem `verify_cmd` cobrindo — cenário real do dogfood entebate."""
-    _contract_with_verify(tmp_path)
-    _write_harness_yaml(tmp_path, ["python -m mar_committee"])
-    script = _script(tmp_path)
-
-    for cmd in ("python -m mar_committee --help", "python -m mar_committee config-show"):
-        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                  "tool_input": {"command": cmd}})
-        assert out["permissionDecision"] == "allow", (cmd, out)
-
-
-def test_extra_allowed_command_requires_exact_token_prefix(tmp_path: Path) -> None:
-    """O match continua sendo de TOKENS, não substring solta: um binário cujo
-    nome apenas COMEÇA com o declarado (`mar_committee_evil`) não passa.
-
-    Item 4 mudou o caso vizinho de propósito — `mar_committee --help` com
-    `python -m mar_committee` declarado agora é ALLOW, porque as duas formas
-    invocam o mesmo binário (ver
-    `test_extra_allowed_command_allows_normalized_forms`). O que este teste
-    fixa é que a normalização não afrouxou a fronteira de token."""
-    _contract_with_verify(tmp_path)
-    _write_harness_yaml(tmp_path, ["python -m mar_committee"])
-    script = _script(tmp_path)
-
-    for cmd in ("mar_committee_evil --help", "mar_committeex"):
-        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                  "tool_input": {"command": cmd}})
-        assert out["permissionDecision"] == "deny", (cmd, out)
-
-
-def test_extra_allowed_command_never_overrides_runtime_floor(tmp_path: Path) -> None:
-    """Declarar uma sequência do runtime floor em `extra_allowed_commands`
-    não a libera — o floor roda incondicionalmente antes de qualquer
-    checagem de superfície."""
-    _contract_with_verify(tmp_path)
-    _write_harness_yaml(tmp_path, ["git push"])
-    script = _script(tmp_path)
-
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "git push origin main"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "runtime floor" in out["permissionDecisionReason"], out
-
-
-def test_extra_allowed_command_applies_to_powershell_too(tmp_path: Path) -> None:
-    _contract_with_verify(tmp_path)
-    _write_harness_yaml(tmp_path, ["python -m mar_committee"])
-    script = _script(tmp_path)
-
-    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                              "tool_input": {"command": "python -m mar_committee config-show"}})
-    assert out["permissionDecision"] == "allow", out
-
-
-def test_no_harness_yaml_keeps_current_behavior(tmp_path: Path) -> None:
-    """Sem `.harness/harness.yaml` no alvo, o hook gerado se comporta
-    exatamente como antes desta feature — sem crash, sem allow extra."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "python -m mar_committee --help"}})
-    assert out["permissionDecision"] == "deny", out
 
 
 # ---------------- branches protegidas: git commit só via PR ----------------
@@ -2886,69 +1873,47 @@ def _write_git_head(target: Path, content: str) -> None:
     (git_dir / "HEAD").write_text(content, encoding="utf-8")
 
 
-def test_bash_git_commit_denied_on_protected_branches(tmp_path: Path) -> None:
-    """Finding C (dogfood 2026-07-22): regra 'nunca commit direto na main,
-    só via PR' — o guard nega `git commit` quando a branch atual é protegida
-    (main/homolog/develop por default)."""
+def _on_branch(target: Path, branch: str | None):
+    """`before` de um Case: põe o repo na branch dada (ou em detached HEAD)."""
+    ref = ("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2\n" if branch is None
+           else f"ref: refs/heads/{branch}\n")
+    return lambda: _write_git_head(target, ref)
+
+
+def test_git_commit_is_denied_on_a_protected_branch(tmp_path: Path) -> None:
+    """Finding C (dogfood 2026-07-22): a regra "nunca commit direto na main, só
+    via PR" virou floor — vale com ou sem contrato ativo, no Bash e no
+    PowerShell. Só COMMIT é negado: preparar staging não viola a regra do PR.
+
+    Detached HEAD é fail-OPEN aqui (o oposto da postura do push): sem branch não
+    há branch protegida a violar, e travar o commit nesse estado atrapalharia
+    rebase interativo sem proteger nada."""
     _contract_with_verify(tmp_path)
-    for branch in ("main", "homolog", "develop"):
-        _write_git_head(tmp_path, f"ref: refs/heads/{branch}\n")
-        script = _script(tmp_path)
-        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                  "tool_input": {"command": "git commit -m x"}})
-        assert out["permissionDecision"] == "deny", (branch, out)
-        assert "protegida" in out["permissionDecisionReason"], out
+    _expect(
+        _script(tmp_path),
+        bash("git commit -m x", "deny", reason="protegida", before=_on_branch(tmp_path, "main")),
+        bash("git commit -m x", "deny", reason="protegida",
+             before=_on_branch(tmp_path, "homolog")),
+        bash("git commit -m x", "deny", reason="protegida",
+             before=_on_branch(tmp_path, "develop")),
+        pwsh("git commit -m x", "deny", reason="protegida",
+             before=_on_branch(tmp_path, "develop")),
+        bash("git commit -m x", "allow", before=_on_branch(tmp_path, "contract/exemplo-feature")),
+        bash("git commit -m x", "allow", before=_on_branch(tmp_path, None),
+             why="detached HEAD e fail-open no commit"),
+        bash("git status", "allow", before=_on_branch(tmp_path, "main")),
+        bash("git add .", "allow", before=_on_branch(tmp_path, "main")),
+        bash("git diff", "allow", before=_on_branch(tmp_path, "main")),
+    )
 
-
-def test_bash_git_commit_allowed_on_contract_branch(tmp_path: Path) -> None:
-    _contract_with_verify(tmp_path)
-    _write_git_head(tmp_path, "ref: refs/heads/contract/exemplo-feature\n")
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "git commit -m x"}})
-    assert out["permissionDecision"] == "allow", out
-
-
-def test_bash_git_commit_denied_on_protected_branch_without_contract(tmp_path: Path) -> None:
-    """A regra é incondicional (postura de floor): mesmo SEM contrato ativo,
-    commit em branch protegida é deny."""
-    _write_git_head(tmp_path, "ref: refs/heads/main\n")
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "git commit -m x"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "protegida" in out["permissionDecisionReason"], out
-
-
-def test_bash_git_commit_allowed_on_detached_head(tmp_path: Path) -> None:
-    _contract_with_verify(tmp_path)
-    _write_git_head(tmp_path, "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2\n")
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "git commit -m x"}})
-    assert out["permissionDecision"] == "allow", out
-
-
-def test_bash_git_add_and_status_still_allowed_on_protected_branch(tmp_path: Path) -> None:
-    """Só COMMIT é negado em branch protegida — add/status/diff seguem
-    liberados (preparar staging não viola a regra do PR)."""
-    _contract_with_verify(tmp_path)
-    _write_git_head(tmp_path, "ref: refs/heads/main\n")
-    script = _script(tmp_path)
-    for cmd in ("git status", "git add .", "git diff"):
-        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                  "tool_input": {"command": cmd}})
-        assert out["permissionDecision"] == "allow", (cmd, out)
-
-
-def test_powershell_git_commit_denied_on_protected_branch(tmp_path: Path) -> None:
-    _contract_with_verify(tmp_path)
-    _write_git_head(tmp_path, "ref: refs/heads/develop\n")
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                              "tool_input": {"command": "git commit -m x"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "protegida" in out["permissionDecisionReason"], out
+    sem_contrato = tmp_path / "sem-contrato"
+    sem_contrato.mkdir()
+    _write_git_head(sem_contrato, "ref: refs/heads/main\n")
+    _expect(
+        _script(sem_contrato),
+        bash("git commit -m x", "deny", reason="protegida",
+             why="a regra e incondicional: vale sem contrato"),
+    )
 
 
 def test_protected_branches_override_from_harness_yaml(tmp_path: Path) -> None:
@@ -2989,111 +1954,66 @@ def _push(script: Path, tmp_path: Path, command: str, tool: str = "Bash") -> dic
                               "tool_input": {"command": command}})
 
 
-def test_push_allowed_on_the_active_contract_branch(tmp_path: Path) -> None:
+def test_push_is_allowed_only_on_the_active_contract_branch(tmp_path: Path) -> None:
     """Item 6 do backlog do dogfood miojo: `git push` era deny incondicional,
     inclusive na `contract/<slug>` que a própria sessão criou — o humano tinha
     que rodar o push à mão no fim de um ciclo cuja aprovação real (o contrato)
-    já tinha acontecido."""
+    já tinha acontecido.
+
+    A exceção é estreita e fail-CLOSED. Detached HEAD nega — postura OPOSTA à do
+    floor de commit, porque não saber a branch é exatamente o caso em que o push
+    pode ir para onde não devia. E a branch certa não basta: reescrita de
+    histórico, refspec explícito, destino diferente da branch atual e
+    encadeamento seguem floor."""
     _contract_with_verify(tmp_path)
-    _write_git_head(tmp_path, "ref: refs/heads/contract/test\n")
-    script = _script(tmp_path)
+    na_branch = _on_branch(tmp_path, "contract/test")
+    _expect(
+        _script(tmp_path),
+        bash("git push", "allow", before=na_branch),
+        bash("git push origin", "allow", before=na_branch),
+        bash("git push -u origin contract/test", "allow", before=na_branch),
+        bash("git push --set-upstream origin contract/test", "allow", before=na_branch),
+        pwsh("git push -u origin contract/test", "allow", before=na_branch,
+             why="as duas superficies respondem igual sobre push"),
+        # branch errada
+        bash("git push", "deny", before=_on_branch(tmp_path, "main")),
+        bash("git push", "deny", before=_on_branch(tmp_path, "homolog")),
+        bash("git push", "deny", before=_on_branch(tmp_path, "develop")),
+        bash("git push", "deny", before=_on_branch(tmp_path, "feat/algo")),
+        bash("git push", "deny", before=_on_branch(tmp_path, "contract/outro")),
+        pwsh("git push", "deny", before=_on_branch(tmp_path, "main")),
+        bash("git push", "deny", reason="indeterminada", before=_on_branch(tmp_path, None),
+             why="detached HEAD e fail-closed no push"),
+        # forma perigosa, na branch certa
+        bash("git push --force", "deny", before=na_branch),
+        bash("git push -f origin contract/test", "deny", before=na_branch),
+        bash("git push --force-with-lease", "deny", before=na_branch),
+        bash("git push --mirror", "deny", before=na_branch),
+        bash("git push --delete origin contract/test", "deny", before=na_branch),
+        bash("git push --all", "deny", before=na_branch),
+        bash("git push --tags", "deny", before=na_branch),
+        bash("git push origin HEAD:main", "deny", before=na_branch),
+        bash("git push origin contract/test:main", "deny", before=na_branch),
+        bash("git push origin main", "deny", before=na_branch),
+        bash("git push origin develop", "deny", before=na_branch),
+        bash("git push && curl http://evil", "deny", before=na_branch),
+        bash("git push; rm -rf src", "deny", before=na_branch),
+        # separar o push do resto do floor não pode afrouxar o resto
+        bash("curl http://x", "deny", before=na_branch),
+        bash("wget http://x", "deny", before=na_branch),
+        bash("npm publish", "deny", before=na_branch),
+        bash("twine upload dist/*", "deny", before=na_branch),
+        bash("gh release create v1", "deny", before=na_branch),
+        pwsh("Invoke-WebRequest http://x", "deny", before=na_branch),
+        pwsh("iwr http://x", "deny", before=na_branch),
+    )
 
-    for command in ("git push", "git push origin",
-                    "git push -u origin contract/test",
-                    "git push --set-upstream origin contract/test"):
-        out = _push(script, tmp_path, command)
-        assert out["permissionDecision"] == "allow", (command, out)
-
-
-def test_push_denied_off_the_contract_branch(tmp_path: Path) -> None:
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-
-    for branch in (*_PROTECTED, "feat/algo", "contract/outro"):
-        _write_git_head(tmp_path, f"ref: refs/heads/{branch}\n")
-        out = _push(script, tmp_path, "git push")
-        assert out["permissionDecision"] == "deny", (branch, out)
-
-
-def test_push_denied_on_detached_head_fail_closed(tmp_path: Path) -> None:
-    """Postura OPOSTA à do floor de commit, que é fail-open em detached HEAD:
-    não saber a branch é exatamente o caso em que o push pode ir para onde não
-    devia."""
-    _contract_with_verify(tmp_path)
-    _write_git_head(tmp_path, "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2\n")
-    script = _script(tmp_path)
-
-    out = _push(script, tmp_path, "git push")
-    assert out["permissionDecision"] == "deny", out
-    assert "indeterminada" in out["permissionDecisionReason"], out
-
-
-def test_push_denied_without_active_contract(tmp_path: Path) -> None:
-    """Bootstrap: sem `feature_list.json` não há contrato de onde derivar
-    branch nenhuma, então não há exceção a aplicar."""
-    _write_git_head(tmp_path, "ref: refs/heads/contract/test\n")
-    script = _script(tmp_path)
-
-    out = _push(script, tmp_path, "git push")
-    assert out["permissionDecision"] == "deny", out
-
-
-def test_push_denied_for_dangerous_shapes_on_the_contract_branch(tmp_path: Path) -> None:
-    """A branch certa não basta: reescrita de histórico, refspec explícito,
-    destino diferente da branch atual e encadeamento seguem floor."""
-    _contract_with_verify(tmp_path)
-    _write_git_head(tmp_path, "ref: refs/heads/contract/test\n")
-    script = _script(tmp_path)
-
-    for command in (
-        "git push --force",
-        "git push -f origin contract/test",
-        "git push --force-with-lease",
-        "git push --mirror",
-        "git push --delete origin contract/test",
-        "git push --all",
-        "git push --tags",
-        "git push origin HEAD:main",
-        "git push origin contract/test:main",
-        "git push origin main",
-        "git push origin develop",
-        "git push && curl http://evil",
-        "git push; rm -rf src",
-    ):
-        out = _push(script, tmp_path, command)
-        assert out["permissionDecision"] == "deny", (command, out)
-
-
-def test_push_exception_does_not_open_the_rest_of_the_floor(tmp_path: Path) -> None:
-    """Regressão: separar o push do resto não pode afrouxar `curl`/`wget`/
-    publicação, nem no Bash nem no PowerShell."""
-    _contract_with_verify(tmp_path)
-    _write_git_head(tmp_path, "ref: refs/heads/contract/test\n")
-    script = _script(tmp_path)
-
-    for command in ("curl http://x", "wget http://x", "npm publish",
-                    "twine upload dist/*", "gh release create v1"):
-        out = _push(script, tmp_path, command)
-        assert out["permissionDecision"] == "deny", (command, out)
-
-    for command in ("Invoke-WebRequest http://x", "iwr http://x"):
-        out = _push(script, tmp_path, command, tool="PowerShell")
-        assert out["permissionDecision"] == "deny", (command, out)
-
-
-def test_push_exception_applies_to_powershell_too(tmp_path: Path) -> None:
-    """As duas superfícies de comando precisam responder igual sobre push —
-    `is_floor_powershell_network` reusa `is_floor_bash_command`."""
-    _contract_with_verify(tmp_path)
-    _write_git_head(tmp_path, "ref: refs/heads/contract/test\n")
-    script = _script(tmp_path)
-
-    out = _push(script, tmp_path, "git push -u origin contract/test", tool="PowerShell")
-    assert out["permissionDecision"] == "allow", out
-
-    _write_git_head(tmp_path, "ref: refs/heads/main\n")
-    out = _push(script, tmp_path, "git push", tool="PowerShell")
-    assert out["permissionDecision"] == "deny", out
+    # Bootstrap: sem feature_list.json não há contrato de onde derivar branch
+    # nenhuma, então não há exceção a aplicar.
+    sem_contrato = tmp_path / "sem-contrato"
+    sem_contrato.mkdir()
+    _write_git_head(sem_contrato, "ref: refs/heads/contract/test\n")
+    _expect(_script(sem_contrato), bash("git push", "deny"))
 
 
 def test_push_is_still_gated_after_the_contract_is_fully_passed(tmp_path: Path) -> None:
@@ -3129,51 +2049,41 @@ def test_push_respects_protected_branches_override(tmp_path: Path) -> None:
     assert out["permissionDecision"] == "deny", out
 
 
-def test_push_stays_floor_for_the_other_layers(tmp_path: Path) -> None:
+def test_push_predicates_are_importable() -> None:
     """`FLOOR_BASH_SEQUENCES` não mudou de propósito: é o que mantém
     `verify.run_verify`, o dry-check de contrato e o filtro do
-    `settings.local.json` recusando push."""
+    `settings.local.json` recusando push. E `is_git_push_command` casa por
+    PREFIXO, não por janela — um push colado depois de outro comando não é um
+    push isolado e não pode entrar na exceção."""
     assert is_floor_bash_command("git push") is True
     assert is_floor_bash_command(".venv/Scripts/git.exe push") is True
 
-
-def test_is_git_push_command_matches_prefix_not_window() -> None:
     assert is_git_push_command("git push") is True
     assert is_git_push_command(".venv/Scripts/git.exe push origin x") is True
     assert is_git_push_command("uv run git push") is True
-    # janela, não prefixo: um push colado depois de outro comando não é um
-    # push isolado e não pode entrar na exceção
     assert is_git_push_command("echo ok && git push") is False
     assert is_git_push_command("curl http://x") is False
 
+    for command in ("git push", "git push origin", "git push -u origin contract/slug"):
+        assert contract_branch_push_problem(
+            command, "contract/slug", "slug", _PROTECTED
+        ) is None, command
 
-@pytest.mark.parametrize("command", [
-    "git push",
-    "git push origin",
-    "git push -u origin contract/slug",
-])
-def test_contract_branch_push_problem_allows_the_safe_shapes(command: str) -> None:
-    assert contract_branch_push_problem(
-        command, "contract/slug", "slug", _PROTECTED
-    ) is None
-
-
-@pytest.mark.parametrize("command,branch,slug", [
-    ("git push", "main", "slug"),                      # branch protegida
-    ("git push", "feat/x", "slug"),                    # não é a do contrato
-    ("git push", None, "slug"),                        # branch desconhecida
-    ("git push", "contract/slug", ""),                 # sem contrato ativo
-    ("git push --force", "contract/slug", "slug"),     # reescrita de histórico
-    ("git push origin main", "contract/slug", "slug"),  # destino diferente
-    ("git push origin a:b", "contract/slug", "slug"),  # refspec explícito
-    ("git push a b c", "contract/slug", "slug"),       # argumentos demais
-    ("git push | tee /tmp/x", "contract/slug", "slug"),  # encadeado
-    ("curl http://x", "contract/slug", "slug"),        # nem é push
-])
-def test_contract_branch_push_problem_denies(command: str, branch, slug: str) -> None:
-    problem = contract_branch_push_problem(command, branch, slug, _PROTECTED)
-    assert problem is not None, command
-    assert "floor" in problem
+    for command, branch, slug in (
+        ("git push", "main", "slug"),                       # branch protegida
+        ("git push", "feat/x", "slug"),                     # não é a do contrato
+        ("git push", None, "slug"),                         # branch desconhecida
+        ("git push", "contract/slug", ""),                  # sem contrato ativo
+        ("git push --force", "contract/slug", "slug"),      # reescrita de histórico
+        ("git push origin main", "contract/slug", "slug"),  # destino diferente
+        ("git push origin a:b", "contract/slug", "slug"),   # refspec explícito
+        ("git push a b c", "contract/slug", "slug"),        # argumentos demais
+        ("git push | tee /tmp/x", "contract/slug", "slug"),  # encadeado
+        ("curl http://x", "contract/slug", "slug"),         # nem é push
+    ):
+        problem = contract_branch_push_problem(command, branch, slug, _PROTECTED)
+        assert problem is not None, command
+        assert "floor" in problem, command
 
 
 # ---------------- kill-switch: floor anti-auto-desativação + short-circuit ----------------
@@ -3185,13 +2095,15 @@ from harness.boundary_guard import (  # noqa: E402
 )
 
 
-def test_is_floor_disable_sentinel_path_matches_sentinel() -> None:
+def _sentinel(tmp_path: Path) -> Path:
+    return tmp_path / ".harness" / "harness.disabled"
+
+
+def test_disable_predicates_are_importable() -> None:
     assert is_floor_disable_sentinel_path(".harness/harness.disabled") is True
     assert is_floor_disable_sentinel_path("harness.disabled") is True
     assert is_floor_disable_sentinel_path("src/harness/killswitch.py") is False
 
-
-def test_is_floor_disable_command_matches_both_invocations() -> None:
     assert is_floor_disable_command("harness disable") is True
     assert is_floor_disable_command("python -m harness.cli disable") is True
     assert is_floor_disable_command("harness disable --note x") is True
@@ -3199,61 +2111,33 @@ def test_is_floor_disable_command_matches_both_invocations() -> None:
     assert is_floor_disable_command("harness status") is False
     assert is_floor_disable_command("pytest tests -q") is False
 
-
-def test_is_floor_bash_disable_redirect_matches_sentinel_target() -> None:
     assert is_floor_bash_disable_redirect("echo x > .harness/harness.disabled") is True
     assert is_floor_bash_disable_redirect("echo x | tee .harness/harness.disabled") is True
     assert is_floor_bash_disable_redirect("echo x > out.txt") is False
 
 
-def _sentinel(tmp_path: Path) -> Path:
-    return tmp_path / ".harness" / "harness.disabled"
-
-
-def test_hook_denies_harness_disable_command_no_contract(tmp_path: Path) -> None:
-    """Floor incondicional: `harness disable` negado MESMO sem contrato ativo."""
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                             "tool_input": {"command": "harness disable"}})
-    assert out["permissionDecision"] == "deny", out
-
-
-def test_hook_denies_harness_disable_command_with_contract(tmp_path: Path) -> None:
+def test_the_agent_can_never_disable_the_harness_itself(tmp_path: Path) -> None:
+    """Floor incondicional, por toda rota: o subcomando (nas duas grafias e nas
+    duas superfícies de comando) e a criação do sentinel à mão (Write ou
+    redirect de shell). Desligar o guard é decisão do humano, no terminal
+    dele."""
     _write_feature_list(tmp_path, [
         {"id": "T-01", "desc": "x", "files": ["src/x.py"], "verify_cmd": "pytest", "passes": False},
     ])
     _write_profile(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                             "tool_input": {"command": "python -m harness.cli disable"}})
-    assert out["permissionDecision"] == "deny", out
+    _expect(
+        _script(tmp_path),
+        bash("harness disable", "deny"),
+        bash("python -m harness.cli disable", "deny"),
+        pwsh("harness disable", "deny"),
+        write(str(_sentinel(tmp_path)), "deny", why="cria o sentinel a mao"),
+        bash("echo x > .harness/harness.disabled", "deny", why="cria o sentinel por redirect"),
+    )
 
-
-def test_hook_denies_creating_sentinel_via_edit(tmp_path: Path) -> None:
-    script = _script(tmp_path)
-    out = _run_hook(script, {
-        "tool_name": "Write", "cwd": str(tmp_path),
-        "tool_input": {"file_path": str(_sentinel(tmp_path)), "content": "{}"},
-    })
-    assert out["permissionDecision"] == "deny", out
-
-
-def test_hook_denies_creating_sentinel_via_bash_redirect(tmp_path: Path) -> None:
-    script = _script(tmp_path)
-    out = _run_hook(script, {
-        "tool_name": "Bash", "cwd": str(tmp_path),
-        "tool_input": {"command": "echo x > .harness/harness.disabled"},
-    })
-    assert out["permissionDecision"] == "deny", out
-
-
-def test_hook_denies_harness_disable_via_powershell(tmp_path: Path) -> None:
-    script = _script(tmp_path)
-    out = _run_hook(script, {
-        "tool_name": "PowerShell", "cwd": str(tmp_path),
-        "tool_input": {"command": "harness disable"},
-    })
-    assert out["permissionDecision"] == "deny", out
+    sem_contrato = tmp_path / "sem-contrato"
+    sem_contrato.mkdir()
+    _expect(_script(sem_contrato), bash("harness disable", "deny",
+                                        why="floor vale sem contrato tambem"))
 
 
 def test_hook_short_circuits_to_allow_when_sentinel_present(tmp_path: Path) -> None:
@@ -3278,13 +2162,6 @@ def test_hook_short_circuits_to_allow_when_sentinel_present(tmp_path: Path) -> N
     assert out["permissionDecision"] == "allow", out
 
 
-def test_install_creates_harness_gitignore_for_sentinel(tmp_path: Path) -> None:
-    _script(tmp_path)
-    gitignore = tmp_path / ".harness" / ".gitignore"
-    assert gitignore.is_file()
-    assert "harness.disabled" in gitignore.read_text(encoding="utf-8")
-
-
 def test_install_ignores_every_machine_local_artifact(tmp_path: Path) -> None:
     """Itens 2 e 3 do P0: o estado de máquina (`compiled-state*.json`,
     `hooks/`, `settings.local.json`) nasce ignorado por regra que o PRODUTO
@@ -3294,7 +2171,8 @@ def test_install_ignores_every_machine_local_artifact(tmp_path: Path) -> None:
     _script(tmp_path)
 
     harness_lines = (tmp_path / ".harness" / ".gitignore").read_text(encoding="utf-8").split()
-    for entry in ("compiled-state.json", "compiled-state-session.json", "hooks/"):
+    for entry in ("compiled-state.json", "compiled-state-session.json", "hooks/",
+                  "harness.disabled"):
         assert entry in harness_lines
 
     claude_lines = (tmp_path / ".claude" / ".gitignore").read_text(encoding="utf-8").split()
@@ -3401,78 +2279,65 @@ def test_control_plane_write_denied_even_when_declared_in_files(tmp_path: Path) 
             assert "plano de controle" in out["permissionDecisionReason"], (path, tool, out)
 
 
-def test_control_plane_floor_applies_without_any_contract(tmp_path: Path) -> None:
-    """Postura de floor: vale mesmo sem `feature_list.json` — o caminho em que
-    `_evaluate_file` devolveria `allow` por "sem contrato ativo"."""
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                             "tool_input": {"file_path": ".harness/harness.yaml"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "plano de controle" in out["permissionDecisionReason"], out
+def test_control_plane_floor_holds_in_every_state(tmp_path: Path) -> None:
+    """Postura de floor: vale sem `feature_list.json` — o caminho em que
+    `_evaluate_file` devolveria allow por "sem contrato ativo" — e vale com o
+    contrato 100% passed, em que o guard se aposenta da SUPERFÍCIE (achado B do
+    dogfood 2026-07-22). O floor não se aposenta junto.
 
+    As duas áreas com regra própria continuam sempre graváveis: sem isso o floor
+    quebraria o planejamento do próximo contrato. E a mensagem não pode ser um
+    beco sem saída — quem precisa mudar governança sai dela sabendo que o
+    caminho é o terminal do usuário."""
+    _expect(
+        _script(tmp_path),
+        write(".harness/harness.yaml", "deny", reason="plano de controle",
+              why="sem contrato nenhum"),
+        write(".harness/work/novo-contrato/spec.md", "allow"),
+        write(".harness/work/novo-contrato/Plans.md", "allow"),
+        write(".harness/scratch/dump.html", "allow"),
+        # os dois bypasses triviais: `..` para entrar por fora, e barra
+        # invertida (o path chega Windows-style em algumas tools)
+        write(".harness/work/../harness.yaml", "deny"),
+        write(".harness/scratch/../../.harness/harness.yaml", "deny"),
+        write(r".harness\harness.yaml", "deny"),
+        write(".harness/./harness.yaml", "deny"),
+    )
 
-def test_control_plane_floor_applies_with_contract_fully_passed(tmp_path: Path) -> None:
-    """O guard "se aposenta" da superfície quando o contrato está 100% passed
-    (achado B do dogfood 2026-07-22). O floor NÃO se aposenta junto."""
-    _write_feature_list(tmp_path, [
+    out = _run_hook(_script(tmp_path), {"tool_name": "Write", "cwd": str(tmp_path),
+                                        "tool_input": {"file_path": ".harness/harness.yaml"}})
+    reason = out["permissionDecisionReason"]
+    assert "SEU terminal" in reason, reason
+    assert "compile-session" in reason, reason
+    assert ".harness/work/" in reason, reason
+
+    concluido = tmp_path / "concluido"
+    concluido.mkdir()
+    _write_feature_list(concluido, [
         {"id": "T-01", "desc": "x", "files": ["src/app.py"],
          "verify_cmd": "pytest -q", "passes": True},
     ])
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                             "tool_input": {"file_path": ".harness/harness.yaml"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "plano de controle" in out["permissionDecisionReason"], out
+    _expect(
+        _script(concluido),
+        write(".harness/harness.yaml", "deny", reason="plano de controle",
+              why="contrato 100% verde nao aposenta o floor"),
+    )
 
 
-def test_control_plane_floor_resists_traversal_and_backslash(tmp_path: Path) -> None:
-    """Os dois bypasses triviais: `..` para entrar por fora e barra invertida
-    (o path chega Windows-style em algumas tools)."""
-    script = _script(tmp_path)
-    for path in (
-        ".harness/work/../harness.yaml",
-        ".harness/scratch/../../.harness/harness.yaml",
-        r".harness\harness.yaml",
-        ".harness/./harness.yaml",
-    ):
-        out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                                 "tool_input": {"file_path": path}})
-        assert out["permissionDecision"] == "deny", (path, out)
-
-
-def test_control_plane_floor_preserves_work_and_scratch(tmp_path: Path) -> None:
-    """Regressão: as duas áreas com regra própria continuam sempre graváveis —
-    sem isso o floor quebraria o planejamento do próximo contrato."""
-    script = _script(tmp_path)
-    for path in (
-        ".harness/work/novo-contrato/spec.md",
-        ".harness/work/novo-contrato/Plans.md",
-        ".harness/scratch/dump.html",
-    ):
-        out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                                 "tool_input": {"file_path": path}})
-        assert out["permissionDecision"] == "allow", (path, out)
-
-
-def test_control_plane_floor_does_not_touch_paths_outside_harness(tmp_path: Path) -> None:
-    """O prefixo é `.harness/` — não pode pegar `harness/` nem um arquivo cujo
-    nome apenas comece com o mesmo texto."""
-    from harness.boundary_guard import is_floor_control_plane_path
-
-    for path in ("harness/x.py", ".harnessfoo/x.py", "src/.harness_notes.md", "docs/harness.yaml"):
-        assert not is_floor_control_plane_path(path), path
-
-
-def test_control_plane_deny_message_names_the_legitimate_route(tmp_path: Path) -> None:
-    """A mensagem não pode ser um beco sem saída: quem precisa mudar governança
-    tem que sair dela sabendo que o caminho é o terminal do usuário."""
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                             "tool_input": {"file_path": ".harness/harness.yaml"}})
-    reason = out["permissionDecisionReason"]
-    assert "SEU terminal" in reason
-    assert "compile-session" in reason
-    assert ".harness/work/" in reason
+def test_control_plane_write_via_bash_redirect_is_denied(tmp_path: Path) -> None:
+    """Rota nao coberta pelos testes originais (so exercitavam Write/Edit/
+    MultiEdit): gravar no plano de controle por redirecionamento de shell."""
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/a.py"],
+         "verify_cmd": "pytest -q", "passes": False},
+    ])
+    _write_profile(tmp_path)
+    _expect(
+        _script(tmp_path),
+        bash("echo evil > .harness/harness.yaml", "deny"),
+        bash("echo evil >> .harness/harness.yaml", "deny"),
+        bash("echo evil | tee .harness/harness.yaml", "deny"),
+    )
 
 
 def test_control_plane_floor_blocks_the_proven_amplification_chain(tmp_path: Path) -> None:
@@ -3555,30 +2420,10 @@ _CONTROL_PLANE_VARIANTS = [
 
 
 def test_control_plane_predicate_covers_every_path_variant() -> None:
-    from harness.boundary_guard import is_floor_control_plane_path
-
+    """O simetrico vem junto: alargar o predicado nao pode engolir path
+    legitimo. `.harness-notes/`, `harness/` e homonimos parciais seguem fora."""
     falhas = [v for v in _CONTROL_PLANE_VARIANTS if not is_floor_control_plane_path(v)]
     assert not falhas, f"variantes que escapam do floor: {falhas}"
-
-
-def test_control_plane_floor_denies_every_path_variant(tmp_path: Path) -> None:
-    """O desfecho, ponta a ponta, com o path JA declarado em files[] --
-    simula a camada 1 contornada e exige que a camada 2 segure sozinha."""
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": list(_CONTROL_PLANE_VARIANTS),
-         "verify_cmd": "pytest -q", "passes": False},
-    ])
-    script = _script(tmp_path)
-    for path in _CONTROL_PLANE_VARIANTS:
-        out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                                 "tool_input": {"file_path": path}})
-        assert out["permissionDecision"] == "deny", (path, out)
-
-
-def test_control_plane_variants_do_not_swallow_legitimate_paths(tmp_path: Path) -> None:
-    """O simetrico: alargar o predicado nao pode engolir path legitimo.
-    `.harness-notes/`, `harness/` e homonimos parciais seguem fora."""
-    from harness.boundary_guard import is_floor_control_plane_path
 
     for path in (
         "harness/x.py",
@@ -3591,110 +2436,74 @@ def test_control_plane_variants_do_not_swallow_legitimate_paths(tmp_path: Path) 
         assert not is_floor_control_plane_path(path), path
 
 
-def test_control_plane_write_via_bash_redirect_is_denied(tmp_path: Path) -> None:
-    """Rota nao coberta pelos testes originais (so exercitavam Write/Edit/
-    MultiEdit): gravar no plano de controle por redirecionamento de shell."""
+def test_control_plane_floor_denies_every_path_variant(tmp_path: Path) -> None:
+    """O desfecho, ponta a ponta, com o path JA declarado em files[] --
+    simula a camada 1 contornada e exige que a camada 2 segure sozinha."""
     _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/a.py"],
+        {"id": "T-01", "desc": "x", "files": list(_CONTROL_PLANE_VARIANTS),
          "verify_cmd": "pytest -q", "passes": False},
     ])
-    _write_profile(tmp_path)
-    script = _script(tmp_path)
-    for command in (
-        "echo evil > .harness/harness.yaml",
-        "echo evil >> .harness/harness.yaml",
-        "echo evil | tee .harness/harness.yaml",
-    ):
-        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                 "tool_input": {"command": command}})
-        assert out["permissionDecision"] == "deny", (command, out)
+    _expect(_script(tmp_path), *[write(p, "deny") for p in _CONTROL_PLANE_VARIANTS])
 
 
 # ---------------------------------------------------------------------------
 # Item 5 — mensagens de deny apontam o escape barato
 # ---------------------------------------------------------------------------
 
-def test_file_deny_cites_add_file_with_the_pending_task_id(tmp_path: Path) -> None:
+def test_deny_messages_name_the_cheap_escape_first(tmp_path: Path) -> None:
+    """O deny de arquivo cita `harness task add-file` com o id PENDENTE (não o
+    primeiro da lista: é a tarefa pendente que o agente precisa passar), e o
+    replan continua mencionado — mas DEPOIS, como último recurso. O deny de
+    comando aponta `extra_allowed_commands` no `harness.yaml`, que é o escape
+    que funciona sem recompilar nada."""
     _write_feature_list(tmp_path, [
         {"id": "T-01", "desc": "ja feita", "files": ["src/a.py"],
          "verify_cmd": "pytest -q", "passes": True},
         {"id": "T-07", "desc": "pendente", "files": ["src/b.py"],
          "verify_cmd": "pytest -q", "passes": False},
     ])
+    _write_profile(tmp_path)
     script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                             "tool_input": {"file_path": "src/novo.py"}})
-    assert out["permissionDecision"] == "deny", out
-    reason = out["permissionDecisionReason"]
-    # O id PENDENTE, não o primeiro da lista: é ele que o agente precisa passar.
-    assert "harness task add-file T-07 src/novo.py" in reason, reason
+    _expect(
+        script,
+        write("src/novo.py", "deny", reason="harness task add-file T-07 src/novo.py"),
+        bash("mypy src", "deny", reason="extra_allowed_commands"),
+        bash("mypy src", "deny", reason="harness.yaml"),
+    )
 
-
-def test_file_deny_still_mentions_replan_but_as_the_last_resort(tmp_path: Path) -> None:
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/a.py"],
-         "verify_cmd": "pytest -q", "passes": False},
-    ])
-    script = _script(tmp_path)
     out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
                              "tool_input": {"file_path": "src/novo.py"}})
     reason = out["permissionDecisionReason"]
     assert reason.index("add-file") < reason.index("/harness-creator:plan"), reason
 
 
-def test_command_deny_names_extra_allowed_commands_not_only_replan(tmp_path: Path) -> None:
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "x", "files": ["src/a.py"],
-         "verify_cmd": "pytest -q", "passes": False},
-    ])
-    _write_profile(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                             "tool_input": {"command": "mypy src"}})
-    assert out["permissionDecision"] == "deny", out
-    reason = out["permissionDecisionReason"]
-    assert "extra_allowed_commands" in reason, reason
-    assert "harness.yaml" in reason, reason
-
-
-def test_protected_branch_deny_points_to_checkout_and_refutes_the_message_theory(
-    tmp_path: Path,
-) -> None:
+def test_protected_branch_deny_refutes_the_commit_message_theory(tmp_path: Path) -> None:
     """Item 5, ponto 2. O texto anterior sugeria `harness compile-session`, que
     não resolve nada quando o problema é estar em `main` — e numa sessão real o
     agente diagnosticou errado, atribuindo o deny à tokenização da mensagem de
     commit e gastando ciclos reescrevendo a mensagem. A mensagem agora nomeia a
-    saída (`git checkout -b`) e refuta a hipótese errada explicitamente."""
+    saída (`git checkout -b`) e refuta a hipótese errada explicitamente.
+
+    A refutação vira regressão na segunda metade: fora de branch protegida,
+    TODAS as formas de `git commit` são allow."""
     _contract_with_verify(tmp_path)
     _write_git_head(tmp_path, "ref: refs/heads/main\n")
     script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                             "tool_input": {"command": "git commit -m x"}})
-    assert out["permissionDecision"] == "deny", out
-    reason = out["permissionDecisionReason"]
-    assert "git checkout -b" in reason, reason
-    assert "MENSAGEM do commit NAO e o problema" in reason, reason
+    _expect(
+        script,
+        bash("git commit -m x", "deny", reason="git checkout -b"),
+        bash("git commit -m x", "deny", reason="MENSAGEM do commit NAO e o problema"),
+    )
 
-
-def test_commit_message_form_is_irrelevant_off_protected_branch(tmp_path: Path) -> None:
-    """Fixa a refutação como regressão: fora de branch protegida, TODAS as
-    formas de `git commit` são allow. A hipótese "a tokenização da mensagem
-    causa o deny" é falsa, e este teste impede que ela volte."""
-    _contract_with_verify(tmp_path)
-    _write_git_head(tmp_path, "ref: refs/heads/feat/algo\n")
-    script = _script(tmp_path)
-    for command in (
-        "git commit -m x",
-        'git commit -m "mensagem com espacos e acentuacao"',
-        "git commit -F -",
-        "git commit",
-        'git commit -m "linha 1\nlinha 2"',
-    ):
-        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                 "tool_input": {"command": command}})
-        assert out["permissionDecision"] == "allow", (command, out)
-
-
+    fora = _on_branch(tmp_path, "feat/algo")
+    _expect(
+        script,
+        bash("git commit -m x", "allow", before=fora),
+        bash('git commit -m "mensagem com espacos e acentuacao"', "allow", before=fora),
+        bash("git commit -F -", "allow", before=fora),
+        bash("git commit", "allow", before=fora),
+        bash('git commit -m "linha 1\nlinha 2"', "allow", before=fora),
+    )
 
 # ---------------------------------------------------------------------------
 # Floor do plano de controle x progress.md movido (integracao dos dois planos)
@@ -3744,64 +2553,36 @@ def test_generated_hook_allows_writing_the_moved_progress_file(tmp_path: Path) -
 # Item 4 (dogfood venv-Windows) — normalização da FORMA de invocação
 # ===========================================================================
 
-def test_normalize_python_dash_m_reduces_to_module() -> None:
-    from harness.boundary_guard import normalize_invocation_tokens
-
-    assert normalize_invocation_tokens(["python", "-m", "pytest", "-q"]) == ["pytest", "-q"]
-    assert normalize_invocation_tokens(["python3", "-m", "ruff", "check"]) == ["ruff", "check"]
-
-
-def test_normalize_python_c_and_script_are_untouched() -> None:
+def test_normalize_invocation_tokens_reduces_only_real_equivalences() -> None:
     """`python -c` executa string arbitrária e `python x.py` roda um script —
     nenhum dos dois é invocação de binário nomeado, então normalizar seria
-    inventar equivalência que não existe."""
-    from harness.boundary_guard import normalize_invocation_tokens
+    inventar equivalência que não existe. Basename genérico também não: senão
+    `./scripts/deploy.sh` viraria `deploy.sh` e casaria a allowlist de um
+    homônimo qualquer (a checagem é por SEGMENTO, não `endswith` de string).
+    E `uv run <bin>` é forma equivalente, mas `uv run --with <pkg> <bin>` NÃO —
+    `--with` instala pacote arbitrário num ambiente efêmero antes de rodar."""
+    from harness.boundary_guard import normalize_invocation_tokens as norm
 
-    assert normalize_invocation_tokens(["python", "-c", "import os"]) == ["python", "-c", "import os"]
-    assert normalize_invocation_tokens(["python", "app.py"]) == ["python", "app.py"]
-
-
-def test_normalize_venv_prefixed_binary() -> None:
-    from harness.boundary_guard import normalize_invocation_tokens
-
-    assert normalize_invocation_tokens([".venv/Scripts/pytest.exe", "-q"]) == ["pytest", "-q"]
-    assert normalize_invocation_tokens([".venv/bin/ruff", "check"]) == ["ruff", "check"]
-    assert normalize_invocation_tokens(["venv/Scripts/pytest", "-q"]) == ["pytest", "-q"]
-    assert normalize_invocation_tokens([r".venv\Scripts\pytest.exe"]) == ["pytest"]
-    assert normalize_invocation_tokens(["C:/proj/.venv/Scripts/pytest.exe"]) == ["pytest"]
-
-
-def test_normalize_rejects_non_venv_directory_prefix() -> None:
-    """Basename genérico NÃO normaliza: senão `./scripts/deploy.sh` viraria
-    `deploy.sh` e casaria a allowlist de um homônimo qualquer. `meuvenv/bin`
-    também não — a checagem é por SEGMENTO, não por `endswith` de string."""
-    from harness.boundary_guard import normalize_invocation_tokens
+    assert norm(["python", "-m", "pytest", "-q"]) == ["pytest", "-q"]
+    assert norm(["python3", "-m", "ruff", "check"]) == ["ruff", "check"]
+    assert norm([".venv/Scripts/pytest.exe", "-q"]) == ["pytest", "-q"]
+    assert norm([".venv/bin/ruff", "check"]) == ["ruff", "check"]
+    assert norm(["venv/Scripts/pytest", "-q"]) == ["pytest", "-q"]
+    assert norm([r".venv\Scripts\pytest.exe"]) == ["pytest"]
+    assert norm(["C:/proj/.venv/Scripts/pytest.exe"]) == ["pytest"]
+    assert norm(["uv", "run", "pytest", "-q"]) == ["pytest", "-q"]
+    assert norm([".venv/Scripts/python.exe", "-m", "ruff", "check", "."]) == ["ruff", "check", "."]
 
     for tokens in (
+        ["python", "-c", "import os"],
+        ["python", "app.py"],
         ["./scripts/deploy.sh"],
         ["meuvenv/bin/pytest"],
         ["bin/pytest"],
         ["scripts/pytest"],
+        ["uv", "run", "--with", "requests", "pytest"],
     ):
-        assert normalize_invocation_tokens(tokens) == tokens
-
-
-def test_normalize_uv_run_only_without_flags() -> None:
-    """`uv run <bin>` é forma equivalente; `uv run --with <pkg> <bin>` NÃO —
-    `--with` instala pacote arbitrário num ambiente efêmero antes de rodar."""
-    from harness.boundary_guard import normalize_invocation_tokens
-
-    assert normalize_invocation_tokens(["uv", "run", "pytest", "-q"]) == ["pytest", "-q"]
-    flagged = ["uv", "run", "--with", "requests", "pytest"]
-    assert normalize_invocation_tokens(flagged) == flagged
-
-
-def test_normalize_composes_venv_and_dash_m() -> None:
-    from harness.boundary_guard import normalize_invocation_tokens
-
-    assert normalize_invocation_tokens(
-        [".venv/Scripts/python.exe", "-m", "ruff", "check", "."]
-    ) == ["ruff", "check", "."]
+        assert norm(tokens) == tokens, tokens
 
 
 def test_floor_catches_path_prefixed_invocation_forms() -> None:
@@ -3809,8 +2590,6 @@ def test_floor_catches_path_prefixed_invocation_forms() -> None:
     floor. As formas prefixadas por caminho ATRAVESSAVAM o floor (morriam só
     no default-deny da allowlist) — com o Item 4 elas passariam a casar a
     allowlist, então o floor precisa vê-las."""
-    from harness.boundary_guard import is_floor_bash_command
-
     for command in (
         "git push origin main",
         "uv run twine upload dist/*",
@@ -3828,90 +2607,68 @@ def test_floor_catches_path_prefixed_invocation_forms() -> None:
 
 
 def test_bash_accepts_equivalent_invocation_forms(tmp_path: Path) -> None:
-    """A tabela de evidência do Item 4: com `verify_cmd: "pytest -q"`, as
-    formas que de fato funcionam num venv Windows passam a ser allow."""
+    """A tabela de evidência do Item 4: com `verify_cmd: "pytest -q"`, as formas
+    que de fato funcionam num venv Windows passam a ser allow.
+
+    Os denies não são efeito colateral, são decisão de escopo: `source` executa
+    o conteúdo de um arquivo no shell corrente (não é forma de invocação de
+    nada, e com a normalização ativar o venv deixou de ser necessário); wrapper
+    arbitrário não é prefixo de venv; `-c` executa string arbitrária; e
+    normalizar não é declarar."""
     _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-
-    for command in (
-        "pytest -q",
-        "pytest -q tests/test_api.py",
-        "python -m pytest -q",
-        ".venv/Scripts/pytest.exe -q",
-        ".venv/bin/pytest -q",
-        "uv run pytest -q",
-    ):
-        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                  "tool_input": {"command": command}})
-        assert out["permissionDecision"] == "allow", (command, out)
-
-
-def test_bash_normalization_keeps_the_deliberate_denies(tmp_path: Path) -> None:
-    """O que continua deny, e por quê — cada linha aqui é uma decisão de
-    escopo do Item 4, não um efeito colateral."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-
-    for command in (
-        # `source` executa o conteúdo de um arquivo no shell corrente; não é
-        # forma de invocação de nada. Com a normalização, ativar o venv deixou
-        # de ser necessário.
-        "source .venv/Scripts/activate && pytest -q",
-        # wrapper arbitrário não é prefixo de venv
-        "./verify-env.sh python -m ruff check .",
-        # `-c` executa string arbitrária
-        'python -c "import os; os.system(\'rm -rf /\')"',
-        # normalizar não é declarar
-        "ruff check .",
-    ):
-        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                  "tool_input": {"command": command}})
-        assert out["permissionDecision"] == "deny", (command, out)
+    _expect(
+        _script(tmp_path),
+        bash("pytest -q", "allow"),
+        bash("pytest -q tests/test_api.py", "allow"),
+        bash("python -m pytest -q", "allow"),
+        bash(".venv/Scripts/pytest.exe -q", "allow"),
+        bash(".venv/bin/pytest -q", "allow"),
+        bash("uv run pytest -q", "allow"),
+        bash("source .venv/Scripts/activate && pytest -q", "deny"),
+        bash("./verify-env.sh python -m ruff check .", "deny"),
+        bash('python -c "import os; os.system(\'rm -rf /\')"', "deny"),
+        bash("ruff check .", "deny", why="normalizar nao e declarar"),
+    )
 
 
-def test_extra_allowed_command_allows_normalized_forms(tmp_path: Path) -> None:
-    """O caso SIMÉTRICO: quem precisa normalizar é a entrada da allowlist.
-    Com `python -m ruff` declarado, `ruff check .` passa — foi o item 6 do
-    relato (`.venv/Scripts/ruff` -> `python -m ruff` -> `.venv/Scripts/ruff`),
-    ida e volta que custou um ciclo por tentativa."""
+def test_normalization_applies_to_the_allowlist_entry_without_widening_it(
+    tmp_path: Path,
+) -> None:
+    """O caso SIMÉTRICO: quem precisa normalizar é a entrada da allowlist. Com
+    `python -m ruff` declarado, `ruff check .` passa — foi o item 6 do relato
+    (`.venv/Scripts/ruff` -> `python -m ruff` -> `.venv/Scripts/ruff`), ida e
+    volta que custou um ciclo por tentativa.
+
+    Invariante 2: normalizar muda a FORMA, nunca o ESCOPO. E declarar a forma
+    prefixada de um comando de floor não a libera."""
     _contract_with_verify(tmp_path)
     _write_harness_yaml(tmp_path, ["python -m ruff"])
-    script = _script(tmp_path)
+    _expect(
+        _script(tmp_path),
+        bash("ruff check .", "allow"),
+        bash(".venv/Scripts/ruff.exe check .", "allow"),
+        bash("uv run ruff check .", "allow"),
+    )
 
-    for command in ("ruff check .", ".venv/Scripts/ruff.exe check .", "uv run ruff check ."):
-        out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                  "tool_input": {"command": command}})
-        assert out["permissionDecision"] == "allow", (command, out)
+    escopo = tmp_path / "escopo"
+    escopo.mkdir()
+    _contract_with_verify(escopo)
+    _write_harness_yaml(escopo, ["pip install -e ."])
+    _expect(
+        _script(escopo),
+        bash("python -m pip install -e .", "allow"),
+        bash("python -m pip install evil", "deny",
+             why="normaliza para `pip install evil`, que nao prefixa a entrada"),
+    )
 
-
-def test_normalization_does_not_widen_scope(tmp_path: Path) -> None:
-    """Invariante 2 do item: normalizar muda a FORMA, nunca o ESCOPO.
-    `python -m pip install evil` normaliza para `pip install evil`, que
-    continua não prefixando `pip install -e .`."""
-    _contract_with_verify(tmp_path)
-    _write_harness_yaml(tmp_path, ["pip install -e ."])
-    script = _script(tmp_path)
-
-    allow = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                "tool_input": {"command": "python -m pip install -e ."}})
-    assert allow["permissionDecision"] == "allow", allow
-
-    deny = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                               "tool_input": {"command": "python -m pip install evil"}})
-    assert deny["permissionDecision"] == "deny", deny
-
-
-def test_normalized_floor_survives_declaration_in_yaml(tmp_path: Path) -> None:
-    """Declarar a forma prefixada de um comando de floor não a libera."""
-    _contract_with_verify(tmp_path)
-    _write_harness_yaml(tmp_path, [".venv/Scripts/git.exe push"])
-    script = _script(tmp_path)
-
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": ".venv/Scripts/git.exe push origin main"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "runtime floor" in out["permissionDecisionReason"], out
-
+    floor = tmp_path / "floor"
+    floor.mkdir()
+    _contract_with_verify(floor)
+    _write_harness_yaml(floor, [".venv/Scripts/git.exe push"])
+    _expect(
+        _script(floor),
+        bash(".venv/Scripts/git.exe push origin main", "deny", reason="runtime floor"),
+    )
 
 # ===========================================================================
 # Postura C do Item 9 — o escape de comando tem que ser trivial
@@ -3924,69 +2681,50 @@ def test_normalized_floor_survives_declaration_in_yaml(tmp_path: Path) -> None:
 # o kill-switch é desproteção total.
 # ===========================================================================
 
-def test_suggested_allowlist_entry_is_canonical_and_two_tokens() -> None:
-    from harness.boundary_guard import suggested_allowlist_entry
+def test_suggested_allowlist_entry_is_canonical_and_keeps_the_mode() -> None:
+    """A entrada sugerida é normalizada (a forma prefixada por caminho não vira
+    a declaração) e tem binário + subcomando, não a linha inteira: o match é por
+    prefixo, e travar nos argumentos obrigaria uma entrada nova por variação.
 
-    # normalizada: a forma prefixada por caminho não vira a entrada declarada
-    assert suggested_allowlist_entry(".venv/Scripts/alembic.exe upgrade head") == (
-        "alembic upgrade"
-    )
-    assert suggested_allowlist_entry("python -m mypy src") == "mypy src"
-    # binário + subcomando, não a linha inteira: o match é por prefixo, e travar
-    # nos argumentos obrigaria uma entrada nova por variação
-    assert suggested_allowlist_entry("alembic upgrade head --sql") == "alembic upgrade"
-    # flag não é subcomando
-    assert suggested_allowlist_entry("ruff --fix .") == "ruff"
-    assert suggested_allowlist_entry("docker") == "docker"
-    assert suggested_allowlist_entry("") is None
+    A regra de dois tokens, porém, produziria `git checkout` — que casa por
+    prefixo e liberaria `git checkout .` (descarte de trabalho não commitado)
+    junto com `git checkout -b`. Nos subcomandos de git em que o MODO decide se
+    a operação é destrutiva, a sugestão inclui o terceiro token."""
+    from harness.boundary_guard import suggested_allowlist_entry as sugerir
 
+    assert sugerir(".venv/Scripts/alembic.exe upgrade head") == "alembic upgrade"
+    assert sugerir("python -m mypy src") == "mypy src"
+    assert sugerir("alembic upgrade head --sql") == "alembic upgrade"
+    assert sugerir("ruff --fix .") == "ruff", "flag nao e subcomando"
+    assert sugerir("docker") == "docker"
+    assert sugerir("") is None
 
-def test_suggested_allowlist_entry_keeps_the_mode_for_git_subcommands() -> None:
-    """A regra de dois tokens produziria `git checkout` — que casa por prefixo
-    e liberaria `git checkout .` (descarte de trabalho não commitado) junto com
-    `git checkout -b`. Nos subcomandos de git em que o MODO decide se a
-    operação é destrutiva, a sugestão inclui o terceiro token."""
-    from harness.boundary_guard import suggested_allowlist_entry
-
-    assert suggested_allowlist_entry("git checkout -b chore/x") == "git checkout -b"
-    assert suggested_allowlist_entry("git switch -c chore/x") == "git switch -c"
-    assert suggested_allowlist_entry("git checkout .") == "git checkout ."
-    assert suggested_allowlist_entry("git reset --hard HEAD") == "git reset --hard"
-    assert suggested_allowlist_entry("git branch chore/x") == "git branch chore/x"
+    assert sugerir("git checkout -b chore/x") == "git checkout -b"
+    assert sugerir("git switch -c chore/x") == "git switch -c"
+    assert sugerir("git checkout .") == "git checkout ."
+    assert sugerir("git reset --hard HEAD") == "git reset --hard"
+    assert sugerir("git branch chore/x") == "git branch chore/x"
     # subcomando de git SEM modo sensível continua na regra de dois tokens
-    assert suggested_allowlist_entry("git cherry-pick abc123") == "git cherry-pick"
+    assert sugerir("git cherry-pick abc123") == "git cherry-pick"
     # sem terceiro token não há modo a preservar
-    assert suggested_allowlist_entry("git checkout") == "git checkout"
+    assert sugerir("git checkout") == "git checkout"
 
 
 def test_deny_reason_carries_a_paste_ready_yaml_block(tmp_path: Path) -> None:
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "alembic upgrade head"}})
-    reason = out["permissionDecisionReason"]
-
-    assert out["permissionDecision"] == "deny", out
-    assert "extra_allowed_commands:\n    - alembic upgrade" in reason, reason
-    assert "sem recompilar" in reason, reason
-
-
-def test_deny_reason_does_not_tell_the_user_to_duplicate_the_governance_key(
-    tmp_path: Path,
-) -> None:
     """A instrução mais óbvia seria a que quebra: todo `harness.yaml` já tem
     `governance:`, e colar a chave de novo produz duplicata — que o parser
-    mínimo do hook trata degradando a lista INTEIRA para vazia. O bloco sugerido
-    começa em `extra_allowed_commands`, não em `governance`."""
+    mínimo do hook trata degradando a lista INTEIRA para vazia. Por isso o bloco
+    sugerido começa em `extra_allowed_commands`, não em `governance`."""
     _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "alembic upgrade head"}})
-    reason = out["permissionDecisionReason"]
-
-    assert "\ngovernance:" not in reason, reason
+    _expect(
+        _script(tmp_path),
+        bash("alembic upgrade head", "deny",
+             reason="extra_allowed_commands:\n    - alembic upgrade"),
+        bash("alembic upgrade head", "deny", reason="sem recompilar"),
+        bash("alembic upgrade head", "deny", absent="\ngovernance:"),
+        pwsh("alembic upgrade head", "deny", reason="- alembic upgrade",
+             why="a superficie PowerShell carrega o mesmo bloco"),
+    )
 
 
 def test_the_suggested_entry_actually_unblocks_the_command(tmp_path: Path) -> None:
@@ -4014,17 +2752,6 @@ def test_the_suggested_entry_actually_unblocks_the_command(tmp_path: Path) -> No
     after = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
                                 "tool_input": {"command": command}})
     assert after["permissionDecision"] == "allow", after
-
-
-def test_powershell_deny_carries_the_same_block(tmp_path: Path) -> None:
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-
-    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                              "tool_input": {"command": "alembic upgrade head"}})
-
-    assert out["permissionDecision"] == "deny", out
-    assert "- alembic upgrade" in out["permissionDecisionReason"], out
 
 
 # ===========================================================================
@@ -4082,61 +2809,37 @@ def test_parse_extra_allowed_commands_degrades_to_empty() -> None:
         assert parse_extra_allowed_commands_text(text) == [], name
 
 
-def test_read_extra_allowed_commands_runtime_missing_file(tmp_path: Path) -> None:
+def test_extra_allowed_commands_is_read_at_runtime_in_both_directions(
+    tmp_path: Path,
+) -> None:
+    """O ITEM 3 em uma linha: editar o YAML basta, `compile-session` deixa de ser
+    obrigatório a cada ajuste de allowlist. O hook é instalado ANTES do YAML
+    existir e mesmo assim honra a edição posterior.
+
+    A direção inversa importa tanto quanto: tirar do YAML fecha na hora. Se o
+    bake sobrevivesse como fallback, a remoção não valeria sem recompilar — e a
+    superfície ficaria maior do que o arquivo declara. E erro de parse REDUZ
+    para lista vazia, nunca alarga."""
     from harness.boundary_guard import read_extra_allowed_commands_runtime
 
     assert read_extra_allowed_commands_runtime(tmp_path) == []
     assert read_extra_allowed_commands_runtime(None) == []
 
-
-def test_extra_allowed_command_edited_after_install_takes_effect(tmp_path: Path) -> None:
-    """O ITEM 3 em uma linha: editar o YAML basta, `compile-session` deixa de
-    ser obrigatório a cada ajuste de allowlist. O hook é instalado ANTES do
-    YAML existir e mesmo assim honra a edição posterior."""
     _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-
-    before = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                 "tool_input": {"command": "alembic upgrade head"}})
-    assert before["permissionDecision"] == "deny", before
-
-    _write_harness_yaml(tmp_path, ["alembic upgrade"])
-    after = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                "tool_input": {"command": "alembic upgrade head"}})
-    assert after["permissionDecision"] == "allow", after
-
-
-def test_extra_allowed_command_removed_from_yaml_takes_effect(tmp_path: Path) -> None:
-    """A direção inversa importa tanto quanto: tirar do YAML fecha na hora.
-    Se o bake sobrevivesse como fallback, a remoção não valeria sem recompilar
-    — e a superfície ficaria maior do que o arquivo declara."""
-    _contract_with_verify(tmp_path)
-    _write_harness_yaml(tmp_path, ["alembic upgrade"])
-    script = _script(tmp_path)
-
-    allow = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                                "tool_input": {"command": "alembic upgrade head"}})
-    assert allow["permissionDecision"] == "allow", allow
-
-    (tmp_path / ".harness" / "harness.yaml").write_text(
-        "governance:\n  approval_policy: auto\n", encoding="utf-8"
+    yaml_path = tmp_path / ".harness" / "harness.yaml"
+    _expect(
+        _script(tmp_path),
+        bash("alembic upgrade head", "deny", why="antes de declarar"),
+        bash("alembic upgrade head", "allow", why="depois de declarar, sem recompilar",
+             before=lambda: _write_harness_yaml(tmp_path, ["alembic upgrade"])),
+        bash("alembic upgrade head", "deny", why="removido do yaml fecha na hora",
+             before=lambda: yaml_path.write_text(
+                 "governance:\n  approval_policy: auto\n", encoding="utf-8")),
+        bash("alembic upgrade head", "deny", why="yaml quebrado nunca alarga",
+             before=lambda: yaml_path.write_text(
+                 "governance:\n  extra_allowed_commands: [alembic upgrade\n",
+                 encoding="utf-8")),
     )
-    deny = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                               "tool_input": {"command": "alembic upgrade head"}})
-    assert deny["permissionDecision"] == "deny", deny
-
-
-def test_extra_allowed_command_unparseable_yaml_never_widens(tmp_path: Path) -> None:
-    """Fail-safe inegociável: erro de parse REDUZ para lista vazia."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-
-    (tmp_path / ".harness" / "harness.yaml").write_text(
-        "governance:\n  extra_allowed_commands: [alembic upgrade\n", encoding="utf-8"
-    )
-    out = _run_hook(script, {"tool_name": "Bash", "cwd": str(tmp_path),
-                              "tool_input": {"command": "alembic upgrade head"}})
-    assert out["permissionDecision"] == "deny", out
 
 
 def test_render_boundary_guard_does_not_bake_extra_allowed_commands() -> None:
@@ -4172,191 +2875,92 @@ def test_extra_allowed_commands_grammar_problem(tmp_path: Path) -> None:
 # Item 7 (dogfood venv-Windows) — PowerShell deixa de ser cidadão de segunda
 # ===========================================================================
 
-def test_powershell_pipeline_with_readonly_cmdlet_allows(tmp_path: Path) -> None:
-    """Pipeline é a forma idiomática de PowerShell, e `Select-Object` nunca
-    vai prefixar uma allowlist derivada de `verify_cmd`. Sem este escape o
-    caminho PowerShell era inutilizável sob contrato ativo — o que empurrava
-    tudo para a Bash tool, justamente a que não enxerga o venv Windows."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-
-    for command in (
-        "pytest -q | Select-Object -First 5",
-        "pytest -q | Where-Object { $_ }",
-        "pytest -q | Measure-Object",
-        "pytest -q | Sort-Object | Format-Table",
-        ".venv/Scripts/pytest.exe -q | Select-Object -First 5",
-    ):
-        out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                                  "tool_input": {"command": command}})
-        assert out["permissionDecision"] == "allow", (command, out)
-
-
-@pytest.mark.parametrize("command", [
-    "Get-ChildItem",
-    "Get-ChildItem -Recurse src",
-    "ls src",
-    "dir",
-    "Get-Content src/main.py",
-    "cat src/main.py",
-    "type src/main.py",
-    "gc src/main.py | Select-Object -First 20",
-    "Select-String -Pattern TODO -Path src/main.py",
-    "sls TODO src/main.py",
-    "Write-Output hello",
-    "echo hello",
-    "Get-Location",
-    "pwd",
-    "Get-Item src/main.py",
-    "Test-Path src/main.py",
-])
-def test_powershell_readonly_source_cmdlets_allow(tmp_path: Path, command: str) -> None:
+def test_powershell_readonly_cmdlets_and_pipelines_are_allowed(tmp_path: Path) -> None:
     """Correção da assimetria entre os dois caminhos: o Bash tinha
     `cat`/`ls`/`grep`/`echo` liberados por `READONLY_SHELL_UTILITIES`, mas o
     PowerShell não tinha os equivalentes — `Get-ChildItem` era deny mesmo COM
     contrato ativo. Quem só tem PowerShell 5.1 não conseguia nem listar um
-    diretório sem declarar o comando no contrato."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                              "tool_input": {"command": command}})
-    assert out["permissionDecision"] == "allow", (command, out)
+    diretório sem declarar o comando no contrato.
 
-
-@pytest.mark.parametrize("command", [
-    "Get-ChildItem",
-    "Get-Content src/main.py",
-    "Test-Path src/main.py",
-])
-def test_powershell_readonly_source_cmdlets_allow_in_bootstrap(
-    tmp_path: Path, command: str
-) -> None:
-    """Mesma allowlist vale sem contrato: inspecionar o repo é pré-requisito
-    para planejar o contrato, não consequência dele."""
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                              "tool_input": {"command": command}})
-    assert out["permissionDecision"] == "allow", (command, out)
-
-
-@pytest.mark.parametrize("command", [
-    # redirecionamento transforma leitura em escrita: cai em _evaluate_file
-    "Get-Content src/main.py > src/other.py",
-    "Get-ChildItem >> listing.txt",
-    # escrita explícita nunca entrou e continua fora
-    "Set-Content src/other.py 'x'",
-    "Out-File -FilePath src/other.py",
-    "Add-Content src/other.py 'x'",
-    "Remove-Item -Recurse -Force src",
-    "New-Item -ItemType File src/other.py",
-])
-def test_powershell_write_cmdlets_still_denied(tmp_path: Path, command: str) -> None:
-    """A allowlist de leitura não abre nenhuma porta de escrita: alvo fora de
-    `files[]` continua deny, com ou sem redirecionamento."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                              "tool_input": {"command": command}})
-    assert out["permissionDecision"] == "deny", (command, out)
-
-
-def test_powershell_redirect_target_is_the_destination_not_the_source(
-    tmp_path: Path
-) -> None:
-    """Escape de superfície de escrita achado ao corrigir a assimetria:
-    `_extract_powershell_write_target` devolvia o PRIMEIRO token com cara de
-    path, que num redirecionamento é a ORIGEM. Com `src/main.py` em `files[]`,
-    `... src/main.py > src/other.py` era avaliado contra `src/main.py` e a
-    escrita em `src/other.py` (fora do contrato) passava. O alvo agora é o
-    token depois do último `>`."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-
-    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                              "tool_input": {"command": "Get-Content src/main.py > src/other.py"}})
-    assert out["permissionDecision"] == "deny", out
-    assert "fora da superficie" in out["permissionDecisionReason"], out
-
-    # o caminho inverso continua allow: destino DENTRO do contrato
-    ok = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                             "tool_input": {"command": "Get-Content src/other.py > src/main.py"}})
-    assert ok["permissionDecision"] == "allow", ok
-
-
-def test_powershell_readonly_source_cmdlet_secret_still_floor(tmp_path: Path) -> None:
-    """Ler é liberado, escrever em segredo não — o floor continua acima de
-    tudo. `Get-Content .env` (leitura) passa; redirecionar PARA `.env` não."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-
-    read = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                               "tool_input": {"command": "Get-Content .env"}})
-    assert read["permissionDecision"] == "allow", read
-
-    write = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                                "tool_input": {"command": "Write-Output x > .env"}})
-    assert write["permissionDecision"] == "deny", write
-    assert "runtime floor" in write["permissionDecisionReason"], write
-
-
-def test_powershell_foreach_object_still_denied(tmp_path: Path) -> None:
-    """`ForEach-Object` executa scriptblock arbitrário — é execução, não
-    formatação, e fica fora da allowlist de propósito."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-
-    for command in (
-        "pytest -q | ForEach-Object { rm -rf src }",
-        "pytest -q | Invoke-Expression",
-    ):
-        out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                                  "tool_input": {"command": command}})
-        assert out["permissionDecision"] == "deny", (command, out)
-
-
-def test_powershell_env_assignment_still_denied(tmp_path: Path) -> None:
-    """Atribuição a `$env:*` muda o ambiente de execução dos comandos
-    seguintes; liberá-la reabriria por outra porta o problema de PATH que o
-    Item 4 resolve de forma controlada."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-
-    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                              "tool_input": {"command": "$env:PATH = '.venv\\Scripts'; pytest -q"}})
-    assert out["permissionDecision"] == "deny", out
-
-
-def test_powershell_readonly_utilities_and_cd(tmp_path: Path) -> None:
-    """Os dois escapes que o `_evaluate_bash` já tinha desde `76ab4a6`."""
+    Pipeline é a forma idiomática da linguagem, e `Select-Object` nunca vai
+    prefixar uma allowlist derivada de `verify_cmd`. Sem esse escape o caminho
+    PowerShell era inutilizável sob contrato ativo — o que empurrava tudo para a
+    Bash tool, justamente a que não enxerga o venv Windows."""
     _contract_with_verify(tmp_path)
     (tmp_path / "src").mkdir(exist_ok=True)
-    script = _script(tmp_path)
+    _expect(
+        _script(tmp_path),
+        pwsh("pytest -q | Select-Object -First 5", "allow"),
+        pwsh("pytest -q | Where-Object { $_ }", "allow"),
+        pwsh("pytest -q | Measure-Object", "allow"),
+        pwsh("pytest -q | Sort-Object | Format-Table", "allow"),
+        pwsh(".venv/Scripts/pytest.exe -q | Select-Object -First 5", "allow"),
+        pwsh("Get-ChildItem", "allow"),
+        pwsh("Get-ChildItem -Recurse src", "allow"),
+        pwsh("ls src", "allow"),
+        pwsh("dir", "allow"),
+        pwsh("Get-Content src/main.py", "allow"),
+        pwsh("cat src/main.py", "allow"),
+        pwsh("type src/main.py", "allow"),
+        pwsh("gc src/main.py | Select-Object -First 20", "allow"),
+        pwsh("Select-String -Pattern TODO -Path src/main.py", "allow"),
+        pwsh("sls TODO src/main.py", "allow"),
+        pwsh("Write-Output hello", "allow"),
+        pwsh("echo hello", "allow"),
+        pwsh("Get-Location", "allow"),
+        pwsh("pwd", "allow"),
+        pwsh("Get-Item src/main.py", "allow"),
+        pwsh("Test-Path src/main.py", "allow"),
+        pwsh("cd src", "allow", why="os dois escapes que _evaluate_bash ja tinha"),
+        pwsh("cd src; pytest -q", "allow"),
+        pwsh("Get-Content .env", "allow", why="LER segredo nao e escrever nele"),
+        pwsh("Get-Content src/other.py > src/main.py", "allow",
+             why="o destino do redirect esta em files[]"),
+    )
 
-    for command in ("cat src/main.py", "cd src", "cd src; pytest -q"):
-        out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                                  "tool_input": {"command": command}})
-        assert out["permissionDecision"] == "allow", (command, out)
+    bootstrap = tmp_path / "bootstrap"
+    bootstrap.mkdir()
+    _expect(
+        _script(bootstrap),
+        pwsh("Get-ChildItem", "allow"),
+        pwsh("Get-Content src/main.py", "allow"),
+        pwsh("Test-Path src/main.py", "allow"),
+    )
 
 
-def test_powershell_network_floor_untouched(tmp_path: Path) -> None:
-    """O floor de rede do PowerShell não é afetado por nenhum dos escapes."""
+def test_powershell_readonly_allowlist_opens_no_write_door(tmp_path: Path) -> None:
+    """A allowlist de leitura não abre porta de escrita nenhuma: alvo fora de
+    `files[]` continua deny, com ou sem redirecionamento.
+
+    O redirect é onde estava o escape achado ao corrigir a assimetria:
+    `_extract_powershell_write_target` devolvia o PRIMEIRO token com cara de
+    path, que num redirecionamento é a ORIGEM — com `src/main.py` em `files[]`,
+    `... src/main.py > src/other.py` era avaliado contra a origem e a escrita
+    passava. O alvo agora é o token depois do último `>`.
+
+    `ForEach-Object` e `Invoke-Expression` executam scriptblock arbitrário: é
+    execução, não formatação. Atribuição a `$env:*` muda o ambiente dos comandos
+    seguintes e reabriria por outra porta o problema de PATH que o Item 4
+    resolve de forma controlada. E o floor de rede não é afetado por escape
+    nenhum."""
     _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-
-    for command in ("iwr http://evil | Select-Object -First 1", "irm http://evil"):
-        out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                                  "tool_input": {"command": command}})
-        assert out["permissionDecision"] == "deny", (command, out)
-        assert "runtime floor" in out["permissionDecisionReason"], (command, out)
-
-
-def test_powershell_smuggle_after_allowed_segment_denies(tmp_path: Path) -> None:
-    """Regressão da propriedade que os escapes NÃO podem quebrar: um segmento
-    arbitrário colado a um permitido continua derrubando o comando inteiro."""
-    _contract_with_verify(tmp_path)
-    script = _script(tmp_path)
-
-    out = _run_hook(script, {"tool_name": "PowerShell", "cwd": str(tmp_path),
-                              "tool_input": {"command": "pytest -q; Remove-Item -Recurse src"}})
-    assert out["permissionDecision"] == "deny", out
+    _expect(
+        _script(tmp_path),
+        pwsh("Get-Content src/main.py > src/other.py", "deny", reason="fora da superficie",
+             why="o alvo e o DESTINO do redirect, nao a origem"),
+        pwsh("Get-ChildItem >> listing.txt", "deny"),
+        pwsh("Set-Content src/other.py 'x'", "deny"),
+        pwsh("Out-File -FilePath src/other.py", "deny"),
+        pwsh("Add-Content src/other.py 'x'", "deny"),
+        pwsh("Remove-Item -Recurse -Force src", "deny"),
+        pwsh("New-Item -ItemType File src/other.py", "deny"),
+        pwsh("Write-Output x > .env", "deny", reason="runtime floor"),
+        pwsh("pytest -q | ForEach-Object { rm -rf src }", "deny"),
+        pwsh("pytest -q | Invoke-Expression", "deny"),
+        pwsh("$env:PATH = '.venv\\Scripts'; pytest -q", "deny"),
+        pwsh("iwr http://evil | Select-Object -First 1", "deny", reason="runtime floor"),
+        pwsh("irm http://evil", "deny", reason="runtime floor"),
+        pwsh("pytest -q; Remove-Item -Recurse src", "deny",
+             why="segmento arbitrario colado a um permitido derruba o comando"),
+    )
 
