@@ -65,11 +65,34 @@ Toda entrega que muda comportamento fecha com os **três** artefatos abaixo. Nã
 release completo olhando só o `git log`, e foi assim que as tags pararam na
 `v0.22.2` enquanto quatro versões seguiram para a `main`.
 
-1. **Versão nas três fontes manuais.** `src/harness/__init__.py`
-   (`__version__`), `.claude-plugin/plugin.json` e
-   `.claude-plugin/marketplace.json`. O `pyproject.toml` deriva do
-   `__init__.py` via hatch — não tem o que bumpar lá. Quem guarda isso é
-   `tests/test_version_sync.py`; se ele passar, as três estão sincronizadas.
+1. **Versão nas três fontes manuais E nos marcadores de doc.** As fontes são
+   `src/harness/__init__.py` (`__version__`), `.claude-plugin/plugin.json` e
+   `.claude-plugin/marketplace.json`; o `pyproject.toml` deriva do
+   `__init__.py` via hatch, não tem o que bumpar lá. Além delas, cinco
+   marcadores de versão CORRENTE em documentação — o badge do `README.md`, o
+   do `docs/plugin/ARCHITECTURE.md`, dois no
+   `docs/plugin/arquitetura-visual.html` (pill do topo e rodapé) e o exemplo
+   de `marketplace.json` no `docs/plugin/GUIDE.md`.
+
+   **Não decore esta lista: rode `pytest tests/test_version_sync.py`.** Ele é a
+   fonte de verdade (`_DOC_VERSION_MARKERS`), aponta qual arquivo ficou atrás e
+   qual string procurar. Se um marcador novo nascer, ele entra lá — não aqui.
+
+   Não confunda com **referência histórica**, que deve continuar apontando para
+   a versão em que a coisa aconteceu: "Convenção da suíte (v0.26.0)",
+   "padrão desde a v0.23.0", o CHANGELOG inteiro. O teste enumera marcadores em
+   vez de fazer grep por número de versão exatamente para não transformar
+   histórico correto em falha.
+
+   Também não confunda com `.harness/compiled-state.json`: ele é machine-local
+   e registra qual versão COMPILOU o repo. Fica atrás de propósito até o
+   próximo `harness compile`, e não é fonte a bumpar.
+
+   > Esta lista já esteve incompleta. Na v0.27.0 o bump tocou as três fontes,
+   > o teste da época passou, e cinco marcadores de doc ficaram na versão
+   > anterior — o README anunciava v0.26.0 com a suíte verde. A instrução foi
+   > seguida à risca; o defeito era a instrução. Foi por isso que a cobertura
+   > virou teste em vez de item de checklist.
 2. **Entrada no `docs/reference/CHANGELOG.md`.** Uma seção `##` por versão, com
    título que descreve o que a versão FAZ (não "correções diversas"), e uma
    subseção `###` por frente de trabalho, cada uma citando sua issue e seu PR.
