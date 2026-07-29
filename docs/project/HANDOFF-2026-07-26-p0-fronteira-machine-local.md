@@ -139,7 +139,7 @@ Implementar o item 5 isolado é escrever uma guarda que o item 6 torna quase irr
 
 Ponto de atenção real, não teórico: `boundary_guard.py:606-616`
 (`_is_progress_file_path` / `PROGRESS_FILE_NAME`) faz match **exato de raiz**, de
-propósito — existe por causa do issue 3 do dogfood do `aegis_rpa_suite`, e a regra é que
+propósito — existe por causa do issue 3 do dogfood venv-Windows, e a regra é que
 um `claude-progress.md` em subdiretório NÃO casa. Ao mover para `.harness/progress.md`
 essa regra precisa ser reescrita mantendo a não-recursividade, com teste dedicado. Se
 regredir, o lifecycle passa a ser bloqueado pelo próprio guard no passo 12.

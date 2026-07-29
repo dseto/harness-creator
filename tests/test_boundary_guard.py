@@ -443,7 +443,7 @@ def test_contract_file_surface_is_what_files_declares(tmp_path: Path) -> None:
 
 def test_contract_command_surface_is_verify_cmd_plus_local_git(tmp_path: Path) -> None:
     """`echo oi` deixou de ser o exemplo canônico de deny — desde a correção dos
-    issues 1-2 do dogfood aegis, utilitários read-only (echo incluso, sem
+    issues 1-2 do dogfood venv-Windows, utilitários read-only (echo incluso, sem
     redirect) são sempre permitidos. `rm` segue fora da superfície."""
     _write_feature_list(tmp_path, [
         {"id": "T-01", "desc": "x", "files": ["src/main.py"],
@@ -1458,7 +1458,7 @@ def test_write_work_dir_traversal_denies(tmp_path: Path) -> None:
         assert out["permissionDecision"] == "deny", (rel, out)
 
 
-# -------- issue 3 do dogfood aegis: bookkeeping do harness + escape task --------
+# -------- issue 3 do dogfood venv-Windows: bookkeeping do harness + escape task --------
 
 
 def test_progress_md_is_writable_but_only_the_canonical_one(tmp_path: Path) -> None:
@@ -1491,7 +1491,7 @@ def test_is_progress_file_path_importable() -> None:
     assert _is_progress_file_path("") is False
 
 
-# -------- issues 1-2 do dogfood aegis: shell read-only + cd intra-repo + 2>&1 --------
+# -------- issues 1-2 do dogfood venv-Windows: shell read-only + cd intra-repo + 2>&1 --------
 
 def test_bash_readonly_utilities_and_intra_repo_cd_are_allowed(tmp_path: Path) -> None:
     """Issue 1: `<allowed> | head -N` era o papercut nº1, e utilitário de
@@ -2515,7 +2515,7 @@ def test_control_plane_floor_lets_only_progress_md_through(tmp_path: Path) -> No
     footprint moveu o progresso para `.harness/progress.md`, sem esta excecao
     o agente perderia a escrita no arquivo que o proprio lifecycle (passo 12)
     manda manter e o `runtime_audit` cobra se ausente — a contradicao interna
-    que o issue 3 do dogfood aegis existe para corrigir.
+    que o issue 3 do dogfood venv-Windows existe para corrigir.
 
     A excecao e de ARQUIVO nomeado, nao de diretorio: `.harness/sub/progress.md`
     e `.harness/progress.md/x` continuam deny."""

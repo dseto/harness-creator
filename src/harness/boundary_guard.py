@@ -139,7 +139,7 @@ Quatro garantias, nesta ordem, sempre:
    é bookkeeping do PRÓPRIO harness — o lifecycle (passo 12) manda o
    agente atualizá-lo a cada sessão e o `runtime_audit` dá warning se
    ausente, mas a superfície negava a escrita (contradição interna,
-   issue 3 do dogfood aegis_rpa_suite). Tensão aceita e documentada: o
+   issue 3 do dogfood venv-Windows). Tensão aceita e documentada: o
    arquivo também é LIDO no início de toda sessão (lifecycle passo 3),
    mesma classe de canal de injection persistida que motivou excluir
    `AGENTS.md` de `docs/**` — mas ser escrito pelo agente É a função
@@ -1082,7 +1082,7 @@ CONTROL_PLANE_WRITABLE_DIRS = ("work", "scratch")
 #: Arquivo ÚNICO de `.harness/` que o agente pode escrever. `progress.md` é
 #: bookkeeping do próprio harness: o lifecycle (passo 12) manda atualizá-lo a
 #: cada sessão e o `runtime_audit` dá warning se ausente — negá-lo tornaria o
-#: produto contraditório consigo mesmo (é o issue 3 do dogfood aegis, que a
+#: produto contraditório consigo mesmo (é o issue 3 do dogfood venv-Windows, que a
 #: exceção `_is_progress_file_path` existe para corrigir). Entrou como FILE, e
 #: não como diretório em `CONTROL_PLANE_WRITABLE_DIRS`, porque a ampliação de
 #: superfície fica de um arquivo nomeado: `.harness/progress.md/qualquer` e
@@ -1143,7 +1143,7 @@ def _is_progress_file_path(path: str) -> bool:
     case-insensitive (filesystem Windows): um `progress.md` em qualquer outro
     diretório NÃO casa — nem em subdiretório de `.harness/`; a normalização
     cobre variantes como `docs/../.harness/progress.md`. Correção do issue 3
-    do dogfood aegis_rpa_suite (guard negava escrita no arquivo que o próprio
+    do dogfood venv-Windows (guard negava escrita no arquivo que o próprio
     harness manda manter); a não-recursividade é deliberada e sobreviveu à
     mudança de caminho do item 6 — sem ela, qualquer `progress.md` plantado
     em subdiretório viraria buraco na superfície de escrita."""
@@ -1179,7 +1179,7 @@ def _is_claude_memory_path(path: str) -> bool:
 
 # ---------------------------------------------------------------------------
 # Utilitários shell read-only + `cd` intra-repo (Python real, IMPORTÁVEL) —
-# itens 3 do parecer cético sobre os issues 1-2 do dogfood aegis_rpa_suite.
+# itens 3 do parecer cético sobre os issues 1-2 do dogfood venv-Windows.
 # Um segmento que NÃO prefixa nenhuma sequência permitida ainda pode passar
 # se for (a) uso read-only aceito de um utilitário da allowlist fixa, ou
 # (b) `cd` cujo alvo resolve para DENTRO da raiz do repo.
@@ -2327,7 +2327,7 @@ FIXED_GIT_SEQUENCES = [
 # documentadas nas skills (python -m harness.cli) e o console-script real
 # (harness). NAO inclui 'run' (orquestrador da era congelada, chama a
 # API Anthropic — rede fora do floor — e nao estava na fricao relatada).
-# 'task' entrou na correcao do issue 3 do dogfood aegis_rpa_suite: e o
+# 'task' entrou na correcao do issue 3 do dogfood venv-Windows: e o
 # escape oficial documentado na skill plan (harness task add-file) para
 # ampliar a superficie de uma tarefa — sem ele aqui, o guard fechava a
 # porta E escondia a chave (o proprio deny message apontava um comando

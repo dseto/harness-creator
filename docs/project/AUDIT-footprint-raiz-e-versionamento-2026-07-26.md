@@ -8,7 +8,7 @@ documentação existente. As Seções 4 e 5 são plano e backlog, não execuçã
 
 Método: leitura do código-fonte (`src/harness/`, `skills/`) para levantar todo caminho de
 escrita no projeto-alvo, cruzada com o estado real de dois repositórios que já rodaram o
-harness — o próprio `Harness-creator` (dogfood) e `C:\Projetos\aegis_rpa_suite`
+harness — o próprio `Harness-creator` (dogfood) e `C:\Projetos\<projeto-alvo>`
 (projeto-alvo de terceiro). As duas evidências de vazamento da Seção 2 vêm de `git ls-files`
 real, não de leitura estática.
 
@@ -88,7 +88,7 @@ Estado não-arquivo também criado: branch git `contract/<slug>` (`branching.py:
 O comando de hook gravado no `settings.json` carrega o caminho absoluto do repositório:
 
 ```
-python "C:\Projetos\aegis_rpa_suite\.harness\hooks\boundary_guard.py"
+python "C:\Projetos\<projeto-alvo>\.harness\hooks\boundary_guard.py"
 ```
 
 Escrito por `compiler.py:369-406` e `boundary_guard.py:2339-2372`. O path absoluto é decisão
@@ -96,7 +96,7 @@ deliberada e defensável (`docs/project/PLAN.md:180-182`: cmd.exe não expande `
 movido vira drift que o `harness audit` acusa). **O defeito não é o path absoluto — é a
 consequência não assumida**: o arquivo virou machine-local e ninguém marcou isso em lugar nenhum.
 
-Evidência de que já quebrou na prática — em `C:\Projetos\aegis_rpa_suite`:
+Evidência de que já quebrou na prática — em `C:\Projetos\<projeto-alvo>`:
 
 ```
 $ git ls-files .claude/settings.json
@@ -115,7 +115,7 @@ Edit(C:/Projetos/TestePortalSegura/tests/cenario_principal/code/bot_producao.py)
 Write(C:/Projetos/TestePortalSegura/tests/cenario_principal/code/bot_producao.py)
 ```
 
-— superfície de **outro projeto**, de outra máquina, gravada no histórico do `aegis_rpa_suite`.
+— superfície de **outro projeto**, de outra máquina, gravada no histórico do `dogfood venv-Windows`.
 Sob a promessa de `docs/plugin/TUTORIAL.md:88-90` ("blast radius auditável… `git diff` mostra
 exatamente o que foi autorizado"), isso é o oposto: o diff autoriza um raio que não existe no
 repositório que o carrega.
@@ -127,7 +127,7 @@ absoluto. `.harness/compiled-state-session.json` (`boundary_guard.py:2383-2386` 
 escritores) registra `repo_root` absoluto e `managed_session_permissions` — a superfície de
 uma sessão específica.
 
-No `aegis_rpa_suite`, `git ls-files .harness/compiled-state-session.json` retorna o arquivo:
+No `dogfood venv-Windows`, `git ls-files .harness/compiled-state-session.json` retorna o arquivo:
 **commitado**, com os mesmos paths de `C:/Projetos/TestePortalSegura/`.
 
 Nenhum dos dois é coberto por qualquer regra de ignore que o tool escreva. O único
@@ -165,7 +165,7 @@ permanecem ignorados, regenerados por compile". Mensagem de commit não é contr
 propaga essa regra para o projeto-alvo, e o comentário em código diz o contrário.
 
 Resultado observável: **cada projeto-alvo decide sozinho**, e decide errado. No
-`aegis_rpa_suite` foi commitado tudo, inclusive F1 e F2.
+`dogfood venv-Windows` foi commitado tudo, inclusive F1 e F2.
 
 ### F5 — P2 — o próprio repo do produto versiona seus artefatos gerados
 
@@ -275,7 +275,7 @@ raio de impacto continua garantida pelos artefatos versionados (`harness.yaml`, 
   funcionando sem migração manual.
 - `src/harness/boundary_guard.py:604-616` — `_is_progress_file_path` passa a casar
   `.harness/progress.md`, mantendo o match exato (não-recursivo) e o fallback do caminho antigo;
-  a regra existe por causa do issue 3 do dogfood `aegis_rpa_suite` e não pode regredir —
+  a regra existe por causa do issue 3 do dogfood venv-Windows e não pode regredir —
   outcome: o guard continua permitindo a escrita que o próprio lifecycle exige.
 - `src/harness/lifecycle.py:36-46,74-122` — atualizar os passos 2, 3 e 12 do texto do
   lifecycle para os caminhos novos — outcome: `AGENTS.md` e `.harness/LIFECYCLE.md` param de
@@ -363,8 +363,8 @@ Todos os comandos abaixo são leitura. PowerShell 5.1.
 
 ```powershell
 # F1 e F2 — vazamento no projeto-alvo real
-git -C C:\Projetos\aegis_rpa_suite ls-files .claude/settings.json .harness/compiled-state-session.json
-Select-String -Path C:\Projetos\aegis_rpa_suite\.claude\settings.json -Pattern 'C:[\\/]'
+git -C C:\Projetos\<projeto-alvo> ls-files .claude/settings.json .harness/compiled-state-session.json
+Select-String -Path C:\Projetos\<projeto-alvo>\.claude\settings.json -Pattern 'C:[\\/]'
 ```
 
 ```powershell

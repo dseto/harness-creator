@@ -666,7 +666,7 @@ def test_run_verify_normal_failure_leaves_file_lock_hint_none(tmp_path: Path) ->
     assert exc_info.value.file_lock_hint is None
 
 
-# ---------------- Item 4 do dogfood aegis: gestao de arvore de processos + streaming ----------------
+# ---------------- Item 4 do dogfood venv-Windows: gestao de arvore de processos + streaming ----------------
 
 
 def test_run_verify_custom_timeout_kills_and_mentions_tree(tmp_path: Path) -> None:

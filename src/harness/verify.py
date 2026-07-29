@@ -240,7 +240,7 @@ def _run_verify_cmd(
     verify_cmd: str, cwd: Path, timeout_seconds: int, stream: bool
 ) -> tuple[int, str, str]:
     """Executa `verify_cmd` via Popen com gestão de árvore de processos —
-    correção do issue 4 do dogfood aegis (no Windows, o kill do
+    correção do issue 4 do dogfood venv-Windows (no Windows, o kill do
     `subprocess.run(timeout=...)` atingia só o `cmd.exe` filho direto;
     `pytest.exe`→`python.exe` ficavam órfãos e o `communicate()` bloqueava
     até eles morrerem, fazendo run lento parecer travado).

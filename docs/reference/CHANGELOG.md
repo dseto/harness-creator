@@ -896,7 +896,7 @@ contrato próprio, porque `.harness/work/**` é gravável por design e
   `runtime_audit.py`, `verify.py`, `lifecycle.py` e o `boundary_guard`.
 - **`_is_progress_file_path` continua com match EXATO e não-recursivo**, agora
   sobre `.harness/progress.md`. A regra existe por causa do issue 3 do dogfood
-  do `aegis_rpa_suite` (o guard negava escrita no arquivo que o próprio
+  do `dogfood venv-Windows` (o guard negava escrita no arquivo que o próprio
   lifecycle manda manter) e tem teste dedicado: `progress.md` em subdiretório
   — inclusive dentro de `.harness/` — **não** casa, senão qualquer arquivo com
   esse nome viraria buraco na superfície de escrita.
@@ -955,8 +955,8 @@ contrato próprio, porque `.harness/work/**` é gravável por design e
   (`harness.settings_paths.prepare_managed_settings`), em vez de mesclarem no
   `.claude/settings.json` que os projetos-alvo commitam. Motivo (F1 do
   laudo): o comando do hook leva **path absoluto** da máquina que compilou —
-  no `aegis_rpa_suite` o arquivo commitado carregava
-  `python "C:\Projetos\aegis_rpa_suite\.harness\hooks\boundary_guard.py"` e
+  no `dogfood venv-Windows` o arquivo commitado carregava
+  `python "C:\Projetos\<projeto-alvo>\.harness\hooks\boundary_guard.py"` e
   63 regras de `permissions.allow`, incluindo `Edit(...)` sobre arquivos de
   **outro projeto**. Em qualquer clone (outro path, outro OS) esse
   `PreToolUse` não resolve: **o repositório parece governado e nenhum guard
@@ -1280,7 +1280,7 @@ morre a cada recompile e exige plan+aprovação toda vez.
 
 ## 0.17.5 — 2026-07-22
 
-Itens 3 e 4 da análise dos issues do dogfood aegis_rpa_suite, nas versões
+Itens 3 e 4 da análise dos issues do dogfood venv-Windows, nas versões
 ADAPTADAS pelo parecer cético (agente Fable, avaliação adversarial contra o
 código real — pacote original tinha nota 2.5/5; as adaptações abaixo fecham
 os furos apontados). Item 5 (`extra_write_globs`) ADIADO por decisão: valor
@@ -1347,7 +1347,7 @@ tinha furo de feature-lock.
 ## 0.17.4 — 2026-07-22
 
 Itens 1 e 2 (os cirúrgicos) da análise dos 4 issues reportados pelo dogfood
-em `aegis_rpa_suite` (`.harness/work/backlog-agentico-design-time/issues/`).
+venv-Windows (`.harness/work/backlog-agentico-design-time/issues/`).
 Ambos são correções de coerência interna: o harness negava operações que o
 próprio harness manda executar.
 
