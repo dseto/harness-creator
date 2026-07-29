@@ -58,6 +58,36 @@ pelo próprio produto em `.harness/.gitignore` e `.claude/.gitignore` (via
 `.gitignore` da raiz para acomodar artefato do harness**, e nunca duplique
 nele uma linha que já vive num desses dois arquivos.
 
+## Release: bump, CHANGELOG e tag são um passo só
+
+Toda entrega que muda comportamento fecha com os **três** artefatos abaixo. Não
+é opcional e não é "depois": um release pela metade é indistinguível de um
+release completo olhando só o `git log`, e foi assim que as tags pararam na
+`v0.22.2` enquanto quatro versões seguiram para a `main`.
+
+1. **Versão nas três fontes manuais.** `src/harness/__init__.py`
+   (`__version__`), `.claude-plugin/plugin.json` e
+   `.claude-plugin/marketplace.json`. O `pyproject.toml` deriva do
+   `__init__.py` via hatch — não tem o que bumpar lá. Quem guarda isso é
+   `tests/test_version_sync.py`; se ele passar, as três estão sincronizadas.
+2. **Entrada no `docs/reference/CHANGELOG.md`.** Uma seção `##` por versão, com
+   título que descreve o que a versão FAZ (não "correções diversas"), e uma
+   subseção `###` por frente de trabalho, cada uma citando sua issue e seu PR.
+   A entrada explica o PORQUÊ e o modo de falha que motivou a mudança — é o
+   documento que a próxima pessoa lê para não reintroduzir o problema. Se a
+   versão junta frentes distintas, o título cobre as duas.
+3. **Tag anotada, no commit de bump.** `git tag -a v<X.Y.Z> -m "<mesmo título
+   da seção do CHANGELOG>"` seguido de `git push origin v<X.Y.Z>`. A tag é o
+   que o marketplace do plugin resolve; sem ela, o bump só existe no arquivo.
+
+Os três vão no **mesmo commit de chore**, direto na `main`, no terminal do
+humano — `main` é branch protegida e o guard barra o agente ali por decisão de
+projeto. Ao agente cabe deixar tudo pronto e entregar o comando; o commit e o
+push da tag são do humano.
+
+Só depois disso a demanda está encerrada. `harness finish` limpa o estado do
+contrato, não o release.
+
 <!-- harness:begin -->
 ## Governança do Harness (gerado — edite .harness/harness.yaml e rode `harness compile`)
 
