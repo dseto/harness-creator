@@ -90,6 +90,7 @@ exato para corrigir.
 |---|---|
 | `/harness-creator:preflight` | Laudo de prontidão de um repo cru ANTES de instalar o harness: PASS/WARNING/FAIL em 4 categorias (Git, Manifestos, Verificação/TDD, Linting) com Actionable Fix e veredito READY/NOT_READY — read-only |
 | `/harness-creator:init` | Entrevista curta → gera `.harness/harness.yaml` → compila |
+| `/harness-creator:assess` | Laudo de aderência de uma **demanda** contra documentação, código, git e contratos anteriores: COERENTE / PRECISA_ESCLARECER / CONFLITANTE / FORA_DE_ESCOPO — read-only, antes do `plan` |
 | `/harness-creator:audit` | Score 0-100 + findings (drift, hooks ausentes, política arriscada) |
 | `/harness-creator:compile` | Recompila após edição manual do yaml (idempotente, preserva settings manuais) |
 | `/harness-creator:plan` | Demanda em linguagem natural → `spec.md` + `Plans.md` → aprovação humana → `feature_list.json` |

@@ -223,12 +223,13 @@ claude --plugin-dir C:\Projetos\Harness-creator
 > Code para usar as skills do plugin. (Dá para tornar permanente via
 > `~/.claude/settings.json`; ver GUIDE.md seção 12.)
 
-Na sessão, as 6 skills ficam disponíveis:
+Na sessão, as 7 skills ficam disponíveis:
 
 | Skill | Faz |
 |---|---|
 | `/harness-creator:preflight` | Laudo de prontidão de um repo cru (READY/NOT_READY) ANTES de instalar o harness — read-only |
 | `/harness-creator:init` | Entrevista curta → gera `.harness/harness.yaml` → compila |
+| `/harness-creator:assess` | Laudo de aderência de uma **demanda** contra docs, código, git e contratos anteriores (COERENTE/PRECISA_ESCLARECER/CONFLITANTE/FORA_DE_ESCOPO) — read-only, antes do `plan` |
 | `/harness-creator:audit` | Score 0-100 + findings (drift, hooks ausentes, política arriscada) |
 | `/harness-creator:compile` | Recompila após edição manual do yaml |
 | `/harness-creator:plan` | Demanda em linguagem natural → contrato (`spec.md` + `Plans.md`) → aprovação sua → `feature_list.json` |

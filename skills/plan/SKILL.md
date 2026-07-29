@@ -41,6 +41,16 @@ Isso grava `.harness/repo-profile.json` e imprime o profile em JSON.
 
 ## Passo 3 — Entrevista mínima da demanda
 
+> **Antes de entrevistar, faça a checagem de sanidade.** A demanda tem
+> relação com ESTE repositório — os símbolos que ela cita existem no código,
+> ela não contradiz uma regra do `AGENTS.md`, ela não repete um contrato já
+> compilado em `.harness/work/`? Se a resposta for não, ou se você não
+> conseguir responder, **pare e rode `/harness-creator:assess`** — ele emite o
+> laudo com evidência. Não converta a demanda em algo plausível para este
+> repo, e não faça perguntas condutoras que fabriquem um escopo que o usuário
+> não pediu: essa é a rota pela qual uma demanda que não pertence ao projeto
+> vira contrato bem formatado e aprovado por engano.
+
 Levante, com o usuário, o essencial para escrever o contrato:
 
 1. **Objetivo** — o que muda e por quê, em 1-2 frases.

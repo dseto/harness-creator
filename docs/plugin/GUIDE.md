@@ -23,10 +23,10 @@ python -c "from pathlib import Path; import harness; print(Path(harness.__file__
 claude --plugin-dir <path-acima>
 ```
 
-Ambas abrem uma sessão do Claude Code com as 6 skills disponíveis:
+Ambas abrem uma sessão do Claude Code com as 7 skills disponíveis:
 `/harness-creator:preflight`, `/harness-creator:init`,
-`/harness-creator:audit`, `/harness-creator:compile`, `/harness-creator:plan`,
-`/harness-creator:team`.
+`/harness-creator:assess`, `/harness-creator:audit`,
+`/harness-creator:compile`, `/harness-creator:plan`, `/harness-creator:team`.
 
 > Repita `claude --plugin-dir ...` toda vez que abrir o Claude Code para
 > trabalhar com harness — não é uma instalação permanente do Claude Code em
