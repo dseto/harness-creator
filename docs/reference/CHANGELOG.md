@@ -1,9 +1,13 @@
 # Changelog
 
-## v0.26.0 — seis atritos do ciclo, achados com o guard ligado
+## v0.26.0 — seis atritos do ciclo, e a suíte reduzida a uma tabela por regra
 
-Issue #55, PR #56. Primeira demanda rodada de ponta a ponta com a governança de
-fato ativa desde 2026-07-24 — o kill-switch tinha ficado ligado quatro dias sem
+Duas frentes: os atritos que apareceram ao rodar o ciclo com o guard de fato
+ligado (issue #55, PR #56), e a suíte de testes, que tinha chegado a 1008 casos
+e caiu para 724 sem perder uma asserção (issue #57, PR #58).
+
+Os atritos vieram da primeira demanda rodada de ponta a ponta com a governança
+ativa desde 2026-07-24 — o kill-switch tinha ficado ligado quatro dias sem
 ninguém notar (#52), então tudo o que passou nesse período rodou sem guard.
 Religado, o atrito apareceu de uma vez.
 
