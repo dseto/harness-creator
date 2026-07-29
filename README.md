@@ -25,6 +25,22 @@ Plugin do Claude Code que **cria, avalia e compila** estrutura de harness
 - **Orçamento** vira orientação no AGENTS.md (o Claude Code não expõe tokens a
   hooks — dito explicitamente, sem teatro de enforcement).
 
+O ciclo de uma demanda tem **dois portões read-only antes de qualquer
+escrita** — um sobre o repositório, outro sobre a demanda:
+
+```
+repositório ──preflight──► READY?          ← o repo tem o mínimo para o ciclo?
+demanda     ──assess────► laudo (4 fontes) ← ela pertence a este projeto?
+                            │                 já foi feita? contradiz algo?
+                            ▼
+                          plan ──► contrato ──► GATE HUMANO ──► sessão autônoma
+```
+
+`assess` avalia a demanda contra código, documentação, histórico do git e
+contratos anteriores. Só `FORA_DE_ESCOPO` barra; `PRECISA_ESCLARECER` e
+`CONFLITANTE` seguem como warning, porque são demandas legítimas com trabalho
+pendente — quem decide se vale a pena é o humano, no gate do `plan`.
+
 Uso no dia a dia (instalar → criar harness → trabalhar com os prompts de
 aprovação aparecendo sozinhos): ver [GUIDE.md](docs/plugin/GUIDE.md).
 
@@ -90,6 +106,7 @@ exato para corrigir.
 |---|---|
 | `/harness-creator:preflight` | Laudo de prontidão de um repo cru ANTES de instalar o harness: PASS/WARNING/FAIL em 4 categorias (Git, Manifestos, Verificação/TDD, Linting) com Actionable Fix e veredito READY/NOT_READY — read-only |
 | `/harness-creator:init` | Entrevista curta → gera `.harness/harness.yaml` → compila |
+| `/harness-creator:assess` | Laudo de aderência de uma **demanda** contra documentação, código, git e contratos anteriores: COERENTE / PRECISA_ESCLARECER / CONFLITANTE / FORA_DE_ESCOPO — read-only, antes do `plan` |
 | `/harness-creator:audit` | Score 0-100 + findings (drift, hooks ausentes, política arriscada) |
 | `/harness-creator:compile` | Recompila após edição manual do yaml (idempotente, preserva settings manuais) |
 | `/harness-creator:plan` | Demanda em linguagem natural → `spec.md` + `Plans.md` → aprovação humana → `feature_list.json` |

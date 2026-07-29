@@ -23,10 +23,10 @@ python -c "from pathlib import Path; import harness; print(Path(harness.__file__
 claude --plugin-dir <path-acima>
 ```
 
-Ambas abrem uma sessão do Claude Code com as 6 skills disponíveis:
+Ambas abrem uma sessão do Claude Code com as 7 skills disponíveis:
 `/harness-creator:preflight`, `/harness-creator:init`,
-`/harness-creator:audit`, `/harness-creator:compile`, `/harness-creator:plan`,
-`/harness-creator:team`.
+`/harness-creator:assess`, `/harness-creator:audit`,
+`/harness-creator:compile`, `/harness-creator:plan`, `/harness-creator:team`.
 
 > Repita `claude --plugin-dir ...` toda vez que abrir o Claude Code para
 > trabalhar com harness — não é uma instalação permanente do Claude Code em
@@ -128,7 +128,47 @@ para valer.
 ## 5. Trabalhar por contrato
 
 Para uma demanda específica (uma feature, uma mudança maior), em vez de pedir
-direto e aprovar cada edição uma por uma, use:
+direto e aprovar cada edição uma por uma, o fluxo é `assess` → `plan`.
+
+### 5.1 Avaliar a demanda antes de planejar
+
+```
+/harness-creator:assess
+```
+
+Emite um laudo **read-only** da demanda contra as quatro fontes de verdade do
+projeto: código, documentação, histórico do git e contratos anteriores em
+`.harness/work/`. Quatro dimensões — pertinência, coerência, precedente e
+executabilidade —, cada achado com `arquivo:linha` ou hash de commit.
+
+| Veredito | Sinal | O que acontece |
+|---|---|---|
+| `COERENTE` | ✅ OK | segue para o `plan` |
+| `PRECISA_ESCLARECER` | ⚠️ WARNING | **segue** — as perguntas viram `unknowns` do `spec.md` |
+| `CONFLITANTE` | ⚠️ WARNING | **segue** — o conflito vira decisão registrada no `spec.md` |
+| `FORA_DE_ESCOPO` | ⛔ BLOQUEIA | para — não há o que planejar |
+
+**Só `FORA_DE_ESCOPO` barra.** Os outros dois são demandas legítimas com
+trabalho pendente, e quem decide se esse trabalho vale a pena é você, no gate
+do `plan`. Um deny fácil demais treina o leitor a ignorar o laudo.
+
+Para que serve, concretamente: o `plan` formaliza o que chega e confia no gate
+humano — ele não confere se a demanda pertence ao projeto, se já foi feita, ou
+se contradiz uma decisão registrada. Sem o `assess`, uma demanda colada por
+engano (ou vinda de um ticket de outro sistema) compila num contrato bem
+formatado, e o formato é justamente o que faz uma demanda errada parecer
+legítima na hora de aprovar.
+
+> **Rode em subagente.** A skill recomenda isso, com número medido: cada
+> avaliação consome ~64k tokens de levantamento para produzir um laudo de
+> ~1.2k. Inline, ~98% vira ruído na sessão. E o motivo mais forte não é
+> contexto: a sessão que acabou de ouvir a demanda não é boa juíza dela — é o
+> mesmo princípio de produtor ≠ revisor da Fase 4.
+
+`assess` é read-only e **não substitui o gate de aprovação**: `COERENTE`
+significa "não achei impedimento", nunca "deve ser feito".
+
+### 5.2 Transformar a demanda em contrato
 
 ```
 /harness-creator:plan
@@ -611,7 +651,11 @@ trabalhar normal — prompts de aprovação aparecem sozinhos conforme a políti
         │
         ├─ mudou o yaml? ──► /harness-creator:compile ──► reabrir sessão
         │
-        ├─ demanda específica? ──► /harness-creator:plan ──► aprovar contrato ──► compile-contract
+        ├─ demanda específica? ──► /harness-creator:assess ──► laudo da demanda
+        │                          (COERENTE / WARNING / ⛔ FORA_DE_ESCOPO barra)
+        │                                   │
+        │                                   ▼
+        │                          /harness-creator:plan ──► aprovar contrato ──► compile-contract
         │                                                           │
         │                                                           ▼
         │                                            compile-session (Fase 2: branch
