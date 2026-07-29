@@ -23,13 +23,14 @@ python -c "from pathlib import Path; import harness; print(Path(harness.__file__
 claude --plugin-dir <path-acima>
 ```
 
-Ambas abrem uma sessão do Claude Code com as 5 skills disponíveis:
-`/harness-creator:init`, `/harness-creator:audit`, `/harness-creator:compile`,
-`/harness-creator:plan`, `/harness-creator:team`.
+Ambas abrem uma sessão do Claude Code com as 6 skills disponíveis:
+`/harness-creator:preflight`, `/harness-creator:init`,
+`/harness-creator:audit`, `/harness-creator:compile`, `/harness-creator:plan`,
+`/harness-creator:team`.
 
 > Repita `claude --plugin-dir ...` toda vez que abrir o Claude Code para
 > trabalhar com harness — não é uma instalação permanente do Claude Code em
-> si, é um flag de sessão. (Se preferir permanente, ver seção 10.)
+> si, é um flag de sessão. (Se preferir permanente, ver seção 12.)
 
 ## 2. Criar o harness no projeto-alvo (uma vez, por repositório)
 
@@ -183,9 +184,13 @@ Isso compila a **Fase 2** do roadmap (Execução Autônoma no Raio de Impacto):
   `.harness/harness.yaml` (opcional — comandos permanentes que o dono do
   repo libera, ex.: o CLI do próprio produto).
 - **`boundary_guard.py`** — hook `PreToolUse` único que substitui (e remove,
-  quando presente) o hook antigo `guard_tests.py`: cobre Edit/Write/Bash numa
-  só passada em vez de N guards por ação, decidindo `allow`/`deny` a partir
-  da superfície do contrato ativo. Traz proteção contra enfraquecimento de
+  quando presente) o hook antigo `guard_tests.py`: numa só passada cobre
+  `Edit`, `Write`, `MultiEdit`, `NotebookEdit`, `PowerShell` e `Bash`, em vez
+  de N guards por ação, decidindo `allow`/`deny` a partir da superfície do
+  contrato ativo. O matcher registrado é `"*"` (toda tool call), com
+  roteamento explícito por nome de tool — com um matcher restrito, qualquer
+  tool de escrita fora do conjunto listado nunca invocaria o hook e o Claude
+  Code aplicaria o allow implícito antes de o guard rodar. Traz proteção contra enfraquecimento de
   teste — só edita arquivo de teste se a tarefa ativa o declarar em
   `files[]`. Comando composto (`comando_aprovado && comando_qualquer`) não
   escapa: cada segmento entre `;`/`&&`/`||`/`|` precisa prefixar um comando
@@ -437,15 +442,117 @@ regressão.
 
 ## 9. Verificar se está tudo consistente
 
+São dois cheques diferentes, e a confusão entre eles é comum.
+
+**O conteúdo dos artefatos:**
+
 ```
 /harness-creator:audit
 ```
 
 Score 0–100. Rode depois de qualquer edição manual em `settings.local.json`,
 `AGENTS.md` ou nos hooks — ele detecta *drift* (alguém editou à mão e
-divergiu do que o `harness.yaml` geraria) e sugere recompilar.
+divergiu do que o `harness.yaml` geraria) e sugere recompilar. O mecanismo é
+dogfooding: ele **recompila em memória e faz diff byte-exato** contra o disco,
+em vez de reimplementar as regras. Regra nova no compilador passa a ser
+auditada de graça.
 
-## 10. Deixar o plugin sempre disponível (opcional)
+**A saúde da instalação:**
+
+```bash
+harness doctor --dir .
+```
+
+Cobre três famílias de problema, todas **silenciosas** — nada falha, o Claude
+Code simplesmente roda menos governança do que o repositório aparenta ter:
+
+1. **Divergência de versão entre as 3 camadas de distribuição** — pacote pip,
+   `.harness/` compilado e cache de plugin do Claude Code têm ciclos de
+   atualização independentes. Atualizar só uma deixa as outras presas na
+   versão antiga, e o comportamento observado reflete a mais atrasada.
+2. **Compilação ausente ou apontando para o lugar errado** — o clone novo
+   (que tem `harness.yaml` versionado e nenhum `settings.local.json`: parece
+   instalado, nenhum hook roda) e o repositório que mudou de lugar no disco
+   (o comando de hook leva path absoluto).
+3. **Hook registrado que não roda** — interpretador irresolúvel. É a falha
+   mais perigosa que este comando diagnostica: pela semântica de exit code de
+   hook do Claude Code, só `exit 2` bloqueia, então um hook que morre antes de
+   iniciar deixa a tool call **passar sem gate nenhum**. Por isso o comando
+   registrado leva `|| exit 2`.
+
+Exit 0 se tudo bate, 1 com a lista de issues e o comando exato de correção.
+Vale rodar depois de todo `pip install --upgrade`, `claude plugin update` ou
+`git clone`.
+
+## 10. Encerrar a demanda
+
+Quando `harness supervise --dir <alvo>` devolve `next: null`, todas as tarefas
+passaram. O ciclo tem um fim explícito:
+
+```
+harness finish --dir <alvo>
+```
+
+Duas metades, nesta ordem:
+
+1. **`audit_closure` — só leitura.** Devolve os bloqueadores do fecho. Nunca
+   escreve, nunca executa `verify_cmd`. Os `kind` possíveis:
+   `killswitch_active` (a demanda inteira rodou sem governança), `no_contract`,
+   `feature_not_passed`, `evidence_missing` (marcação à mão — o passo 13 do
+   lifecycle proíbe), `evidence_stale` (o `files_hash` não bate: o código
+   mudou depois da prova) e `tree_residue` (tracked sujo fora dos `files[]`).
+2. **`sweep_disposables` — só com a auditoria limpa.** Reescreve o
+   `.harness/progress.md` como demanda encerrada e esvazia o
+   `.harness/scratch/`.
+
+Reprovado, o comando reporta e sai com código 1 **sem varrer nada** — limpar
+por cima de um fecho quebrado apagaria o rastro necessário para consertá-lo.
+
+`.harness/work/`, `.harness/evidence/` e o `feature_list.json` ficam intactos:
+são o registro auditável. E o comando **nunca toca git** — `git commit`,
+`git push` e `gh pr create` estão fora de propósito, porque uma ação
+irreversível dentro de um subcomando que está na allowlist do agente
+transformaria o próprio `finish` num bypass do runtime floor.
+
+Efeito colateral que importa: o `progress.md` reescrito é o que **destrava o
+contrato seguinte**. Sem ele, a sessão nova herdava o estado da demanda
+anterior.
+
+## 11. Kill-switch — desligar tudo
+
+Se nada dos escapes da seção 6 resolver, o kill-switch desliga **todos** os
+hooks de uma vez. É um comando **seu**, no **seu** terminal:
+
+```powershell
+harness disable --dir <alvo> --note "motivo"
+harness status  --dir <alvo>
+harness enable  --dir <alvo>
+```
+
+O estado é o arquivo-sentinela `.harness/harness.disabled` (machine-local,
+gitignored). Presente, cada hook gerado — `boundary_guard`, `session_start`,
+`stop_hook`, `guard_tests`, `guard_test_runner` — faz no-op no topo do
+`main()`.
+
+**O agente não pode se auto-desativar.** Enquanto o harness está ativo, o
+`boundary_guard` nega por regra de *floor* tanto criar o sentinel quanto rodar
+`harness disable`. Não há paradoxo: a checagem do kill-switch precede tudo,
+inclusive o floor, e o floor anti-auto-desativação só roda enquanto o harness
+está **ativo**. Você, no terminal próprio, não passa por hook nenhum — o hook
+só existe dentro da sessão do Claude Code.
+
+> **Cuidado.** Um kill-switch ligado é **invisível** na sessão: nada avisa,
+> nada muda de aparência. Neste repositório o guard ficou em no-op por quatro
+> dias sem ninguém notar, e tudo que passou nesse período rodou sem
+> governança. **Só `harness status` conta a verdade** — rode antes de tratar
+> qualquer sessão como evidência de que a governança valeu. É por isso que
+> `harness finish` trata `killswitch_active` como bloqueador de fecho.
+
+`harness status` também devolve a contagem de ciclos `disable`/`enable` desta
+máquina — o número que diz se o produto ainda precisa de mais alguma porta de
+escape ou se as que existem bastam.
+
+## 12. Deixar o plugin sempre disponível (opcional)
 
 Em vez de repetir `--plugin-dir` toda sessão — e é o ÚNICO jeito de usar o
 plugin fora do terminal, ex. no app desktop, que não aceita flags de CLI —
@@ -453,13 +560,13 @@ registre um marketplace local apontando pro diretório do plugin.
 
 1. O repo do plugin precisa de um `.claude-plugin/marketplace.json`
    auto-referenciando-se (já existe neste repo — ver
-   [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json)):
+   [`.claude-plugin/marketplace.json`](../../.claude-plugin/marketplace.json)):
    ```json
    {
      "name": "harness-creator-local",
      "owner": { "name": "<seu nome>" },
      "plugins": [
-       { "name": "harness-creator", "source": "./", "version": "0.15.0" }
+       { "name": "harness-creator", "source": "./", "version": "0.26.0" }
      ]
    }
    ```
@@ -491,6 +598,9 @@ mudar de novo entre releases.)
 instalar plugin (1x)
         │
         ▼
+/harness-creator:preflight  ──► o repo está pronto? READY / NOT_READY
+        │
+        ▼
 /harness-creator:init  no repo-alvo  ──► gera harness.yaml + settings.local.json + hooks + AGENTS.md
         │
         ▼
@@ -504,19 +614,41 @@ trabalhar normal — prompts de aprovação aparecem sozinhos conforme a políti
         ├─ demanda específica? ──► /harness-creator:plan ──► aprovar contrato ──► compile-contract
         │                                                           │
         │                                                           ▼
-        │                                            compile-session (Fase 2: permissions do
-        │                                            raio de impacto + boundary_guard + lifecycle
-        │                                            + templates + SessionStart)
+        │                                            compile-session (Fase 2: branch
+        │                                            contract/<slug> + permissions do raio de
+        │                                            impacto + boundary_guard + lifecycle
+        │                                            + templates + SessionStart/Stop)
         │                                                           │
         │                                                           ▼
         │                                            harness verify <id> (Fase 3: roda o
-        │                                            verify_cmd real, só grava evidência com
-        │                                            prova executável)
+        │                                            verify_cmd real, grava evidência e marca
+        │                                            passes:true — padrão desde a v0.23.0)
         │                                                           │
         │                                                           ▼
-        │                                            /harness-creator:team (Fase 4: aprovar
-        │                                            arquitetura do time 1x → produtor-revisor
-        │                                            roda sem novo toque humano)
+        │                                            /harness-creator:team (Fase 4, opcional:
+        │                                            aprovar arquitetura do time 1x →
+        │                                            produtor-revisor roda sem novo toque)
+        │                                                           │
+        │                                                           ▼
+        │                                            harness supervise ──► next: null
+        │                                                           │
+        │                                                           ▼
+        │                                            harness finish (audita o fecho, varre
+        │                                            descartáveis, destrava o próximo contrato)
         │
-        └─ quer conferir? ──► /harness-creator:audit
+        ├─ quer conferir? ──► /harness-creator:audit (conteúdo)
+        │                     harness doctor        (instalação)
+        │                     harness audit-runtime (artefatos mutáveis)
+        │
+        └─ guard atrapalhou? ──► extra_allowed_commands · harness profile set ·
+                                 harness task add-file  ·  (último caso) harness disable
 ```
+
+## Referências
+
+- [README.md](../../README.md) — o que o plugin é, CLI completa, instalação
+- [TUTORIAL.md](TUTORIAL.md) — do zero à demanda implementada, passo a passo
+- [ARCHITECTURE.md](ARCHITECTURE.md) — como o produto é construído por dentro
+- [arquitetura-visual.html](arquitetura-visual.html) — diagramas interativos e
+  simulador da cascata de decisão do `boundary_guard`
+- [CHANGELOG.md](../reference/CHANGELOG.md) — histórico de versões

@@ -203,9 +203,10 @@ Isso instala a biblioteca e o CLI `harness`. Confira:
 
 ```powershell
 harness --help
-# deve listar 18 subcomandos: compile, audit, audit-runtime, analyze,
+# deve listar 19 subcomandos: compile, audit, audit-runtime, analyze,
 #   preflight, compile-contract, task, profile, compile-session, verify,
-#   team, review, supervise, audit-team, disable, enable, status, doctor
+#   team, review, supervise, audit-team, finish, disable, enable, status,
+#   doctor
 ```
 
 ## A.2 Abrir o Claude Code com o plugin, dentro do projeto-alvo
@@ -220,7 +221,7 @@ claude --plugin-dir C:\Projetos\Harness-creator
 
 > `--plugin-dir` é um flag **de sessão** — repita toda vez que abrir o Claude
 > Code para usar as skills do plugin. (Dá para tornar permanente via
-> `~/.claude/settings.json`; ver GUIDE.md seção 10.)
+> `~/.claude/settings.json`; ver GUIDE.md seção 12.)
 
 Na sessão, as 6 skills ficam disponíveis:
 
@@ -275,7 +276,7 @@ Equivalente no CLI: `harness preflight --dir .` (JSON no stdout; exit `0`
 READY/READY_WITH_WARNINGS, `1` NOT_READY, `2` erro de uso).
 
 Detalhe completo (tabela de checks, contrato do JSON, decisões de arquitetura,
-garantia read-only, evidência E2E): [docs/preflight.md](docs/preflight.md).
+garantia read-only, evidência E2E): [docs/preflight.md](../preflight.md).
 
 ## A.4 Rodar `/harness-creator:init`
 
@@ -480,8 +481,8 @@ harness compile-contract --dir . --slug leaderboard-limit
 ```json
 {
   "contract": "leaderboard-limit",
-  "compiled_at": "2026-07-16T18:00:00+00:00",
-  "compiled_with_version": "0.17.1",
+  "compiled_at": "2026-07-29T18:00:00+00:00",
+  "compiled_with_version": "0.26.0",
   "features": [
     {
       "id": "T-01",
@@ -489,6 +490,7 @@ harness compile-contract --dir . --slug leaderboard-limit
       "files": ["backend/main.py", "tests/test_leaderboard.py"],
       "verify_cmd": "python -m pytest tests/ -v",
       "depends": [],
+      "cwd": null,
       "passes": false
     }
   ]
@@ -625,18 +627,40 @@ Duas saídas possíveis:
   spec (N falhas seguidas), caso em que ele para, registra o estado no
   `.harness/progress.md` e devolve com diagnóstico.
 
-`harness verify` **não** marca `passes:true` sozinho por padrão (evita corrida
-se múltiplos agentes escrevem o mesmo `feature_list.json` em paralelo). Numa
-sessão orquestradora sequencial única, `--mark-passed` poupa a edição manual
-do JSON a cada tarefa:
+**Desde a v0.23.0, marcar é o padrão.** `harness verify` grava `passes:true`
+no `feature_list.json` sozinho quando o `verify_cmd` sai com `exit_code == 0`,
+e diz isso no stderr:
 
-```powershell
-harness verify T-01 --dir . --mark-passed
+```
+T-01: passes:true gravado em .harness/feature_list.json — tarefa fechada
 ```
 
-Opt-in, só grava `passes:true` se o `verify_cmd` saiu com `exit_code==0` —
-não use com múltiplos agentes trabalhando o mesmo `feature_list.json` em
-paralelo (continua sem lock entre processos).
+Antes era opt-in via `--mark-passed`, e o efeito colateral aparecia no uso
+real: o verify ficava verde, a tarefa continuava `passes:false`, e
+`harness supervise` devolvia a mesma tarefa sem nada de onde deduzir o porquê.
+A flag `--mark-passed` continua aceita como no-op, por compatibilidade.
+
+Para desligar, use o **opt-out**:
+
+```powershell
+harness verify T-01 --dir . --no-mark-passed
+```
+
+Serve para fleets com múltiplos agentes escrevendo o mesmo
+`feature_list.json` em paralelo — a escrita não tem lock entre processos. Uma
+sessão orquestradora sequencial única não precisa disto.
+
+Mais duas flags úteis quando a suíte é lenta:
+
+```powershell
+harness verify T-01 --dir . --timeout 1800   # default 600s; suíte legítima mais
+                                             # lenta era morta pelo default
+harness verify T-01 --dir . --stream         # espelha stdout/stderr em tempo real
+```
+
+`--stream` é opt-in de propósito: com streaming sempre ligado, toda a saída da
+suíte entraria no contexto do agente a cada verify. Serve para o humano
+distinguir suíte lenta de suíte travada.
 
 Se, já implementando, uma tarefa precisar tocar um arquivo que não estava no
 `files[]` original (ex.: descobriu que falta o `.scss` de um componente),
@@ -677,10 +701,102 @@ harness audit-runtime --dir .
 # todo passes:true com evidência válida
 ```
 
-## B.5 O ciclo completo da demanda, resumido
+## B.5 `harness finish` — encerrar a demanda
+
+Quando `harness supervise --dir .` devolve `next: null`, todas as tarefas
+passaram. O ciclo tem um fim explícito:
+
+```powershell
+harness finish --dir .
+```
+
+Antes desse comando existir, o ciclo tinha início bem definido e **nenhum
+fim**: o repo simplesmente ficava como estava. Na prática isso acumulava sobra
+a cada demanda — o `progress.md` descrevendo um contrato de duas versões
+atrás, o `scratch/` guardando arquivos de semanas antes, e nenhuma conferência
+de que as provas registradas ainda valiam para o código em disco.
+
+São duas metades, nesta ordem e nada além disso.
+
+**1. Auditoria do fecho — só leitura.** Nunca escreve, nunca executa
+`verify_cmd`. Os bloqueadores possíveis:
+
+| `kind` | O que significa |
+|---|---|
+| `killswitch_active` | O harness está desativado — o `boundary_guard` rodou em no-op, então a demanda inteira passou sem governança. Religue e reveja o que passou antes de encerrar |
+| `no_contract` | `feature_list.json` ausente ou ilegível — não há contrato a fechar |
+| `feature_not_passed` | Alguma feature ainda sem `passes: true` |
+| `evidence_missing` | Feature com `passes: true` e nenhum arquivo de evidência — marcação à mão, o que o passo 13 do lifecycle proíbe |
+| `evidence_stale` | O `files_hash` da evidência não bate com o conteúdo atual dos `files[]`: **o código mudou depois da prova** |
+| `tree_residue` | Tracked sujo fora dos `files[]` do contrato e fora dos artefatos gerenciados pelo harness |
+
+**2. Varredura dos descartáveis — só com a auditoria limpa.** Reescreve o
+`.harness/progress.md` como demanda encerrada e esvazia o `.harness/scratch/`
+(preservando o `.gitignore` da pasta).
+
+Reprovado, o comando reporta os bloqueadores e sai com código 1 **sem varrer
+nada** — limpar por cima de um fecho quebrado apagaria justamente o rastro
+necessário para consertá-lo.
+
+O que `finish` deliberadamente **não** faz:
+
+- **`git commit` / `git push` / `gh pr create`.** Uma ação de rede irreversível
+  dentro de um subcomando que está na allowlist do agente transformaria o
+  próprio `finish` num bypass do runtime floor. É a mesma razão de
+  `enable`/`disable` estarem fora da allowlist.
+- **Gerar "sugestões de melhoria".** Isso é saída de modelo, não de CLI: aqui
+  saem os fatos, e quem redige a mensagem de fecho é o agente.
+- **Apagar histórico.** `.harness/work/`, `.harness/evidence/` e o
+  `feature_list.json` ficam intactos — são o registro do que foi feito.
+
+Um efeito colateral que importa: o `progress.md` reescrito é o que **destrava o
+contrato seguinte**. Sem ele, a sessão nova herdava o estado da demanda
+anterior e começava confusa.
+
+## B.6 Kill-switch — desligar tudo (e por que só você pode)
+
+Se o guard atrapalhar de um jeito que os três escapes do GUIDE não resolvem, o
+kill-switch desliga **todos** os hooks de uma vez:
+
+```powershell
+harness disable --dir . --note "investigando o deny de X"
+# ... mexe no que precisa ...
+harness enable --dir .
+```
+
+O estado é o arquivo `.harness/harness.disabled` (machine-local, gitignored).
+Presente, cada hook gerado faz no-op logo no topo.
+
+**O agente não consegue fazer isso.** Enquanto o harness está ativo, o
+`boundary_guard` nega, por regra de *floor*, tanto criar o sentinel
+(`Edit`/`Write`/PowerShell/redirecionamento no Bash) quanto rodar
+`harness disable`. Você, no seu terminal, não passa por hook nenhum — o hook só
+existe dentro da sessão do Claude Code.
+
+> **O cuidado que custou caro aqui.** Um kill-switch ligado é **invisível** na
+> sessão: nada avisa, nada muda de aparência. Neste repositório o guard ficou
+> em no-op por quatro dias sem ninguém notar, e tudo que passou nesse período
+> rodou sem governança nenhuma.
+>
+> ```powershell
+> harness status --dir .    # a ÚNICA fonte de verdade
+> ```
+>
+> Rode isso antes de tratar qualquer sessão como evidência de que a governança
+> estava valendo. É por isso que `harness finish` trata `killswitch_active`
+> como bloqueador de fecho.
+
+`harness status` também mostra a contagem de ciclos `disable`/`enable` desta
+máquina — o número que diz se o produto ainda precisa de mais alguma porta de
+escape ou se as que existem bastam.
+
+## B.7 O ciclo completo da demanda, resumido
 
 ```
 demanda em linguagem natural
+        │
+        ▼
+/harness-creator:preflight   (opcional — o repo está pronto?)
         │
         ▼
 /harness-creator:plan ──► spec.md + Plans.md   (IA rascunha)
@@ -692,16 +808,22 @@ VOCÊ revisa e aprova (approved_by/approved_at)   ◄── único gate humano
 harness compile-contract ──► feature_list.json
         │
         ▼
-harness compile-session ──► permissions do raio de impacto + boundary_guard
-        │                    + lifecycle + SessionStart      (reabrir sessão)
-        ▼
+harness compile-session ──► branch contract/<slug> + permissions do raio de
+        │                    impacto + boundary_guard + lifecycle + hooks
+        ▼                    de sessão                       (reabrir sessão)
 sessão trabalha sozinha dentro do raio ──► implementa ──► harness verify
         │                                                  (prova executável)
         ▼
-evidência gravada ──► passes: true destravado ──► commit em estado retomável
+evidência gravada ──► passes: true ──► aprovação humana do commit
+        │                              (descrição funcional + link file:line)
+        ▼
+commit em estado retomável ──► harness supervise devolve next: null
+        │
+        ▼
+harness finish ──► audita o fecho + varre descartáveis   ◄── fim da demanda
 ```
 
-## B.6 (Opcional) Fase 4 — time de agentes com revisão independente
+## B.8 (Opcional) Fase 4 — time de agentes com revisão independente
 
 Para demandas maiores, em vez de uma sessão só:
 
@@ -739,13 +861,23 @@ próxima feature pronta respeitando `depends[]`.
 | `harness analyze` não detecta Python | Projeto só tem `requirements.txt` | Detecção exige `pyproject.toml` ou `setup.py` — adicione um `pyproject.toml` mínimo |
 | Edição em `feature_list.json` negada | Tentativa de `passes: true` sem evidência fresca | Rode `harness verify <id>` primeiro — é o feature-lock funcionando |
 | Edição de teste negada | Arquivo de teste não está nos `files[]` da tarefa ativa | Se for legítimo, ajuste o contrato (Plans.md) e recompile; se não, é a proteção anti-enfraquecimento agindo |
-| Comando aprovado + `&&` negado | Segmento extra não prefixa comando da superfície | Declare o comando extra no contrato ou rode separado com aprovação |
+| Comando aprovado + `&&` negado | Segmento extra não prefixa comando da superfície | Declare o comando extra em `governance.extra_allowed_commands` (o próprio deny traz o bloco pronto) ou rode separado |
 | Score baixo no `/harness-creator:audit` | Drift — artefato compilado editado à mão | Edite o `harness.yaml` (fonte de verdade) e recompile |
+| Nada é bloqueado, nem o que deveria | Kill-switch ligado e esquecido — é **invisível** na sessão | `harness status --dir .`; se desativado, `harness enable`. Reveja o que passou nesse período |
+| `harness verify` verde mas `supervise` devolve a mesma tarefa | `--no-mark-passed` em uso, ou o verify é anterior à v0.23.0 | Rode sem a flag — marcar virou o padrão. O stderr do verify diz em que estado a tarefa ficou |
+| `harness finish` reprova com `evidence_stale` | O código mudou depois da prova — o `files_hash` não bate mais | Rode `harness verify <id>` de novo para regravar a evidência sobre o conteúdo atual |
+| `harness finish` reprova com `tree_residue` | Tracked sujo fora dos `files[]` do contrato | Commite ou reverta o que sobrou; artefato temporário devia estar em `.harness/scratch/` |
+| `compile-session` aborta com working tree suja | O comando exige árvore limpa para criar a branch do contrato | Commite ou dê stash. Depois de reinstalar do zero, a ordem é `analyze` → `compile` → **commit** → `compile-contract` → `compile-session` |
+| Hook aparece como `hook error` no transcript | Interpretador do hook irresolúvel (venv recriado, repo movido) | `harness doctor --dir .` — é a falha mais perigosa, porque a tool call passaria sem gate se não fosse o `\|\| exit 2` |
 
 ## Referências
 
-- [README.md](../../README.md) — o que o plugin é e como está estruturado
+- [README.md](../../README.md) — o que o plugin é, CLI completa, instalação
 - [GUIDE.md](GUIDE.md) — referência completa do dia a dia, seção por seção
+- [ARCHITECTURE.md](ARCHITECTURE.md) — como o produto é construído por dentro
+- [arquitetura-visual.html](arquitetura-visual.html) — a arquitetura em
+  diagramas interativos, com simulador da cascata de decisão
+- [docs/preflight.md](../preflight.md) — detalhe do portão de entrada
 - [CHANGELOG.md](../reference/CHANGELOG.md) — histórico de versões
 - `tests/e2e/evidence/` — evidências dos dogfoods reais que provam cada
   mecanismo descrito aqui em sessão `claude -p` de verdade

@@ -1,0 +1,1805 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark" data-persona="todos">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>harness-creator — Arquitetura Visual e Fluxo</title>
+<style>
+/* ============================ TOKENS ============================ */
+:root{
+  --bg:#0b0f16; --bg2:#0f1520; --panel:#131b27; --panel2:#182233;
+  --line:#22304a; --line2:#2e405f;
+  --tx:#dbe6f5; --tx2:#94a8c4; --tx3:#63799a;
+  --acc:#4ea3ff; --acc2:#7de3c3; --warn:#ffb454; --bad:#ff6b7a; --good:#5ddba0;
+  --vio:#b48bff; --amb:#ffcb6b;
+  --mono:ui-monospace,"Cascadia Code","JetBrains Mono",Consolas,monospace;
+  --sans:"Segoe UI",Inter,system-ui,-apple-system,sans-serif;
+  --r:12px; --sh:0 8px 28px rgba(0,0,0,.42);
+  --maxw:1180px;
+}
+html[data-theme="light"]{
+  --bg:#f4f7fb; --bg2:#eaf0f8; --panel:#ffffff; --panel2:#f3f7fd;
+  --line:#d6e1f0; --line2:#c0d0e6;
+  --tx:#16202e; --tx2:#4a5c73; --tx3:#7288a3;
+  --acc:#1668c4; --acc2:#0f8f74; --warn:#b06f00; --bad:#c0392b; --good:#12855c;
+  --vio:#6a3fc0; --amb:#9a6a00;
+  --sh:0 6px 22px rgba(20,40,70,.10);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth; scroll-padding-top:88px}
+body{
+  margin:0; background:var(--bg); color:var(--tx);
+  font-family:var(--sans); font-size:15.5px; line-height:1.62;
+  -webkit-font-smoothing:antialiased;
+}
+/* ============================ TOPBAR ============================ */
+.topbar{
+  position:sticky; top:0; z-index:60; background:color-mix(in srgb,var(--bg) 88%,transparent);
+  backdrop-filter:blur(14px); border-bottom:1px solid var(--line);
+}
+.topbar-in{max-width:var(--maxw); margin:0 auto; padding:10px 20px;
+  display:flex; align-items:center; gap:14px; flex-wrap:wrap}
+.brand{display:flex; align-items:center; gap:10px; font-weight:700; letter-spacing:-.02em}
+.brand .dot{width:11px;height:11px;border-radius:50%;background:var(--acc);
+  box-shadow:0 0 0 4px color-mix(in srgb,var(--acc) 22%,transparent)}
+.brand small{display:block;font-weight:400;font-size:11.5px;color:var(--tx3);letter-spacing:.02em}
+.spacer{flex:1}
+.pill{
+  font:600 11.5px/1 var(--sans); padding:6px 10px; border-radius:999px;
+  border:1px solid var(--line2); color:var(--tx2); background:var(--panel);
+}
+.pill.v{color:var(--acc2); border-color:color-mix(in srgb,var(--acc2) 40%,var(--line2))}
+.seg{display:flex; background:var(--panel); border:1px solid var(--line2); border-radius:999px; padding:3px}
+.seg button{
+  border:0; background:transparent; color:var(--tx2); font:600 12px var(--sans);
+  padding:5px 11px; border-radius:999px; cursor:pointer; white-space:nowrap;
+}
+.seg button[aria-pressed="true"]{background:var(--acc); color:#fff}
+html[data-theme="light"] .seg button[aria-pressed="true"]{color:#fff}
+.iconbtn{
+  border:1px solid var(--line2); background:var(--panel); color:var(--tx2);
+  width:34px;height:34px;border-radius:9px;cursor:pointer;font-size:15px;line-height:1;
+}
+.iconbtn:hover{color:var(--tx); border-color:var(--acc)}
+/* ============================ LAYOUT ============================ */
+.wrap{max-width:var(--maxw); margin:0 auto; padding:0 20px 120px;
+  display:grid; grid-template-columns:216px 1fr; gap:34px; align-items:start}
+nav.toc{position:sticky; top:78px; padding-top:26px; font-size:13.2px}
+nav.toc a{
+  display:block; color:var(--tx3); text-decoration:none; padding:5px 10px;
+  border-left:2px solid transparent; border-radius:0 6px 6px 0;
+}
+nav.toc a:hover{color:var(--tx); background:var(--panel)}
+nav.toc a.on{color:var(--acc); border-left-color:var(--acc); background:var(--panel);font-weight:600}
+nav.toc .grp{font:700 10.5px var(--sans); letter-spacing:.09em; text-transform:uppercase;
+  color:var(--tx3); opacity:.6; margin:16px 0 5px 10px}
+main{min-width:0; padding-top:26px}
+@media(max-width:940px){
+  .wrap{grid-template-columns:1fr; gap:0}
+  nav.toc{position:static; display:flex; flex-wrap:wrap; gap:4px; border-bottom:1px solid var(--line);
+    padding-bottom:14px; margin-bottom:10px}
+  nav.toc a{border-left:0; border-radius:8px; background:var(--panel); font-size:12px}
+  nav.toc .grp{display:none}
+}
+/* ============================ HERO ============================ */
+.hero{
+  border:1px solid var(--line); border-radius:18px; padding:30px 30px 26px;
+  background:
+    radial-gradient(1100px 320px at 12% -30%, color-mix(in srgb,var(--acc) 20%,transparent), transparent 60%),
+    radial-gradient(760px 300px at 96% 0%, color-mix(in srgb,var(--vio) 16%,transparent), transparent 62%),
+    var(--panel);
+  box-shadow:var(--sh); margin-bottom:34px;
+}
+.hero h1{margin:0 0 6px; font-size:32px; letter-spacing:-.03em; line-height:1.15}
+.hero .sub{color:var(--tx2); font-size:16px; max-width:70ch; margin:0 0 18px}
+.formula{
+  display:inline-flex; align-items:center; gap:12px; font:700 17px var(--mono);
+  padding:11px 18px; border-radius:12px; border:1px dashed var(--line2);
+  background:var(--bg2); margin:4px 0 18px;
+}
+.formula b{color:var(--acc)} .formula i{color:var(--acc2); font-style:normal}
+.kpis{display:grid; grid-template-columns:repeat(auto-fit,minmax(132px,1fr)); gap:12px}
+.kpi{background:var(--bg2); border:1px solid var(--line); border-radius:11px; padding:12px 14px}
+.kpi .n{font:800 24px var(--sans); letter-spacing:-.03em; color:var(--acc)}
+.kpi .l{font-size:11.5px; color:var(--tx3); text-transform:uppercase; letter-spacing:.06em}
+/* ============================ SECTIONS ============================ */
+section{margin:0 0 62px; scroll-margin-top:90px}
+h2{font-size:24px; letter-spacing:-.025em; margin:0 0 6px; display:flex; align-items:center; gap:11px}
+h2 .num{
+  font:800 12px var(--mono); color:var(--acc); background:color-mix(in srgb,var(--acc) 15%,transparent);
+  border:1px solid color-mix(in srgb,var(--acc) 34%,transparent);
+  padding:3px 8px; border-radius:7px;
+}
+h3{font-size:17px; margin:30px 0 8px; letter-spacing:-.015em}
+h4{font-size:14px; margin:20px 0 6px; color:var(--tx2); text-transform:uppercase; letter-spacing:.07em}
+p{margin:0 0 12px; color:var(--tx2)}
+p strong,li strong{color:var(--tx)}
+.lead{font-size:16.5px; color:var(--tx2); max-width:76ch}
+ul,ol{color:var(--tx2); padding-left:20px; margin:0 0 14px}
+li{margin:5px 0}
+code{font:.88em var(--mono); background:var(--bg2); border:1px solid var(--line);
+  padding:1px 5px; border-radius:5px; color:var(--acc2)}
+a{color:var(--acc)}
+/* ============================ CARDS ============================ */
+.card{background:var(--panel); border:1px solid var(--line); border-radius:var(--r); padding:18px 20px}
+.grid{display:grid; gap:14px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(215px,1fr))}
+.g4{grid-template-columns:repeat(auto-fit,minmax(168px,1fr))}
+.card h5{margin:0 0 6px; font-size:14.5px; display:flex; align-items:center; gap:8px}
+.card p{margin:0; font-size:13.6px}
+.tag{font:700 10px var(--sans); letter-spacing:.06em; text-transform:uppercase;
+  padding:3px 7px; border-radius:5px; white-space:nowrap}
+.t-ok{background:color-mix(in srgb,var(--good) 18%,transparent); color:var(--good)}
+.t-no{background:color-mix(in srgb,var(--bad) 18%,transparent); color:var(--bad)}
+.t-wr{background:color-mix(in srgb,var(--warn) 18%,transparent); color:var(--warn)}
+.t-in{background:color-mix(in srgb,var(--acc) 18%,transparent); color:var(--acc)}
+.t-vi{background:color-mix(in srgb,var(--vio) 20%,transparent); color:var(--vio)}
+.note{border-left:3px solid var(--acc); background:var(--bg2); padding:12px 16px;
+  border-radius:0 10px 10px 0; margin:16px 0; font-size:14px}
+.note.warn{border-left-color:var(--warn)}
+.note.bad{border-left-color:var(--bad)}
+.note.good{border-left-color:var(--good)}
+.note b{color:var(--tx)}
+/* ============================ TABLE ============================ */
+.tbl-wrap{overflow-x:auto; border:1px solid var(--line); border-radius:var(--r); background:var(--panel)}
+table{border-collapse:collapse; width:100%; font-size:13.4px; min-width:560px}
+th,td{text-align:left; padding:9px 13px; border-bottom:1px solid var(--line); vertical-align:top}
+th{background:var(--panel2); font:700 11.5px var(--sans); letter-spacing:.05em;
+  text-transform:uppercase; color:var(--tx3); position:sticky; top:0}
+tr:last-child td{border-bottom:0}
+tbody tr:hover{background:var(--bg2)}
+td code{white-space:nowrap}
+/* ============================ CODE ============================ */
+pre{background:var(--bg2); border:1px solid var(--line); border-radius:10px; padding:14px 16px;
+  overflow-x:auto; font:12.8px/1.6 var(--mono); color:var(--tx2); margin:0 0 14px; position:relative}
+pre b{color:var(--acc2); font-weight:600}
+pre i{color:var(--tx3); font-style:normal}
+pre em{color:var(--warn); font-style:normal}
+/* ============================ SVG ============================ */
+.figure{background:var(--panel); border:1px solid var(--line); border-radius:var(--r);
+  padding:18px; margin:16px 0; overflow-x:auto}
+.figure svg{display:block; width:100%; height:auto; min-width:620px}
+.figcap{font-size:12.3px; color:var(--tx3); margin-top:10px; text-align:center}
+.sv-box{fill:var(--panel2); stroke:var(--line2)}
+.sv-tx{fill:var(--tx); font:600 12.5px var(--sans)}
+.sv-tx2{fill:var(--tx2); font:11px var(--sans)}
+.sv-tx3{fill:var(--tx3); font:10.5px var(--mono)}
+.sv-ln{stroke:var(--line2); fill:none}
+.sv-mono{fill:var(--tx2); font:11px var(--mono)}
+/* ============================ INTERACTIVE ============================ */
+.layerbox{cursor:pointer; transition:.14s}
+.layerbox:hover rect{stroke:var(--acc); stroke-width:2}
+.layerbox.sel rect{stroke:var(--acc); stroke-width:2.4;
+  filter:drop-shadow(0 0 8px color-mix(in srgb,var(--acc) 55%,transparent))}
+.node{cursor:pointer}
+.node circle,.node rect{transition:.14s}
+.node:hover rect{stroke:var(--acc); stroke-width:2.2}
+.dim{opacity:.18; transition:.18s}
+.hl{opacity:1}
+.edge{transition:.18s}
+.edge.on{stroke:var(--acc); stroke-width:2.2}
+/* tabs */
+.tabs{display:flex; gap:6px; flex-wrap:wrap; margin:14px 0 0}
+.tabs button{
+  border:1px solid var(--line2); background:var(--panel); color:var(--tx2);
+  font:600 12.5px var(--sans); padding:7px 13px; border-radius:9px 9px 0 0; cursor:pointer;
+  border-bottom-color:transparent;
+}
+.tabs button[aria-selected="true"]{background:var(--panel2); color:var(--acc); border-color:var(--acc);
+  border-bottom-color:var(--panel2)}
+.tabpanel{border:1px solid var(--line2); border-radius:0 10px 10px 10px; padding:18px;
+  background:var(--panel2); margin-top:-1px}
+.tabpanel[hidden]{display:none}
+/* accordion */
+details{border:1px solid var(--line); border-radius:10px; background:var(--panel); margin:8px 0}
+details[open]{border-color:var(--line2)}
+summary{cursor:pointer; padding:11px 15px; font-weight:600; font-size:14px; list-style:none;
+  display:flex; align-items:center; gap:9px}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"▸"; color:var(--acc); font-size:11px; transition:.15s}
+details[open] summary::before{transform:rotate(90deg)}
+details .body{padding:0 15px 14px; font-size:13.7px; color:var(--tx2)}
+/* stepper */
+.stepper{background:var(--panel); border:1px solid var(--line); border-radius:var(--r); padding:18px}
+.stepdots{display:flex; flex-wrap:wrap; gap:5px; margin-bottom:16px}
+.stepdots button{
+  width:30px;height:30px;border-radius:8px; border:1px solid var(--line2); background:var(--bg2);
+  color:var(--tx3); font:700 11.5px var(--mono); cursor:pointer;
+}
+.stepdots button:hover{color:var(--tx); border-color:var(--acc)}
+.stepdots button[aria-current="true"]{background:var(--acc); color:#fff; border-color:var(--acc)}
+.stepdots button.ph1{box-shadow:inset 0 -3px 0 var(--acc2)}
+.stepdots button.ph2{box-shadow:inset 0 -3px 0 var(--amb)}
+.stepdots button.ph3{box-shadow:inset 0 -3px 0 var(--vio)}
+.stepbody{display:grid; grid-template-columns:56px 1fr; gap:16px; align-items:start}
+.stepnum{font:800 34px var(--sans); color:var(--acc); opacity:.35; letter-spacing:-.04em}
+.stepnav{display:flex; gap:8px; margin-top:16px; align-items:center}
+.btn{border:1px solid var(--line2); background:var(--panel2); color:var(--tx);
+  font:600 12.8px var(--sans); padding:7px 14px; border-radius:9px; cursor:pointer}
+.btn:hover{border-color:var(--acc); color:var(--acc)}
+.btn.primary{background:var(--acc); border-color:var(--acc); color:#fff}
+.btn:disabled{opacity:.35; cursor:not-allowed}
+/* simulator */
+.sim{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+@media(max-width:760px){.sim{grid-template-columns:1fr}}
+.sim input,.sim select{
+  width:100%; background:var(--bg2); border:1px solid var(--line2); color:var(--tx);
+  border-radius:9px; padding:9px 11px; font:13px var(--mono);
+}
+.sim label{display:block; font:700 11px var(--sans); letter-spacing:.06em;
+  text-transform:uppercase; color:var(--tx3); margin:12px 0 5px}
+.verdict{border-radius:11px; padding:15px 17px; border:1px solid var(--line2); background:var(--bg2)}
+.verdict .vv{font:800 21px var(--sans); letter-spacing:-.02em; display:flex; align-items:center; gap:9px}
+.verdict.allow{border-color:color-mix(in srgb,var(--good) 55%,transparent)}
+.verdict.allow .vv{color:var(--good)}
+.verdict.deny{border-color:color-mix(in srgb,var(--bad) 55%,transparent)}
+.verdict.deny .vv{color:var(--bad)}
+.verdict.ask{border-color:color-mix(in srgb,var(--warn) 55%,transparent)}
+.verdict.ask .vv{color:var(--warn)}
+.verdict .rz{font-size:13.2px; color:var(--tx2); margin-top:9px}
+.verdict .rule{font:600 11px var(--mono); color:var(--tx3); margin-top:10px;
+  border-top:1px dashed var(--line2); padding-top:9px}
+.chips{display:flex; flex-wrap:wrap; gap:6px; margin-top:9px}
+.chips button{border:1px solid var(--line2); background:var(--panel2); color:var(--tx2);
+  font:11.5px var(--mono); padding:5px 9px; border-radius:7px; cursor:pointer}
+.chips button:hover{border-color:var(--acc); color:var(--acc)}
+.cascade{list-style:none; padding:0; margin:14px 0 0; font-size:12.6px}
+.cascade li{display:flex; gap:9px; align-items:baseline; padding:5px 9px; border-radius:7px;
+  color:var(--tx3); font-family:var(--mono)}
+.cascade li .k{width:20px; text-align:right; opacity:.6}
+.cascade li.fired{background:color-mix(in srgb,var(--acc) 14%,transparent); color:var(--tx)}
+.cascade li.passed{color:var(--tx3); opacity:.55}
+.cascade li.skipped{opacity:.22}
+/* filter box */
+.filter{display:flex; gap:9px; align-items:center; margin:14px 0}
+.filter input{flex:1; background:var(--bg2); border:1px solid var(--line2); color:var(--tx);
+  border-radius:9px; padding:9px 12px; font:13px var(--sans)}
+/* legend */
+.legend{display:flex; flex-wrap:wrap; gap:14px; font-size:12px; color:var(--tx3); margin-top:12px}
+.legend span{display:flex; align-items:center; gap:6px}
+.legend i{width:12px;height:12px;border-radius:3px;display:inline-block}
+/* persona visibility */
+html[data-persona="gerente"] .lv-arch,
+html[data-persona="gerente"] .lv-dev,
+html[data-persona="arquiteto"] .lv-dev{display:none !important}
+.lvmark{font:700 9.5px var(--sans); letter-spacing:.08em; text-transform:uppercase;
+  color:var(--tx3); border:1px solid var(--line2); border-radius:4px; padding:2px 5px; margin-left:8px}
+/* footer */
+footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(--tx3);
+  font-size:12.6px; border-top:1px solid var(--line)}
+@media print{
+  .topbar,nav.toc,.stepdots,.stepnav,.chips,.tabs{display:none}
+  .wrap{grid-template-columns:1fr}
+  .tabpanel[hidden]{display:block !important}
+  html{--bg:#fff;--panel:#fff;--tx:#000;--tx2:#333}
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-in">
+    <div class="brand">
+      <span class="dot"></span>
+      <span>harness-creator<small>Arquitetura, fluxo e outcomes</small></span>
+    </div>
+    <span class="pill v">v0.26.0</span>
+    <div class="spacer"></div>
+    <div class="seg" role="group" aria-label="Perfil de leitura">
+      <button data-persona="gerente"  aria-pressed="false">Gerente</button>
+      <button data-persona="arquiteto" aria-pressed="false">Arquiteto</button>
+      <button data-persona="todos"    aria-pressed="true">Desenvolvedor</button>
+    </div>
+    <button class="iconbtn" id="theme" title="Alternar tema">◐</button>
+    <button class="iconbtn" onclick="window.print()" title="Imprimir / PDF">⎙</button>
+  </div>
+</div>
+
+<div class="wrap">
+<nav class="toc" id="toc">
+  <div class="grp">Entender</div>
+  <a href="#tldr">Em 30 segundos</a>
+  <a href="#outcomes">Outcomes</a>
+  <a href="#conceito">O conceito</a>
+  <div class="grp">Arquitetura</div>
+  <a href="#arquitetura">Camadas</a>
+  <a href="#modulos">Mapa de módulos</a>
+  <a href="#artefatos">Artefatos</a>
+  <div class="grp">Fluxo</div>
+  <a href="#ciclo">Ciclo completo</a>
+  <a href="#sequencia">Sequência</a>
+  <a href="#lifecycle">Os 17 passos</a>
+  <div class="grp">Enforcement</div>
+  <a href="#guard">Cascata de decisão</a>
+  <a href="#prova">Prova executável</a>
+  <a href="#seguranca">Floor &amp; kill-switch</a>
+  <div class="grp">Operação</div>
+  <a href="#diagnostico">Diagnóstico</a>
+  <a href="#roadmap">Roadmap</a>
+  <a href="#glossario">Glossário</a>
+</nav>
+
+<main>
+
+<!-- ==================== HERO ==================== -->
+<div class="hero">
+  <h1>Como o harness-creator transforma governança em mecanismo</h1>
+  <p class="sub">Um plugin do Claude Code que <b>compila</b> uma especificação de governança em
+  permissões, hooks e instruções que o próprio Claude Code enforça — sem executor próprio,
+  sem chave de API, sem confiar em "o agente vai obedecer".</p>
+  <div class="formula"><b>Agente</b> <span>=</span> <i>Modelo</i> <span>+</span> <b>Harness</b></div>
+  <div class="kpis">
+    <div class="kpi"><div class="n">30</div><div class="l">módulos Python</div></div>
+    <div class="kpi"><div class="n">6</div><div class="l">skills</div></div>
+    <div class="kpi"><div class="n">19</div><div class="l">subcomandos CLI</div></div>
+    <div class="kpi"><div class="n">5</div><div class="l">hooks gerados</div></div>
+    <div class="kpi"><div class="n">724</div><div class="l">testes</div></div>
+    <div class="kpi"><div class="n">17</div><div class="l">passos do ciclo</div></div>
+  </div>
+</div>
+
+<!-- ==================== 1. TLDR ==================== -->
+<section id="tldr">
+  <h2><span class="num">01</span> Em 30 segundos</h2>
+  <p class="lead">O produto resolve uma pergunta única: <strong>como deixar um agente de IA
+  trabalhar horas sem supervisão humana e ainda assim conseguir dormir à noite?</strong>
+  A resposta não é instruir melhor — é compilar a política num mecanismo que o host executa.</p>
+
+  <div class="figure">
+    <svg viewBox="0 0 980 250" role="img" aria-label="Pipeline de compilação">
+      <defs>
+        <marker id="ar" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+          <path d="M0,0 L10,4 L0,8 z" fill="var(--acc)"/>
+        </marker>
+      </defs>
+      <!-- entrada -->
+      <g class="layerbox">
+        <rect x="14" y="66" width="212" height="118" rx="12" fill="var(--bg2)" stroke="var(--line2)"/>
+        <text x="120" y="94" class="sv-tx" text-anchor="middle">O QUE VOCÊ ESCREVE</text>
+        <text x="120" y="122" class="sv-mono" text-anchor="middle">.harness/harness.yaml</text>
+        <text x="120" y="142" class="sv-mono" text-anchor="middle">.harness/work/&lt;slug&gt;/</text>
+        <text x="120" y="162" class="sv-tx3" text-anchor="middle">spec.md + Plans.md</text>
+      </g>
+      <path d="M232,125 L318,125" class="sv-ln" stroke-width="2" marker-end="url(#ar)"/>
+      <text x="275" y="114" class="sv-tx3" text-anchor="middle">compile</text>
+      <!-- compilador -->
+      <rect x="324" y="46" width="200" height="158" rx="12" fill="var(--panel2)" stroke="var(--acc)" stroke-width="1.6"/>
+      <text x="424" y="76" class="sv-tx" text-anchor="middle">COMPILADOR</text>
+      <text x="424" y="102" class="sv-mono" text-anchor="middle">compiler.py</text>
+      <text x="424" y="122" class="sv-mono" text-anchor="middle">contract.py</text>
+      <text x="424" y="142" class="sv-mono" text-anchor="middle">session_permissions.py</text>
+      <text x="424" y="162" class="sv-mono" text-anchor="middle">boundary_guard.py</text>
+      <text x="424" y="186" class="sv-tx3" text-anchor="middle">determinístico · zero LLM</text>
+      <path d="M530,125 L616,125" class="sv-ln" stroke-width="2" marker-end="url(#ar)"/>
+      <!-- saida -->
+      <rect x="622" y="30" width="342" height="58" rx="10" fill="var(--bg2)" stroke="var(--line2)"/>
+      <text x="640" y="54" class="sv-tx">.claude/settings.local.json</text>
+      <text x="640" y="72" class="sv-tx3">permissions allow/ask + registro dos hooks</text>
+      <rect x="622" y="96" width="342" height="58" rx="10" fill="var(--bg2)" stroke="var(--line2)"/>
+      <text x="640" y="120" class="sv-tx">.harness/hooks/*.py</text>
+      <text x="640" y="138" class="sv-tx3">guards PreToolUse · SessionStart · Stop</text>
+      <rect x="622" y="162" width="342" height="58" rx="10" fill="var(--bg2)" stroke="var(--line2)"/>
+      <text x="640" y="186" class="sv-tx">AGENTS.md + LIFECYCLE.md</text>
+      <text x="640" y="204" class="sv-tx3">blocos gerenciados lidos em toda sessão</text>
+      <text x="793" y="240" class="sv-tx3" text-anchor="middle">quem executa isso é o Claude Code, não o harness</text>
+    </svg>
+    <div class="figcap">Fig. 1 — O harness não roda o agente. Ele produz os artefatos que o host já sabe enforçar.</div>
+  </div>
+
+  <div class="grid g3">
+    <div class="card"><h5><span class="tag t-in">Entrada</span></h5>
+      <p>Uma spec de governança (política, TDD, orçamento) e um contrato de demanda
+      (o quê + o como), ambos legíveis e aprováveis por um humano.</p></div>
+    <div class="card"><h5><span class="tag t-vi">Transformação</span></h5>
+      <p>Compilação determinística — mesma entrada, mesma saída. Sem LLM no caminho crítico,
+      auditável byte a byte.</p></div>
+    <div class="card"><h5><span class="tag t-ok">Saída</span></h5>
+      <p>Governança nativa: o Claude Code bloqueia, pergunta e libera sozinho.
+      O agente não precisa cooperar para a regra valer.</p></div>
+  </div>
+</section>
+
+<!-- ==================== 2. OUTCOMES ==================== -->
+<section id="outcomes">
+  <h2><span class="num">02</span> Outcomes — o que o projeto entrega</h2>
+  <p class="lead">Nove resultados observáveis. Cada um tem um mecanismo concreto por trás, não
+  uma promessa de comportamento.</p>
+
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th style="width:26%">Outcome</th><th style="width:36%">Como é garantido</th>
+      <th style="width:24%">Artefato / módulo</th><th>Falha se…</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Governança que o host enforça</strong></td>
+        <td>A política vira <code>permissions</code> + hooks <code>PreToolUse</code> do Claude Code.
+        Não há executor próprio nem chave de API.</td>
+        <td><code>compiler.py</code> → <code>settings.local.json</code></td>
+        <td>…o interpretador do hook não resolve (fechado por <code>|| exit 2</code>).</td></tr>
+      <tr><td><strong>Autoridade humana num único ponto</strong></td>
+        <td>Toda decisão humana se concentra na aprovação do contrato
+        (<code>approved_by</code>/<code>approved_at</code>). Sem isso, <em>nada</em> compila.</td>
+        <td><code>contract.py</code> · <code>spec.md</code></td>
+        <td>…nunca: o gate não escreve um byte se falhar.</td></tr>
+      <tr><td><strong>Raio de impacto fechado</strong></td>
+        <td>O agente só escreve arquivos declarados em <code>files[]</code> de alguma tarefa
+        do contrato ativo. Fora disso é <code>deny</code>.</td>
+        <td><code>boundary_guard.py</code></td>
+        <td>…o path escapa por traversal (normalizado antes da checagem).</td></tr>
+      <tr><td><strong>Prova executável como única moeda</strong></td>
+        <td>Uma tarefa só é "pronta" com evidência de que o <code>verify_cmd</code> real
+        rodou e saiu 0 — com hash do conteúdo verificado.</td>
+        <td><code>verify.py</code> · <code>.harness/evidence/</code></td>
+        <td>…a evidência é mais velha que o último commit (feature-lock nega).</td></tr>
+      <tr><td><strong>Teste não pode ser enfraquecido</strong></td>
+        <td>Arquivo que casa <code>test_glob</code> só é editável se uma tarefa o declarar;
+        aprovar diff de teste exige justificativa registrada.</td>
+        <td><code>boundary_guard</code> · <code>review.py</code></td>
+        <td>…o <code>test_glob</code> do perfil e do yaml divergirem (reconciliado no compile).</td></tr>
+      <tr><td><strong>Piso de segurança incondicional</strong></td>
+        <td><code>git push</code> fora da branch do contrato, rede não planejada e escrita
+        em segredo são negados <em>antes</em> de qualquer outra avaliação.</td>
+        <td>runtime floor</td>
+        <td>…nunca por ausência de contrato — o floor precede a leitura do contrato.</td></tr>
+      <tr><td><strong>Sessão retomável</strong></td>
+        <td>A sessão nasce sabendo onde parou: progresso, contrato, feature pendente e
+        <code>git log</code> injetados no início.</td>
+        <td><code>session_start.py</code> · <code>progress.md</code></td>
+        <td>…o humano precisa recontar contexto (é o sintoma que isso elimina).</td></tr>
+      <tr><td><strong>Kill-switch só do humano</strong></td>
+        <td>Um sentinel desliga todos os hooks. O agente é impedido por regra de floor
+        de criar esse sentinel ou rodar <code>harness disable</code>.</td>
+        <td><code>killswitch.py</code></td>
+        <td>…o sentinel fica ligado sem ninguém perceber — por isso <code>harness status</code>.</td></tr>
+      <tr><td><strong>Fim de demanda determinístico</strong></td>
+        <td><code>harness finish</code> audita o fecho (evidência fresca, sem resíduo) e só
+        então varre descartáveis. Nunca toca em git.</td>
+        <td><code>finish.py</code></td>
+        <td>…a auditoria reprova: o comando reporta e para, sem limpar o rastro.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note good lv-arch">
+    <b>Princípio de projeto que amarra tudo:</b> <em>sem teatro de enforcement</em>.
+    O que não é enforçável é declarado advisory — o orçamento de tokens, por exemplo, vira
+    orientação no <code>AGENTS.md</code> com a frase explícita de que o Claude Code não expõe
+    contagem de tokens a hooks. Nada finge ser um bloqueio.
+  </div>
+
+  <div class="note lv-mgr">
+    <b>Leitura de gestão:</b> o valor não está em "o agente escreve código". Está em
+    <strong>reduzir o custo de confiar nele</strong> — o humano toca o processo uma vez
+    (aprovar o contrato) e recebe de volta trabalho com prova anexada.
+  </div>
+</section>
+
+<!-- ==================== 3. CONCEITO ==================== -->
+<section id="conceito">
+  <h2><span class="num">03</span> O conceito: por que compilar em vez de executar</h2>
+
+  <div class="grid g2">
+    <div class="card" style="border-color:color-mix(in srgb,var(--bad) 40%,var(--line))">
+      <h5><span class="tag t-no">Abordagem descartada</span> Executor próprio</h5>
+      <p>Um orquestrador que chama a API, roda o modelo em contêiner e aplica política no meio.
+      Custo: infraestrutura, chave de API, Docker, e uma segunda implementação de tudo que o
+      host já faz. Foi o desenho anterior deste projeto — abandonado no pivot de 2026-07.</p>
+    </div>
+    <div class="card" style="border-color:color-mix(in srgb,var(--good) 40%,var(--line))">
+      <h5><span class="tag t-ok">Abordagem adotada</span> Compilador de governança</h5>
+      <p>O harness produz configuração e hooks; o Claude Code executa. Zero infraestrutura,
+      zero credencial, e o enforcement roda no mesmo processo que faz as tool calls —
+      ponto onde não há como o agente passar por fora.</p>
+    </div>
+  </div>
+
+  <h3>As três leis do desenho</h3>
+  <div class="grid g3">
+    <div class="card"><h5>1 · O repo é a fonte da verdade</h5>
+      <p>Todo estado vive em arquivo. Sessão fria + injeção no SessionStart vence conversa longa —
+      contexto que só existe no chat some no primeiro compact.</p></div>
+    <div class="card"><h5>2 · Prova executável é a única moeda</h5>
+      <p>"Feito" não é uma afirmação do agente. É um <code>exit_code == 0</code> gravado com
+      timestamp e hash do conteúdo verificado.</p></div>
+    <div class="card"><h5>3 · O harness deve barrar o mínimo</h5>
+      <p>Um <code>deny</code> difícil demais empurra o humano para o kill-switch —
+      e o kill-switch é desproteção total. Cada recusa carrega o escape barato na própria mensagem.</p></div>
+  </div>
+
+  <div class="note warn lv-arch">
+    <b>Tensão assumida, não escondida:</b> a lei 3 é o contrapeso da lei 2. Toda mensagem de
+    <code>deny</code> do <code>boundary_guard</code> aponta o caminho de saída sancionado
+    (<code>harness task add-file</code>, <code>.harness/scratch/</code>,
+    <code>extra_allowed_commands</code>) justamente para que o operador não desligue tudo.
+  </div>
+</section>
+
+<!-- ==================== 4. ARQUITETURA ==================== -->
+<section id="arquitetura">
+  <h2><span class="num">04</span> Arquitetura em camadas <span class="lvmark">clicável</span></h2>
+  <p class="lead">Seis camadas. Clique em qualquer uma para ver o que ela contém e qual
+  responsabilidade ela <em>não</em> tem.</p>
+
+  <div class="figure">
+    <svg viewBox="0 0 960 470" role="img" aria-label="Arquitetura em camadas">
+      <!-- L0 host -->
+      <g class="layerbox" data-layer="host">
+        <rect x="20" y="16" width="920" height="58" rx="11" fill="var(--bg2)" stroke="var(--vio)" stroke-width="1.4"/>
+        <text x="40" y="41" class="sv-tx">CAMADA 0 · HOST — Claude Code</text>
+        <text x="40" y="60" class="sv-tx3">permissions · hooks (PreToolUse / SessionStart / Stop) · skills · subagentes</text>
+        <text x="920" y="48" class="sv-tx3" text-anchor="end">quem executa</text>
+      </g>
+      <!-- L1 superficie -->
+      <g class="layerbox" data-layer="skills">
+        <rect x="20" y="84" width="450" height="70" rx="11" fill="var(--panel2)" stroke="var(--line2)"/>
+        <text x="40" y="109" class="sv-tx">CAMADA 1a · SKILLS</text>
+        <text x="40" y="128" class="sv-tx3">preflight · init · plan · compile · audit · team</text>
+        <text x="40" y="145" class="sv-tx3">conversa com o humano, decide nada sozinha</text>
+      </g>
+      <g class="layerbox" data-layer="cli">
+        <rect x="490" y="84" width="450" height="70" rx="11" fill="var(--panel2)" stroke="var(--line2)"/>
+        <text x="510" y="109" class="sv-tx">CAMADA 1b · CLI</text>
+        <text x="510" y="128" class="sv-tx3">harness compile | compile-contract | compile-session | verify</text>
+        <text x="510" y="145" class="sv-tx3">review | supervise | finish | audit* | doctor | disable/enable</text>
+      </g>
+      <!-- L2 compiladores -->
+      <g class="layerbox" data-layer="compile">
+        <rect x="20" y="164" width="920" height="78" rx="11" fill="var(--panel2)" stroke="var(--acc)" stroke-width="1.5"/>
+        <text x="40" y="189" class="sv-tx">CAMADA 2 · COMPILADORES (determinísticos, zero LLM)</text>
+        <text x="40" y="211" class="sv-mono">compiler · contract · session_permissions · lifecycle · templates · branching · analyzer</text>
+        <text x="40" y="230" class="sv-tx3">transformam spec e contrato em artefatos; nenhum deles decide allow/deny em runtime</text>
+      </g>
+      <!-- L3 enforcement -->
+      <g class="layerbox" data-layer="guard">
+        <rect x="20" y="252" width="920" height="82" rx="11" fill="var(--panel2)" stroke="var(--bad)" stroke-width="1.5"/>
+        <text x="40" y="277" class="sv-tx">CAMADA 3 · ENFORCEMENT RUNTIME (hooks gerados, stdlib puro)</text>
+        <text x="40" y="299" class="sv-mono">boundary_guard.py · guard_tests.py · guard_test_runner.py · session_start.py · stop_hook.py</text>
+        <text x="40" y="320" class="sv-tx3">rodam FORA do pacote instalado, a cada tool call — decidem allow / ask / deny</text>
+      </g>
+      <!-- L4 prova -->
+      <g class="layerbox" data-layer="prova">
+        <rect x="20" y="344" width="450" height="72" rx="11" fill="var(--panel2)" stroke="var(--good)" stroke-width="1.4"/>
+        <text x="40" y="369" class="sv-tx">CAMADA 4 · PROVA E CONTROLE</text>
+        <text x="40" y="389" class="sv-mono">verify · review · supervisor · finish</text>
+        <text x="40" y="407" class="sv-tx3">produz e consome evidência; ordena o trabalho</text>
+      </g>
+      <g class="layerbox" data-layer="diag">
+        <rect x="490" y="344" width="450" height="72" rx="11" fill="var(--panel2)" stroke="var(--warn)" stroke-width="1.4"/>
+        <text x="510" y="369" class="sv-tx">CAMADA 5 · DIAGNÓSTICO</text>
+        <text x="510" y="389" class="sv-mono">preflight · audit · runtime_audit · team_audit · doctor · metrics</text>
+        <text x="510" y="407" class="sv-tx3">read-only; nunca corrige por conta própria</text>
+      </g>
+      <!-- transversal -->
+      <g class="layerbox" data-layer="base">
+        <rect x="20" y="426" width="920" height="34" rx="9" fill="var(--bg2)" stroke="var(--line2)" stroke-dasharray="4 3"/>
+        <text x="40" y="448" class="sv-tx3">TRANSVERSAL · config (schema pydantic) · patterns (glob→regex) · settings_paths (fronteira machine-local) · hook_launcher (fail-closed) · killswitch</text>
+      </g>
+    </svg>
+    <div id="layerdetail" class="note" style="margin-top:4px">
+      <b>Clique numa camada</b> para ver detalhe, responsabilidade e o que ela deliberadamente não faz.
+    </div>
+    <div class="figcap">Fig. 2 — Camadas. A seta de autoridade aponta para baixo; a de execução, para cima.</div>
+  </div>
+
+  <div class="lv-arch">
+  <h3>Por que a camada 3 é stdlib puro</h3>
+  <p>Os hooks rodam num processo separado, lançado pelo Claude Code, fora do pacote instalado.
+  Um <code>import harness</code> ali quebraria assim que o venv mudasse. Então o compilador
+  <strong>embute o código-fonte</strong> dos guards — inclusive o regex derivado do
+  <code>test_glob</code> e o trecho que lê o contrato — em arquivos autocontidos.</p>
+  <div class="note bad">
+    <b>A falha mais perigosa que este projeto já diagnosticou:</b> um hook registrado como
+    <code>python "&lt;script&gt;"</code> com o interpretador irresolúvel <em>não roda</em> — e,
+    pela semântica de exit code do Claude Code, a tool call <strong>passa sem gate nenhum</strong>.
+    O guard falha <em>aberto</em>. A correção mora no lançador, não no script:
+    caminho absoluto do interpretador + sufixo <code>|| exit 2</code>, sintaxe comum a
+    <code>sh</code> e <code>cmd.exe</code>.
+  </div>
+  </div>
+</section>
+
+<!-- ==================== 5. MODULOS ==================== -->
+<section id="modulos">
+  <h2><span class="num">05</span> Mapa de módulos</h2>
+  <p class="lead">Passe o mouse sobre um nó para isolar suas ligações. O grafo mostra o
+  fluxo de dados, não a árvore de imports.</p>
+
+  <div class="figure">
+    <svg viewBox="0 0 960 430" id="graph" role="img" aria-label="Grafo de módulos">
+      <defs>
+        <marker id="ga" markerWidth="9" markerHeight="7" refX="8.5" refY="3.5" orient="auto">
+          <path d="M0,0 L9,3.5 L0,7 z" fill="var(--line2)"/>
+        </marker>
+      </defs>
+      <g id="edges"></g>
+      <g id="nodes"></g>
+      <g id="cols">
+        <text x="92"  y="24" class="sv-tx3" text-anchor="middle">ENTRADA</text>
+        <text x="290" y="24" class="sv-tx3" text-anchor="middle">COMPILAÇÃO</text>
+        <text x="490" y="24" class="sv-tx3" text-anchor="middle">ARTEFATO</text>
+        <text x="680" y="24" class="sv-tx3" text-anchor="middle">RUNTIME</text>
+        <text x="878" y="24" class="sv-tx3" text-anchor="middle">PROVA / AUDIT</text>
+      </g>
+    </svg>
+    <div id="nodedetail" class="note" style="margin-top:4px"><b>Passe o mouse</b> sobre um nó.</div>
+    <div class="legend">
+      <span><i style="background:var(--acc2)"></i> spec / entrada humana</span>
+      <span><i style="background:var(--acc)"></i> compilador</span>
+      <span><i style="background:var(--vio)"></i> artefato gerado</span>
+      <span><i style="background:var(--bad)"></i> enforcement em runtime</span>
+      <span><i style="background:var(--good)"></i> prova e auditoria</span>
+    </div>
+    <div class="figcap">Fig. 3 — Grafo de fluxo: da spec ao veredito, e de volta à prova.</div>
+  </div>
+
+  <div class="lv-arch">
+  <h3>Catálogo completo <span class="lvmark">filtrável</span></h3>
+  <div class="filter">
+    <input id="modfilter" placeholder="Filtrar por nome, camada ou responsabilidade… (ex.: floor, evidência, hook)">
+    <span class="pill" id="modcount">30 módulos</span>
+  </div>
+  <div class="tbl-wrap">
+  <table id="modtable">
+    <thead><tr><th style="width:20%">Módulo</th><th style="width:11%">Camada</th><th>Responsabilidade</th></tr></thead>
+    <tbody>
+      <tr><td><code>cli.py</code></td><td>Superfície</td><td>Dispatch dos 19 subcomandos; valida <code>--dir</code> num ponto só; força UTF-8 em stdout e stderr para não corromper JSON acentuado em console cp1252.</td></tr>
+      <tr><td><code>config.py</code></td><td>Base</td><td>Schema pydantic do <code>harness.yaml</code>: política de aprovação, orçamento, comandos extras, branch por contrato, branches protegidas, TDD.</td></tr>
+      <tr><td><code>compiler.py</code></td><td>Compilação</td><td>Coração do modo plugin: yaml → permissions + hooks TDD + bloco do AGENTS.md. Merge não-destrutivo via <code>compiled-state.json</code>.</td></tr>
+      <tr><td><code>contract.py</code></td><td>Compilação</td><td>spec.md + Plans.md → <code>feature_list.json</code>. Gate de aprovação: sem <code>approved_by</code>, não escreve nada. Preserva <code>passes</code> só se a identidade da tarefa não mudou.</td></tr>
+      <tr><td><code>analyzer.py</code></td><td>Compilação</td><td>Leitura determinística do repo: linguagem, package manager, test command, test glob — cada achado com evidência. Dado não observado vira <em>unknown</em>, nunca fato.</td></tr>
+      <tr><td><code>session_permissions.py</code></td><td>Compilação</td><td>Contrato → superfície <em>enumerada</em> de permissions. Nunca wildcard: cada arquivo e cada comando derivado do contrato e do perfil, com filtro final de floor.</td></tr>
+      <tr><td><code>boundary_guard.py</code></td><td>Enforcement</td><td>Dispatcher único de fronteira. Um hook para todas as tools de escrita e comando; decide allow/deny lendo o contrato em tempo de execução. Maior módulo do projeto.</td></tr>
+      <tr><td><code>lifecycle.py</code></td><td>Compilação</td><td>Grava o bloco dos 17 passos no <code>AGENTS.md</code> com progressive disclosure e o detalhe em <code>.harness/LIFECYCLE.md</code>.</td></tr>
+      <tr><td><code>templates.py</code></td><td>Compilação</td><td>Gera <code>progress.md</code> (só se ausente — nunca sobrescreve estado) e <code>init.sh</code>/<code>init.ps1</code> (função pura do perfil; preserva script editado à mão).</td></tr>
+      <tr><td><code>session_start.py</code></td><td>Enforcement</td><td>Hook SessionStart: injeta progresso, feature pendente e git log via <code>additionalContext</code>. Não bloqueia nada.</td></tr>
+      <tr><td><code>stop_hook.py</code></td><td>Enforcement</td><td>Hook Stop: avisa o agente se há trabalho não commitado numa feature sem verificação fresca. Deliberadamente não-bloqueante.</td></tr>
+      <tr><td><code>verify.py</code></td><td>Prova</td><td>Roda o <code>verify_cmd</code> real e grava evidência com <code>exit_code</code>, <code>recorded_at</code> e <code>files_hash</code> sha256. Marca <code>passes:true</code> por padrão desde a v0.23.</td></tr>
+      <tr><td><code>review.py</code></td><td>Prova</td><td>State machine do revisor: pending → in_review → rejected|approved. Teto duro de iterações; estourou, escala ao humano em vez de aprovar sozinho.</td></tr>
+      <tr><td><code>supervisor.py</code></td><td>Prova</td><td>Devolve a próxima feature pronta respeitando <code>depends[]</code>. Chamada síncrona, não daemon.</td></tr>
+      <tr><td><code>finish.py</code></td><td>Prova</td><td>Encerra a demanda: audita o fecho (read-only) e só então varre descartáveis. Nunca chama git.</td></tr>
+      <tr><td><code>teams.py</code></td><td>Compilação</td><td>Catálogo de 6 padrões de time + análise de domínio e recomendação. Papéis de revisão nunca recebem Edit/Write.</td></tr>
+      <tr><td><code>team_audit.py</code></td><td>Diagnóstico</td><td>Papel órfão, papel sem agente gerado, ferramenta além do mínimo, drift do bloco gerenciado.</td></tr>
+      <tr><td><code>audit.py</code></td><td>Diagnóstico</td><td>Score 0-100 + findings. Dogfooding: recompila em memória e compara com o disco — divergência é drift.</td></tr>
+      <tr><td><code>runtime_audit.py</code></td><td>Diagnóstico</td><td>Audita os artefatos mutáveis: schema do feature_list, frescor da evidência, no máximo uma feature em progresso.</td></tr>
+      <tr><td><code>preflight.py</code></td><td>Diagnóstico</td><td>Laudo de prontidão do repo cru em 4 categorias, cada check não-PASS com correção acionável. Portão de entrada do ciclo.</td></tr>
+      <tr><td><code>doctor.py</code></td><td>Diagnóstico</td><td>Compara as 3 camadas de distribuição (pip, compilado, cache do plugin) e detecta hook registrado que não roda.</td></tr>
+      <tr><td><code>killswitch.py</code></td><td>Base</td><td>Sentinel <code>.harness/harness.disabled</code>. Fonte única do trecho <code>_harness_disabled()</code> embutido em todo hook.</td></tr>
+      <tr><td><code>branching.py</code></td><td>Compilação</td><td>Fluxo branch-first: posiciona o repo em <code>contract/&lt;slug&gt;</code> antes de qualquer escrita. Branch é decisão da ferramenta, não do agente.</td></tr>
+      <tr><td><code>settings_paths.py</code></td><td>Base</td><td>Fronteira machine-local: ponto único onde os cinco escritores resolvem o arquivo de settings, mais os <code>.gitignore</code> tool-owned.</td></tr>
+      <tr><td><code>hook_launcher.py</code></td><td>Base</td><td>Monta o <code>command</code> do hook com interpretador absoluto e <code>|| exit 2</code> — fecha o modo de falha aberta.</td></tr>
+      <tr><td><code>patterns.py</code></td><td>Base</td><td>Conversão glob → regex. Fonte única para compiler, analyzer, audit e os guards gerados.</td></tr>
+      <tr><td><code>profile_edit.py</code></td><td>Compilação</td><td>Correção pontual do perfil (enumeração fechada de chaves) e reconciliação do <code>test_glob</code> entre yaml e perfil.</td></tr>
+      <tr><td><code>metrics.py</code></td><td>Diagnóstico</td><td>Conta ciclos de fricção (disable / enable / compile-session). Instrumentação nunca quebra o comando que instrumenta.</td></tr>
+      <tr><td><code>install_command.py</code></td><td>Compilação</td><td>Deriva o comando de instalação de dependências a partir do package manager detectado.</td></tr>
+      <tr><td><code>governance/approval.py</code></td><td>Base</td><td>Matriz de política: quais classes de risco cada modo gateia, e o conjunto sempre gateado (rede).</td></tr>
+    </tbody>
+  </table>
+  </div>
+  </div>
+</section>
+
+<!-- ==================== 6. ARTEFATOS ==================== -->
+<section id="artefatos">
+  <h2><span class="num">06</span> Artefatos: o que é versionado, o que é da máquina</h2>
+  <p class="lead">Uma frase resolve toda a política:
+  <strong>especificação, contrato e prova são versionados; saída de compilação que carrega dado
+  de máquina é machine-local e regenerada por <code>compile</code>.</strong></p>
+
+  <div class="figure">
+    <svg viewBox="0 0 960 400" role="img" aria-label="Árvore de artefatos">
+      <rect x="18" y="14" width="460" height="372" rx="12" fill="var(--panel2)" stroke="var(--good)" stroke-width="1.4"/>
+      <text x="40" y="42" class="sv-tx">VERSIONADO — viaja no git</text>
+      <text x="40" y="60" class="sv-tx3">a intenção, o acordo e a prova</text>
+      <g class="sv-mono">
+        <text x="46" y="94">.harness/harness.yaml</text>
+        <text x="46" y="130">.harness/work/&lt;slug&gt;/spec.md</text>
+        <text x="46" y="152">.harness/work/&lt;slug&gt;/Plans.md</text>
+        <text x="46" y="188">.harness/feature_list.json</text>
+        <text x="46" y="224">.harness/evidence/&lt;id&gt;.json</text>
+        <text x="46" y="260">.harness/repo-profile.json</text>
+        <text x="46" y="296">AGENTS.md · .harness/LIFECYCLE.md</text>
+        <text x="46" y="332">.harness/progress.md</text>
+      </g>
+      <g class="sv-tx3">
+        <text x="46" y="110">a spec de governança que você escreve</text>
+        <text x="46" y="168">o contrato: o quê + o como, aprovado por um humano</text>
+        <text x="46" y="204">o contrato compilado, consumido pelos guards</text>
+        <text x="46" y="240">a prova executável: exit code, timestamp, hash</text>
+        <text x="46" y="276">fatos observados sobre o repo, com evidência</text>
+        <text x="46" y="312">as instruções lidas no início de toda sessão</text>
+        <text x="46" y="348">estado runtime — o agente escreve a cada sessão</text>
+      </g>
+
+      <rect x="500" y="14" width="442" height="372" rx="12" fill="var(--panel2)" stroke="var(--warn)" stroke-width="1.4"/>
+      <text x="522" y="42" class="sv-tx">MACHINE-LOCAL — nasce ignorado</text>
+      <text x="522" y="60" class="sv-tx3">carrega path absoluto desta máquina</text>
+      <g class="sv-mono">
+        <text x="528" y="94">.claude/settings.local.json</text>
+        <text x="528" y="140">.harness/hooks/*.py</text>
+        <text x="528" y="186">.harness/compiled-state.json</text>
+        <text x="528" y="208">.harness/compiled-state-session.json</text>
+        <text x="528" y="254">.harness/harness.disabled</text>
+        <text x="528" y="300">.harness/metrics.json</text>
+        <text x="528" y="336">.harness/scratch/**</text>
+      </g>
+      <g class="sv-tx3">
+        <text x="528" y="110">permissions + registro dos hooks (path absoluto)</text>
+        <text x="528" y="156">guards gerados, stdlib puro, não editar à mão</text>
+        <text x="528" y="224">o que é gerenciado pelo harness, para o merge</text>
+        <text x="528" y="270">sentinel do kill-switch — presente = tudo em no-op</text>
+        <text x="528" y="316">contagem de ciclos de fricção desta máquina</text>
+        <text x="528" y="352">artefato temporário; auto-ignorado, apagável</text>
+      </g>
+    </svg>
+    <div class="figcap">Fig. 4 — A fronteira. O <code>.gitignore</code> dessas regras é escrito pelo próprio produto em arquivos tool-owned, nunca no <code>.gitignore</code> da raiz.</div>
+  </div>
+
+  <div class="note warn">
+    <b>Consequência operacional aceita:</b> um clone novo <strong>não nasce governado</strong>.
+    O repositório clonado tem yaml, contrato e evidência — parece instalado — mas sem
+    <code>settings.local.json</code> nenhum hook roda. É exatamente o que
+    <code>harness doctor</code> existe para gritar.
+  </div>
+</section>
+
+<!-- ==================== 7. CICLO ==================== -->
+<section id="ciclo">
+  <h2><span class="num">07</span> O ciclo completo: Plan → Work → Review</h2>
+  <p class="lead">Três raias: o que o <strong>humano</strong> faz, o que a <strong>CLI</strong> faz
+  e o que o <strong>agente</strong> faz dentro da sessão. O único toque humano obrigatório por
+  demanda é o losango de aprovação.</p>
+
+  <div class="figure">
+    <svg viewBox="0 0 960 620" role="img" aria-label="Fluxograma do ciclo completo">
+      <defs>
+        <marker id="fa" markerWidth="9" markerHeight="7" refX="8.5" refY="3.5" orient="auto">
+          <path d="M0,0 L9,3.5 L0,7 z" fill="var(--tx3)"/>
+        </marker>
+        <marker id="fag" markerWidth="9" markerHeight="7" refX="8.5" refY="3.5" orient="auto">
+          <path d="M0,0 L9,3.5 L0,7 z" fill="var(--good)"/>
+        </marker>
+        <marker id="fab" markerWidth="9" markerHeight="7" refX="8.5" refY="3.5" orient="auto">
+          <path d="M0,0 L9,3.5 L0,7 z" fill="var(--bad)"/>
+        </marker>
+      </defs>
+      <!-- lanes -->
+      <rect x="8" y="8" width="300" height="604" rx="10" fill="var(--bg2)" stroke="var(--line)"/>
+      <rect x="322" y="8" width="300" height="604" rx="10" fill="var(--bg2)" stroke="var(--line)"/>
+      <rect x="636" y="8" width="316" height="604" rx="10" fill="var(--bg2)" stroke="var(--line)"/>
+      <text x="158" y="30" class="sv-tx3" text-anchor="middle">HUMANO</text>
+      <text x="472" y="30" class="sv-tx3" text-anchor="middle">CLI · harness</text>
+      <text x="794" y="30" class="sv-tx3" text-anchor="middle">AGENTE · sessão do Claude Code</text>
+
+      <!-- fase 0 -->
+      <rect x="352" y="46" width="240" height="42" rx="9" fill="var(--panel)" stroke="var(--line2)"/>
+      <text x="472" y="65" class="sv-tx" text-anchor="middle">harness preflight</text>
+      <text x="472" y="80" class="sv-tx3" text-anchor="middle">o repo está pronto? READY / NOT_READY</text>
+
+      <rect x="352" y="104" width="240" height="42" rx="9" fill="var(--panel)" stroke="var(--line2)"/>
+      <text x="472" y="123" class="sv-tx" text-anchor="middle">/init → harness compile</text>
+      <text x="472" y="138" class="sv-tx3" text-anchor="middle">política + TDD viram permissions e hooks</text>
+      <path d="M472,88 L472,102" class="sv-ln" stroke-width="1.6" marker-end="url(#fa)"/>
+
+      <!-- plan -->
+      <rect x="38" y="164" width="240" height="46" rx="9" fill="var(--panel)" stroke="var(--acc2)" stroke-width="1.4"/>
+      <text x="158" y="184" class="sv-tx" text-anchor="middle">descreve a demanda</text>
+      <text x="158" y="200" class="sv-tx3" text-anchor="middle">linguagem natural, sem formato</text>
+
+      <rect x="666" y="164" width="256" height="46" rx="9" fill="var(--panel)" stroke="var(--line2)"/>
+      <text x="794" y="184" class="sv-tx" text-anchor="middle">/harness-creator:plan</text>
+      <text x="794" y="200" class="sv-tx3" text-anchor="middle">redige spec.md (o quê) + Plans.md (o como)</text>
+      <path d="M278,187 L664,187" class="sv-ln" stroke-width="1.6" marker-end="url(#fa)"/>
+
+      <!-- gate -->
+      <path d="M158,232 L272,272 L158,312 L44,272 Z" fill="var(--panel)" stroke="var(--amb)" stroke-width="1.8"/>
+      <text x="158" y="266" class="sv-tx" text-anchor="middle">GATE ÚNICO</text>
+      <text x="158" y="284" class="sv-tx3" text-anchor="middle">aprova o contrato?</text>
+      <path d="M794,212 L794,240 L276,240 L200,258" class="sv-ln" stroke-width="1.6" marker-end="url(#fa)"/>
+      <text x="470" y="234" class="sv-tx3" text-anchor="middle">apresenta para aprovação</text>
+
+      <text x="80" y="330" class="sv-tx3">não → replaneja</text>
+      <path d="M44,272 L22,272 L22,340 L158,340 L158,318" class="sv-ln" stroke="var(--bad)" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#fab)"/>
+
+      <!-- compile contract -->
+      <rect x="352" y="252" width="240" height="46" rx="9" fill="var(--panel)" stroke="var(--acc)" stroke-width="1.4"/>
+      <text x="472" y="272" class="sv-tx" text-anchor="middle">harness compile-contract</text>
+      <text x="472" y="288" class="sv-tx3" text-anchor="middle">→ feature_list.json</text>
+      <path d="M272,272 L350,272" class="sv-ln" stroke="var(--good)" stroke-width="1.8" marker-end="url(#fag)"/>
+      <text x="312" y="262" class="sv-tx3" text-anchor="middle">sim</text>
+
+      <rect x="352" y="314" width="240" height="58" rx="9" fill="var(--panel)" stroke="var(--acc)" stroke-width="1.4"/>
+      <text x="472" y="334" class="sv-tx" text-anchor="middle">harness compile-session</text>
+      <text x="472" y="350" class="sv-tx3" text-anchor="middle">branch contract/&lt;slug&gt; · permissions do raio</text>
+      <text x="472" y="364" class="sv-tx3" text-anchor="middle">boundary_guard · lifecycle · SessionStart · Stop</text>
+      <path d="M472,298 L472,312" class="sv-ln" stroke-width="1.6" marker-end="url(#fa)"/>
+
+      <!-- work loop -->
+      <rect x="666" y="392" width="256" height="42" rx="9" fill="var(--panel)" stroke="var(--line2)"/>
+      <text x="794" y="411" class="sv-tx" text-anchor="middle">escolhe UMA feature pendente</text>
+      <text x="794" y="426" class="sv-tx3" text-anchor="middle">harness supervise respeita depends[]</text>
+      <path d="M592,343 L640,343 L640,413 L664,413" class="sv-ln" stroke-width="1.6" marker-end="url(#fa)"/>
+
+      <rect x="666" y="448" width="256" height="42" rx="9" fill="var(--panel)" stroke="var(--bad)" stroke-width="1.3"/>
+      <text x="794" y="467" class="sv-tx" text-anchor="middle">implementa no raio de impacto</text>
+      <text x="794" y="482" class="sv-tx3" text-anchor="middle">cada tool call passa pelo boundary_guard</text>
+      <path d="M794,434 L794,446" class="sv-ln" stroke-width="1.6" marker-end="url(#fa)"/>
+
+      <rect x="352" y="448" width="240" height="42" rx="9" fill="var(--panel)" stroke="var(--good)" stroke-width="1.4"/>
+      <text x="472" y="467" class="sv-tx" text-anchor="middle">harness verify &lt;id&gt;</text>
+      <text x="472" y="482" class="sv-tx3" text-anchor="middle">roda o verify_cmd real → evidência</text>
+      <path d="M664,469 L594,469" class="sv-ln" stroke-width="1.6" marker-end="url(#fa)"/>
+
+      <path d="M472,490 L472,516 L640,516 L640,470" class="sv-ln" stroke="var(--bad)" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#fab)"/>
+      <text x="556" y="532" class="sv-tx3" text-anchor="middle">falhou → autocorrige até a stop condition</text>
+
+      <!-- approval commit -->
+      <rect x="38" y="392" width="240" height="46" rx="9" fill="var(--panel)" stroke="var(--amb)" stroke-width="1.4"/>
+      <text x="158" y="412" class="sv-tx" text-anchor="middle">aprova o commit</text>
+      <text x="158" y="428" class="sv-tx3" text-anchor="middle">descrição funcional + link file:line</text>
+      <path d="M352,462 L300,462 L300,415 L280,415" class="sv-ln" stroke="var(--good)" stroke-width="1.6" marker-end="url(#fag)"/>
+
+      <!-- finish -->
+      <rect x="352" y="552" width="240" height="46" rx="9" fill="var(--panel)" stroke="var(--vio)" stroke-width="1.4"/>
+      <text x="472" y="572" class="sv-tx" text-anchor="middle">harness finish</text>
+      <text x="472" y="588" class="sv-tx3" text-anchor="middle">audita o fecho + varre descartáveis</text>
+      <path d="M158,438 L158,575 L350,575" class="sv-ln" stroke-width="1.6" marker-end="url(#fa)"/>
+      <text x="240" y="566" class="sv-tx3" text-anchor="middle">tudo verde</text>
+    </svg>
+    <div class="figcap">Fig. 5 — O ciclo. Note que a CLI, não o agente, é quem cria branch, compila contrato e grava evidência.</div>
+  </div>
+
+  <div class="grid g3">
+    <div class="card"><h5><span class="tag t-in">PLAN</span></h5>
+      <p>Demanda → contrato aprovável. A skill redige; o humano aprova.
+      <strong>Nada compila sem a assinatura</strong> no frontmatter.</p></div>
+    <div class="card"><h5><span class="tag t-wr">WORK</span></h5>
+      <p>Uma feature por vez, dentro do raio declarado, com autocorreção limitada por
+      stop conditions vindas do próprio <code>spec.md</code>.</p></div>
+    <div class="card"><h5><span class="tag t-ok">REVIEW</span></h5>
+      <p>Prova executável + revisão independente (opcional) + aprovação humana do commit +
+      encerramento auditado da demanda.</p></div>
+  </div>
+</section>
+
+<!-- ==================== 8. SEQUENCIA ==================== -->
+<section id="sequencia">
+  <h2><span class="num">08</span> Diagramas de sequência</h2>
+  <p class="lead">O que acontece, mensagem a mensagem, nos três momentos que definem o produto.</p>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" aria-selected="true"  data-tab="s1">A · Aprovação do contrato</button>
+    <button role="tab" aria-selected="false" data-tab="s2">B · Uma tool call qualquer</button>
+    <button role="tab" aria-selected="false" data-tab="s3">C · Verificação e fecho</button>
+  </div>
+  <div class="tabpanel" id="s1">
+    <div class="figure" style="border:0;padding:0;background:transparent"><div id="seq1"></div></div>
+    <p style="margin-top:14px"><strong>O ponto crítico:</strong> o gate é enforçado na compilação.
+    <code>compile_contract</code> não escreve um byte se o frontmatter não tiver
+    <code>approved_by</code> e <code>approved_at</code>. Não é uma instrução para a skill obedecer —
+    é uma exceção levantada no código.</p>
+  </div>
+  <div class="tabpanel" id="s2" hidden>
+    <div class="figure" style="border:0;padding:0;background:transparent"><div id="seq2"></div></div>
+    <p style="margin-top:14px"><strong>O ponto crítico:</strong> o guard não confia no
+    <code>cwd</code> do payload — ele se ancora no próprio <code>__file__</code>, que mora sempre em
+    <code>&lt;repo&gt;/.harness/hooks/</code>. Um agente que fez <code>cd</code> e não voltou não
+    desloca a raiz do repositório sob a qual a superfície é avaliada.</p>
+  </div>
+  <div class="tabpanel" id="s3" hidden>
+    <div class="figure" style="border:0;padding:0;background:transparent"><div id="seq3"></div></div>
+    <p style="margin-top:14px"><strong>O ponto crítico:</strong> o feature-lock. Marcar
+    <code>passes:true</code> exige evidência <em>mais nova que o último commit</em>. Uma evidência
+    velha não prova nada sobre o código atual — e o guard nega a edição do
+    <code>feature_list.json</code> citando o id problemático.</p>
+  </div>
+</section>
+
+<!-- ==================== 9. GUARD ==================== -->
+<section id="guard">
+  <h2><span class="num">09</span> A cascata de decisão <span class="lvmark">simulador</span></h2>
+  <p class="lead">Todo enforcement do produto cabe numa cascata ordenada. A ordem <em>é</em> a
+  segurança: o piso é avaliado antes de qualquer coisa, inclusive antes de perguntar se existe
+  contrato.</p>
+
+  <div class="figure">
+    <svg viewBox="0 0 960 300" role="img" aria-label="Ordem da cascata">
+      <defs><marker id="ca" markerWidth="9" markerHeight="7" refX="8.5" refY="3.5" orient="auto">
+        <path d="M0,0 L9,3.5 L0,7 z" fill="var(--tx3)"/></marker></defs>
+      <rect x="16" y="30" width="150" height="70" rx="10" fill="var(--panel2)" stroke="var(--vio)" stroke-width="1.5"/>
+      <text x="91" y="55" class="sv-tx" text-anchor="middle">0 · KILL-SWITCH</text>
+      <text x="91" y="73" class="sv-tx3" text-anchor="middle">sentinel presente?</text>
+      <text x="91" y="89" class="sv-tx3" text-anchor="middle">→ allow, no-op total</text>
+
+      <rect x="196" y="30" width="150" height="70" rx="10" fill="var(--panel2)" stroke="var(--bad)" stroke-width="1.8"/>
+      <text x="271" y="55" class="sv-tx" text-anchor="middle">1 · RUNTIME FLOOR</text>
+      <text x="271" y="73" class="sv-tx3" text-anchor="middle">push · rede · segredo</text>
+      <text x="271" y="89" class="sv-tx3" text-anchor="middle">plano de controle</text>
+
+      <rect x="376" y="30" width="150" height="70" rx="10" fill="var(--panel2)" stroke="var(--acc2)" stroke-width="1.4"/>
+      <text x="451" y="55" class="sv-tx" text-anchor="middle">2 · SUPERFÍCIES</text>
+      <text x="451" y="73" class="sv-tx3" text-anchor="middle">work · scratch · docs</text>
+      <text x="451" y="89" class="sv-tx3" text-anchor="middle">progress · memória</text>
+
+      <rect x="556" y="30" width="150" height="70" rx="10" fill="var(--panel2)" stroke="var(--amb)" stroke-width="1.4"/>
+      <text x="631" y="55" class="sv-tx" text-anchor="middle">3 · CONTRATO</text>
+      <text x="631" y="73" class="sv-tx3" text-anchor="middle">existe? concluído?</text>
+      <text x="631" y="89" class="sv-tx3" text-anchor="middle">bootstrap mínimo</text>
+
+      <rect x="736" y="30" width="208" height="70" rx="10" fill="var(--panel2)" stroke="var(--acc)" stroke-width="1.4"/>
+      <text x="840" y="55" class="sv-tx" text-anchor="middle">4 · RAIO DE IMPACTO</text>
+      <text x="840" y="73" class="sv-tx3" text-anchor="middle">test_glob protegido</text>
+      <text x="840" y="89" class="sv-tx3" text-anchor="middle">files[] do contrato ativo</text>
+
+      <path d="M166,65 L194,65" class="sv-ln" stroke-width="1.6" marker-end="url(#ca)"/>
+      <path d="M346,65 L374,65" class="sv-ln" stroke-width="1.6" marker-end="url(#ca)"/>
+      <path d="M526,65 L554,65" class="sv-ln" stroke-width="1.6" marker-end="url(#ca)"/>
+      <path d="M706,65 L734,65" class="sv-ln" stroke-width="1.6" marker-end="url(#ca)"/>
+
+      <text x="480" y="140" class="sv-tx2" text-anchor="middle">cada etapa pode encerrar a decisão; nenhuma etapa posterior pode reabrir o que o floor negou</text>
+
+      <rect x="16" y="164" width="928" height="120" rx="11" fill="var(--bg2)" stroke="var(--line2)" stroke-dasharray="5 4"/>
+      <text x="38" y="190" class="sv-tx">POR QUE ESTA ORDEM</text>
+      <text x="38" y="214" class="sv-tx2">Se “sem contrato → allow” fosse avaliado antes do floor, qualquer repositório sem feature_list.json teria</text>
+      <text x="38" y="234" class="sv-tx2">push, rede e escrita em segredo liberados. Era uma falha real de segurança — o floor foi movido para antes</text>
+      <text x="38" y="254" class="sv-tx2">de tudo, sem exceção, e vale com ou sem contrato ativo.</text>
+      <text x="38" y="276" class="sv-tx3">Única exceção estreita: git push da branch do contrato ativo para ela mesma — a aprovação já autorizou esse passo.</text>
+    </svg>
+    <div class="figcap">Fig. 6 — A ordem da cascata.</div>
+  </div>
+
+  <h3>Simulador da decisão</h3>
+  <p>Escolha uma tool call e veja qual regra dispara. Reproduz a ordem real da cascata
+  (versão didática — o parser completo trata mais casos de shell).</p>
+
+  <div class="card">
+    <div class="sim">
+      <div>
+        <label for="simtool">Ferramenta</label>
+        <select id="simtool">
+          <option value="Write">Write / Edit — escrever arquivo</option>
+          <option value="Bash">Bash — rodar comando</option>
+          <option value="Read">Read / Grep / Glob — leitura</option>
+        </select>
+        <label for="siminput" id="siminputlabel">Caminho do arquivo</label>
+        <input id="siminput" value="src/harness/boundary_guard.py">
+        <div class="chips" id="simchips"></div>
+
+        <label>Estado do projeto</label>
+        <div class="chips">
+          <button data-state="normal">contrato ativo (padrão)</button>
+          <button data-state="nocontract">sem contrato (bootstrap)</button>
+          <button data-state="done">contrato concluído</button>
+          <button data-state="off">kill-switch ligado</button>
+        </div>
+        <div class="note" style="margin:12px 0 0;font-size:12.6px" id="simstate">
+          <b>Contrato ativo:</b> <code>atritos-do-ciclo</code> · superfície =
+          <code>src/harness/boundary_guard.py</code>, <code>tests/test_boundary_guard.py</code>,
+          <code>src/harness/cli.py</code> · branch <code>contract/atritos-do-ciclo</code> ·
+          <code>test_glob = tests/**/*.py</code>
+        </div>
+      </div>
+      <div>
+        <label>Veredito do boundary_guard</label>
+        <div class="verdict" id="simverdict">
+          <div class="vv">—</div>
+          <div class="rz">Escolha uma entrada.</div>
+          <div class="rule"></div>
+        </div>
+        <label>Cascata percorrida</label>
+        <ul class="cascade" id="simcascade"></ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="lv-arch">
+  <h3>As quatro garantias, em ordem</h3>
+  <details open><summary><span class="tag t-no">1</span> Runtime floor — incondicional</summary>
+    <div class="body">
+      Roda antes de tudo. Nega <code>git push</code> (exceto para a branch do contrato ativo),
+      publicação e rede não planejada (<code>curl</code>, <code>wget</code>, <code>npm publish</code>,
+      <code>pip upload</code>, <code>twine upload</code>, <code>gh release</code>, e no PowerShell
+      <code>Invoke-WebRequest</code>/<code>irm</code>), redirecionamento para arquivo de segredo
+      (<code>.env</code>, <code>.pem</code>, <code>id_rsa</code>, <code>*credentials*</code>),
+      criação do sentinel de kill-switch e commit em branch protegida.
+      <p style="margin:10px 0 0"><b>Limite declarado por escrito:</b> o floor de segredo cobre
+      redirecionamento e cmdlets de escrita — não persegue escrita indireta via interpretador
+      (<code>python -c "open('.env','w')"</code>). É corrida armamentista de custo desproporcional
+      para este mecanismo, e está documentado como risco residual aceito, não como lacuna esquecida.</p>
+    </div></details>
+  <details><summary><span class="tag t-wr">2</span> Proteção contra enfraquecimento de teste</summary>
+    <div class="body">Arquivo que casa <code>test_glob</code> só é editável se alguma tarefa do
+    contrato ativo o declarar em <code>files[]</code>. Substitui o guard estático sempre-<em>ask</em>
+    por uma decisão por tarefa — o humano deixa de aprovar às cegas e passa a ver, na razão do
+    diálogo, <em>qual comportamento</em> aquele teste cobre.</div></details>
+  <details><summary><span class="tag t-in">3</span> Superfície de documentação</summary>
+    <div class="body">Escrita sob <code>docs/**</code> é sempre permitida — prosa não quebra teste.
+    Com exclusão explícita de <code>AGENTS.md</code>, <code>CLAUDE.md</code>, <code>Plans.md</code>,
+    <code>spec.md</code> e <code>.harness/harness.yaml</code>: abrir o documento de governança à
+    reescrita livre pelo agente que ele governa foi uma proposta <em>rejeitada</em>.</div></details>
+  <details><summary><span class="tag t-vi">4</span> Superfície de scratch</summary>
+    <div class="body"><code>.harness/scratch/**</code> é sempre gravável, com <code>.gitignore</code>
+    autocontido. Existe porque screenshots e dumps de verificação não pertencem a
+    <code>files[]</code> de nenhuma tarefa — e, sem um destino sancionado, acabavam soltos na raiz do
+    repositório. O floor de segredo continua precedendo:
+    <code>.harness/scratch/credentials.json</code> segue negado.</div></details>
+  </div>
+</section>
+
+<!-- ==================== 10. PROVA ==================== -->
+<section id="prova">
+  <h2><span class="num">10</span> Prova executável e revisão independente</h2>
+
+  <div class="grid g2">
+    <div>
+      <h3>O que é uma evidência</h3>
+      <p>Não é um relato. É um arquivo com schema fixo, gravado só quando o comando real rodou
+      e saiu 0:</p>
+<pre>{
+  <b>"feature_id"</b>: "T-01",
+  <b>"contract"</b>:   "atritos-do-ciclo",
+  <b>"verify_cmd"</b>: "python -m pytest tests/test_boundary_guard.py -k date -q",
+  <b>"recorded_at"</b>:"2026-07-28T21:40:12+00:00",   <i>← comparado com o último commit</i>
+  <b>"exit_code"</b>:  0,
+  <b>"files_hash"</b>: "sha256:&lt;hex&gt;"              <i>← conteúdo dos files[] no momento da prova</i>
+}</pre>
+      <div class="note good"><b>Feature-lock:</b> marcar <code>passes:true</code> só é permitido
+      se, para cada feature transicionada, existir evidência válida e <em>mais nova que
+      <code>git log -1</code></em>. Sem isso, o guard nega a edição do
+      <code>feature_list.json</code> citando o id.</div>
+    </div>
+    <div>
+      <h3>A máquina de estados da revisão</h3>
+      <div class="figure" style="margin-top:0">
+      <svg viewBox="0 0 440 300" role="img" aria-label="State machine da revisão">
+        <defs><marker id="sa" markerWidth="9" markerHeight="7" refX="8.5" refY="3.5" orient="auto">
+          <path d="M0,0 L9,3.5 L0,7 z" fill="var(--tx3)"/></marker></defs>
+        <rect x="150" y="20" width="140" height="40" rx="20" fill="var(--panel2)" stroke="var(--line2)"/>
+        <text x="220" y="45" class="sv-tx" text-anchor="middle">pending</text>
+        <rect x="150" y="110" width="140" height="40" rx="20" fill="var(--panel2)" stroke="var(--acc)" stroke-width="1.5"/>
+        <text x="220" y="135" class="sv-tx" text-anchor="middle">in_review</text>
+        <rect x="18" y="205" width="140" height="40" rx="20" fill="var(--panel2)" stroke="var(--bad)" stroke-width="1.5"/>
+        <text x="88" y="230" class="sv-tx" text-anchor="middle">rejected</text>
+        <rect x="284" y="205" width="140" height="40" rx="20" fill="var(--panel2)" stroke="var(--good)" stroke-width="1.5"/>
+        <text x="354" y="230" class="sv-tx" text-anchor="middle">approved</text>
+        <path d="M220,62 L220,106" class="sv-ln" stroke-width="1.6" marker-end="url(#sa)"/>
+        <text x="230" y="88" class="sv-tx3">submit</text>
+        <path d="M186,150 L110,203" class="sv-ln" stroke-width="1.6" marker-end="url(#sa)"/>
+        <text x="112" y="180" class="sv-tx3">reject</text>
+        <path d="M254,150 L332,203" class="sv-ln" stroke-width="1.6" marker-end="url(#sa)"/>
+        <text x="300" y="180" class="sv-tx3">approve</text>
+        <path d="M88,205 L88,170 L148,130" class="sv-ln" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#sa)"/>
+        <text x="34" y="166" class="sv-tx3">resubmit</text>
+        <text x="220" y="278" class="sv-tx3" text-anchor="middle">iteração 3 esgotada → escala ao humano,</text>
+        <text x="220" y="293" class="sv-tx3" text-anchor="middle">o status NUNCA vira approved sozinho</text>
+      </svg>
+      </div>
+    </div>
+  </div>
+
+  <h3>Padrões de time disponíveis</h3>
+  <div class="grid g3">
+    <div class="card"><h5>producer-reviewer <span class="tag t-ok">completo</span></h5>
+      <p>Produtor escreve, revisor veta. O revisor <strong>nunca</strong> recebe Edit/Write —
+      é invariante do catálogo, checado pelo <code>audit-team</code>.</p></div>
+    <div class="card"><h5>supervisor <span class="tag t-ok">completo</span></h5>
+      <p>Um orquestrador distribui features respeitando <code>depends[]</code>; também sem
+      ferramentas de escrita.</p></div>
+    <div class="card"><h5>+4 declarativos</h5>
+      <p><code>pipeline</code>, <code>expert-pool</code>, <code>fan-out-fan-in</code>,
+      <code>hierarchical-delegation</code> — templates simplificados.</p></div>
+  </div>
+  <div class="note warn lv-arch"><b>Feature-lock estendido:</b> quando o time declara
+  <code>producer</code>+<code>reviewer</code>, <code>passes:true</code> passa a exigir evidência
+  fresca <em>e</em> aprovação do revisor mais recente que a evidência. Aprovação obsoleta frente a
+  uma evidência regravada depois dela → <code>deny</code>.</div>
+</section>
+
+<!-- ==================== 11. SEGURANCA ==================== -->
+<section id="seguranca">
+  <h2><span class="num">11</span> Piso de segurança e kill-switch</h2>
+
+  <div class="grid g2">
+    <div class="card" style="border-color:color-mix(in srgb,var(--bad) 40%,var(--line))">
+      <h5>O paradoxo resolvido</h5>
+      <p>O humano precisa poder desligar tudo. O agente não pode se desligar. Os dois convivem
+      porque o <strong>hook só existe dentro da sessão do Claude Code</strong>: o usuário roda
+      <code>harness disable</code> no terminal dele, onde nenhum hook intercepta; o agente que
+      tenta o mesmo comando — ou criar o sentinel por escrita/redirecionamento — bate numa
+      regra de floor.</p>
+    </div>
+    <div class="card" style="border-color:color-mix(in srgb,var(--warn) 40%,var(--line))">
+      <h5>O risco que sobra</h5>
+      <p>Um kill-switch <strong>invisível</strong>. O guard já ficou em no-op por dias sem sinal
+      nenhum na sessão. A mitigação é operacional, não técnica: só
+      <code>harness status</code> conta a verdade — confira antes de tratar qualquer sessão
+      como evidência de que a governança estava valendo.</p>
+    </div>
+  </div>
+
+  <h3>Matriz de política</h3>
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th>Modo</th><th>read</th><th>edit</th><th>execute</th><th>network</th>
+      <th>edit_test</th><th>Quando usar</th></tr></thead>
+    <tbody>
+      <tr><td><code>paranoid</code></td><td><span class="tag t-wr">ask</span></td>
+        <td><span class="tag t-wr">ask</span></td><td><span class="tag t-wr">ask</span></td>
+        <td><span class="tag t-wr">ask</span></td><td><span class="tag t-wr">ask</span></td>
+        <td>Produção. Aprova literalmente tudo, inclusive leituras.</td></tr>
+      <tr><td><code>balanced</code></td><td><span class="tag t-ok">allow</span></td>
+        <td><span class="tag t-wr">ask</span></td><td><span class="tag t-wr">ask</span></td>
+        <td><span class="tag t-wr">ask</span></td><td><span class="tag t-wr">ask</span></td>
+        <td>Padrão recomendado. Aprova tudo que muda estado.</td></tr>
+      <tr><td><code>auto</code></td><td><span class="tag t-ok">allow</span></td>
+        <td><span class="tag t-ok">allow</span></td><td><span class="tag t-ok">allow</span></td>
+        <td><span class="tag t-wr">ask</span></td><td><span class="tag t-wr">ask</span></td>
+        <td>Autonomia total confiada. Rede e teste seguem gateados <em>sempre</em>.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p style="margin-top:10px"><strong>Rede nunca vai para <code>allow</code>, em nenhum modo.</strong>
+  E <code>edit_test</code> não é aprovado automaticamente por política nenhuma — nem em
+  <code>auto</code>.</p>
+
+  <div class="note lv-dev"><b>Nota de implementação:</b> a matriz não é duplicada no compilador.
+  Ele importa <code>_POLICY_MATRIX</code> e <code>_ALWAYS_GATED</code> de
+  <code>governance/approval.py</code> — fonte única, para as camadas nunca divergirem.
+  O mesmo vale para o glob→regex (<code>patterns.py</code>) e para os critérios de floor,
+  importados por <code>session_permissions.py</code> a partir do <code>boundary_guard</code>.</div>
+</section>
+
+<!-- ==================== 12. LIFECYCLE ==================== -->
+<section id="lifecycle">
+  <h2><span class="num">12</span> O ciclo de sessão em 17 passos <span class="lvmark">navegável</span></h2>
+  <p class="lead">É o roteiro que toda sessão de agente segue, gravado no <code>AGENTS.md</code>
+  com progressive disclosure. Use as setas ou clique num número.</p>
+
+  <div class="stepper">
+    <div class="stepdots" id="dots"></div>
+    <div class="stepbody">
+      <div class="stepnum" id="stepnum">01</div>
+      <div>
+        <h3 id="steptitle" style="margin:6px 0 6px">—</h3>
+        <p id="stepbody" style="margin:0"></p>
+        <div id="stepwhy" class="note" style="margin:14px 0 0"></div>
+      </div>
+    </div>
+    <div class="stepnav">
+      <button class="btn" id="prev">← anterior</button>
+      <button class="btn primary" id="next">próximo →</button>
+      <span class="pill" id="stepphase"></span>
+    </div>
+  </div>
+
+  <div class="legend" style="margin-top:14px">
+    <span><i style="background:var(--acc2)"></i> Passos 1–5 · orientação: descobrir onde parou</span>
+    <span><i style="background:var(--amb)"></i> Passos 6–11 · execução: uma feature, com prova</span>
+    <span><i style="background:var(--vio)"></i> Passos 12–17 · handoff: registrar, aprovar, encerrar limpo</span>
+  </div>
+</section>
+
+<!-- ==================== 13. DIAGNOSTICO ==================== -->
+<section id="diagnostico">
+  <h2><span class="num">13</span> Diagnóstico: quatro laudos, nenhum conserta sozinho</h2>
+
+  <div class="grid g2">
+    <div class="card"><h5><code>harness preflight</code> <span class="tag t-in">antes de tudo</span></h5>
+      <p>Laudo de prontidão de um repositório <em>cru</em>, read-only. Quatro categorias —
+      Git, Manifestos, Verificação/TDD, Qualidade Estática — cada check não-PASS carregando
+      uma correção acionável. Veredito: <code>READY</code> / <code>READY_WITH_WARNINGS</code> /
+      <code>NOT_READY</code>.</p></div>
+    <div class="card"><h5><code>harness audit</code> <span class="tag t-vi">drift</span></h5>
+      <p>Score 0-100 + findings. Dogfooding deliberado: em vez de reimplementar as regras,
+      <strong>recompila em memória e compara com o disco</strong>. Qualquer divergência é drift.
+      Exit 1 com qualquer finding crítico.</p></div>
+    <div class="card"><h5><code>harness audit-runtime</code> <span class="tag t-wr">invariantes</span></h5>
+      <p>Audita o que muda durante a execução: schema do <code>feature_list.json</code>,
+      presença do <code>progress.md</code>, evidência correspondente a toda feature marcada como
+      passada, e no máximo <strong>uma</strong> feature em progresso.</p></div>
+    <div class="card"><h5><code>harness doctor</code> <span class="tag t-no">falha silenciosa</span></h5>
+      <p>Compara as três camadas de distribuição — pacote pip, <code>.harness/</code> compilado,
+      cache de plugin do Claude Code — e detecta hook registrado que não roda. São falhas onde
+      nada quebra: o Claude Code apenas roda <em>menos governança</em> do que o repositório aparenta ter.</p></div>
+  </div>
+
+  <div class="figure lv-arch">
+    <svg viewBox="0 0 900 210" role="img" aria-label="Três camadas de distribuição">
+      <rect x="20" y="40" width="250" height="82" rx="11" fill="var(--panel2)" stroke="var(--line2)"/>
+      <text x="145" y="68" class="sv-tx" text-anchor="middle">1 · pacote pip</text>
+      <text x="145" y="88" class="sv-mono" text-anchor="middle">harness.__version__</text>
+      <text x="145" y="108" class="sv-tx3" text-anchor="middle">pip install --upgrade</text>
+
+      <rect x="322" y="40" width="250" height="82" rx="11" fill="var(--panel2)" stroke="var(--line2)"/>
+      <text x="447" y="68" class="sv-tx" text-anchor="middle">2 · .harness/ compilado</text>
+      <text x="447" y="88" class="sv-mono" text-anchor="middle">compiled-state.json</text>
+      <text x="447" y="108" class="sv-tx3" text-anchor="middle">harness compile --dir &lt;alvo&gt;</text>
+
+      <rect x="624" y="40" width="250" height="82" rx="11" fill="var(--panel2)" stroke="var(--line2)"/>
+      <text x="749" y="68" class="sv-tx" text-anchor="middle">3 · cache do plugin</text>
+      <text x="749" y="88" class="sv-mono" text-anchor="middle">installed_plugins.json</text>
+      <text x="749" y="108" class="sv-tx3" text-anchor="middle">claude plugin update</text>
+
+      <path d="M20,150 L874,150" class="sv-ln" stroke="var(--warn)" stroke-width="1.4" stroke-dasharray="5 4"/>
+      <text x="447" y="176" class="sv-tx2" text-anchor="middle">atualizar só uma camada deixa as outras presas na versão antiga — sem sinal nenhum</text>
+      <text x="447" y="196" class="sv-tx3" text-anchor="middle">o comportamento observado reflete sempre a camada mais atrasada · harness doctor aponta qual é</text>
+    </svg>
+    <div class="figcap">Fig. 7 — Três ciclos de atualização independentes. A causa nº 1 de "atualizei e continua com comportamento antigo".</div>
+  </div>
+</section>
+
+<!-- ==================== 14. ROADMAP ==================== -->
+<section id="roadmap">
+  <h2><span class="num">14</span> Roadmap: onde está e para onde vai</h2>
+
+  <div class="figure">
+    <svg viewBox="0 0 960 300" role="img" aria-label="Roadmap de fases">
+      <line x1="40" y1="120" x2="920" y2="120" stroke="var(--line2)" stroke-width="2"/>
+      <line x1="40" y1="120" x2="560" y2="120" stroke="var(--good)" stroke-width="4"/>
+      <g>
+        <circle cx="80"  cy="120" r="11" fill="var(--good)"/>
+        <circle cx="210" cy="120" r="11" fill="var(--good)"/>
+        <circle cx="340" cy="120" r="11" fill="var(--good)"/>
+        <circle cx="470" cy="120" r="11" fill="var(--good)"/>
+        <circle cx="640" cy="120" r="11" fill="var(--bg2)" stroke="var(--warn)" stroke-width="3"/>
+        <circle cx="770" cy="120" r="11" fill="var(--bg2)" stroke="var(--line2)" stroke-width="3"/>
+        <circle cx="890" cy="120" r="11" fill="var(--bg2)" stroke="var(--line2)" stroke-width="3"/>
+      </g>
+      <g class="sv-tx" text-anchor="middle">
+        <text x="80"  y="96">F1</text><text x="210" y="96">F2</text>
+        <text x="340" y="96">F3</text><text x="470" y="96">F4</text>
+        <text x="640" y="96">F5</text><text x="770" y="96">F6</text><text x="890" y="96">F7</text>
+      </g>
+      <g class="sv-tx3" text-anchor="middle">
+        <text x="80"  y="150">Contrato</text><text x="80"  y="164">aprovável</text>
+        <text x="210" y="150">Raio de</text><text x="210" y="164">impacto</text>
+        <text x="340" y="150">Auto-</text><text x="340" y="164">verificação</text>
+        <text x="470" y="150">Time com</text><text x="470" y="164">revisão</text>
+        <text x="640" y="150">Aprovação</text><text x="640" y="164">por máquina</text>
+        <text x="770" y="150">Driver</text><text x="770" y="164">de loop</text>
+        <text x="890" y="150">Sinais por</text><text x="890" y="164">máquina</text>
+      </g>
+      <text x="275" y="212" class="sv-tx2" text-anchor="middle">ENTREGUE · v0.11 → v0.26</text>
+      <text x="770" y="212" class="sv-tx2" text-anchor="middle">BACKLOG · rumo à autonomia total</text>
+      <rect x="40" y="228" width="880" height="56" rx="10" fill="var(--bg2)" stroke="var(--line2)" stroke-dasharray="5 4"/>
+      <text x="60" y="252" class="sv-tx3">Objetivo final: o humano fornece uma demanda complexa + critérios de qualidade; o agente executa</text>
+      <text x="60" y="272" class="sv-tx3">planejar → executar → verificar → corrigir por múltiplas sessões, sem prompts de aprovação no meio.</text>
+    </svg>
+    <div class="figcap">Fig. 8 — Fases 1–4 entregues e em uso (o projeto se governa a si mesmo). Fases 5–7 são backlog documentado.</div>
+  </div>
+
+  <h3>Onde a autonomia ainda trava — diagnóstico honesto do próprio projeto</h3>
+  <div class="grid g3">
+    <div class="card"><h5><span class="tag t-wr">1</span> O gate exige humano</h5>
+      <p>A aprovação do contrato é enforçada só na compilação. Mecanicamente, nada impede um
+      agente de preencher o frontmatter — <em>"a skill nunca se auto-aprova" é instrução,
+      não mecanismo</em>. A Fase 5 fecha isso com risk-tier determinístico + juiz independente
+      + regra de floor sobre o frontmatter.</p></div>
+    <div class="card"><h5><span class="tag t-wr">2</span> Não existe driver de loop</h5>
+      <p>O supervisor é um leitor síncrono deliberado. Ninguém encadeia feature→feature,
+      sessão→sessão. Hoje o orquestrador real só existe dentro do teste E2E.</p></div>
+    <div class="card"><h5><span class="tag t-wr">3</span> Nenhum sinal é consumido por máquina</h5>
+      <p>Orçamento é texto advisory; stop conditions são strings que ninguém conta; o
+      <code>verify</code> só grava sucesso — a falha não deixa rastro estruturado.</p></div>
+  </div>
+  <div class="note lv-arch"><b>Achado central da investigação:</b> os módulos que resolvem o item 3
+  não têm dependência dura de Docker nem de chave de API. O que os prendia à era congelada era o
+  <em>sinal</em> que consumiam, não a infraestrutura. A Fase 5–7 é, em essência, re-plumbar esses
+  sinais a partir das primitivas nativas do Claude Code — <code>--max-budget-usd</code>,
+  <code>--resume</code>, <code>--output-format json</code>, hooks Stop/PostToolUse/SubagentStop.</div>
+</section>
+
+<!-- ==================== 15. GLOSSARIO ==================== -->
+<section id="glossario">
+  <h2><span class="num">15</span> Glossário</h2>
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th style="width:22%">Termo</th><th>Significado neste projeto</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Harness</strong></td><td>A camada de governança em volta do modelo: permissões, gates, verificação e o ciclo de sessão. Não é o modelo, não é o prompt.</td></tr>
+      <tr><td><strong>Contrato</strong></td><td>O par <code>spec.md</code> (o quê: escopo, critérios, stop conditions) + <code>Plans.md</code> (o como: tarefas, arquivos, comando de verificação). É o único artefato que um humano aprova.</td></tr>
+      <tr><td><strong>Raio de impacto</strong></td><td>O conjunto de arquivos e comandos que o contrato ativo autoriza. Fora dele, o guard nega.</td></tr>
+      <tr><td><strong>Runtime floor</strong></td><td>O piso incondicional: o que nunca vira <code>allow</code>, com ou sem contrato. Avaliado antes de qualquer outra coisa.</td></tr>
+      <tr><td><strong>Feature-lock</strong></td><td>A regra que impede marcar uma tarefa como concluída sem evidência fresca (e, com time, sem aprovação do revisor mais recente que a evidência).</td></tr>
+      <tr><td><strong>Evidência</strong></td><td>JSON com o resultado real do <code>verify_cmd</code>: comando, timestamp, exit code e hash do conteúdo verificado.</td></tr>
+      <tr><td><strong>Drift</strong></td><td>Divergência entre a spec e o que está compilado em disco. Detectado por recompilação em memória + comparação.</td></tr>
+      <tr><td><strong>Machine-local</strong></td><td>Artefato que carrega dado desta máquina (path absoluto) e por isso nunca viaja no git — é regenerado por <code>compile</code>.</td></tr>
+      <tr><td><strong>Bootstrap</strong></td><td>O estado sem contrato compilado. A superfície de <em>escrita</em> segue negada; a de <em>comando</em> abre o mínimo para criar o primeiro contrato.</td></tr>
+      <tr><td><strong>Stop condition</strong></td><td>O disjuntor do loop de autocorreção, declarado no frontmatter do <code>spec.md</code>. Satisfeita qualquer uma, o agente para e devolve o controle.</td></tr>
+      <tr><td><strong>Progressive disclosure</strong></td><td>Padrão usado no <code>AGENTS.md</code>: bloco curto no arquivo lido sempre, detalhe completo num arquivo apontado.</td></tr>
+      <tr><td><strong>Dogfooding</strong></td><td>O projeto se governa com o próprio harness. Os contratos em <code>.harness/work/</code> deste repositório são o histórico real de uso.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+</main>
+</div>
+
+<footer>
+  <strong>harness-creator v0.26.0</strong> · documento gerado a partir do código-fonte em
+  <code>src/harness/</code>, <code>docs/</code> e <code>.harness/</code> ·
+  fontes primárias: <code>README.md</code>, <code>docs/plugin/GUIDE.md</code>,
+  <code>.harness/LIFECYCLE.md</code>, <code>docs/roadmap-autonomous.md</code> e os docstrings
+  dos 30 módulos.
+</footer>
+
+<script>
+/* ===================== THEME + PERSONA ===================== */
+const root=document.documentElement;
+const savedT=localStorage.getItem('hc-theme'); if(savedT) root.dataset.theme=savedT;
+document.getElementById('theme').onclick=()=>{
+  root.dataset.theme = root.dataset.theme==='dark'?'light':'dark';
+  localStorage.setItem('hc-theme',root.dataset.theme);
+};
+document.querySelectorAll('.seg button').forEach(b=>{
+  b.onclick=()=>{
+    document.querySelectorAll('.seg button').forEach(x=>x.setAttribute('aria-pressed','false'));
+    b.setAttribute('aria-pressed','true');
+    root.dataset.persona=b.dataset.persona;
+  };
+});
+
+/* ===================== SCROLLSPY ===================== */
+const links=[...document.querySelectorAll('nav.toc a')];
+const secs=links.map(a=>document.querySelector(a.getAttribute('href'))).filter(Boolean);
+const spy=new IntersectionObserver(es=>{
+  es.forEach(e=>{ if(e.isIntersecting){
+    links.forEach(l=>l.classList.toggle('on', l.getAttribute('href')==='#'+e.target.id));
+  }});
+},{rootMargin:'-90px 0px -70% 0px'});
+secs.forEach(s=>spy.observe(s));
+
+/* ===================== TABS ===================== */
+document.querySelectorAll('.tabs button').forEach(b=>{
+  b.onclick=()=>{
+    const grp=b.parentElement;
+    grp.querySelectorAll('button').forEach(x=>{
+      x.setAttribute('aria-selected','false');
+      document.getElementById(x.dataset.tab).hidden=true;
+    });
+    b.setAttribute('aria-selected','true');
+    document.getElementById(b.dataset.tab).hidden=false;
+  };
+});
+
+/* ===================== LAYER DETAIL ===================== */
+const LAYERS={
+  host:["Camada 0 — Claude Code (o host)",
+    "É quem realmente executa: lê <code>permissions</code>, dispara hooks <code>PreToolUse</code>/<code>SessionStart</code>/<code>Stop</code>, carrega skills e subagentes.",
+    "<b>Não é responsabilidade do harness:</b> rodar o modelo, gerenciar tokens ou orquestrar sessões. O harness só produz o que esta camada consome."],
+  skills:["Camada 1a — Skills",
+    "Seis skills conversacionais: <code>preflight</code> (o repo está pronto?), <code>init</code> (criar o harness), <code>plan</code> (demanda → contrato), <code>compile</code> (recompilar após editar o yaml), <code>audit</code> (score + findings), <code>team</code> (montar time de agentes).",
+    "<b>Não decidem nada sozinhas:</b> toda escrita passa por um comando da CLI, que é determinístico e testável. A skill conduz a conversa; o mecanismo mora no Python."],
+  cli:["Camada 1b — CLI <code>harness</code>",
+    "Dezenove subcomandos. Os de compilação escrevem artefatos; os de auditoria só leem; <code>verify</code> executa o comando real da tarefa; <code>disable</code>/<code>enable</code> são o kill-switch do humano.",
+    "<b>Detalhe deliberado:</b> <code>enable</code>/<code>disable</code> ficam FORA da allowlist do agente — é o que impede o <code>finish</code> ou qualquer outro subcomando de virar bypass do floor."],
+  compile:["Camada 2 — Compiladores",
+    "Transformam entrada humana em artefato: <code>compiler</code> (yaml → permissions/hooks/AGENTS.md), <code>contract</code> (spec+Plans → feature_list), <code>session_permissions</code> (contrato → superfície enumerada), <code>analyzer</code> (repo → perfil com evidência), <code>branching</code> (branch do contrato), <code>lifecycle</code> e <code>templates</code>.",
+    "<b>Invariante:</b> zero LLM, zero rede. Mesma entrada, mesma saída — é o que torna o <code>audit</code> capaz de detectar drift recompilando em memória."],
+  guard:["Camada 3 — Enforcement em runtime",
+    "Scripts autocontidos gerados pelos compiladores, rodando fora do pacote instalado a cada tool call. <code>boundary_guard.py</code> é o dispatcher único: cobre Edit, Write, MultiEdit, NotebookEdit, PowerShell e Bash num só processo.",
+    "<b>Fail-closed por dentro, fail-closed por fora:</b> qualquer exceção na avaliação vira <code>deny</code>; e o comando registrado leva <code>|| exit 2</code> para o caso de o Python nem iniciar."],
+  prova:["Camada 4 — Prova e controle",
+    "<code>verify</code> executa e grava evidência; <code>review</code> mantém a state machine do revisor; <code>supervisor</code> devolve a próxima feature respeitando dependências; <code>finish</code> encerra a demanda com auditoria antes da limpeza.",
+    "<b>Nenhum deles chama git de escrita.</b> Commit e push continuam sendo decisão explícita — do humano no passo 15, ou do floor no caso do push."],
+  diag:["Camada 5 — Diagnóstico",
+    "<code>preflight</code> (repo cru), <code>audit</code> (drift da compilação), <code>runtime_audit</code> (invariantes do que muda), <code>team_audit</code> (papéis e ferramentas), <code>doctor</code> (3 camadas de distribuição), <code>metrics</code> (ciclos de fricção).",
+    "<b>Todos read-only.</b> Emitem laudo e o comando exato para corrigir — nunca corrigem por conta própria, porque um diagnóstico que também age não é auditável."],
+  base:["Transversal — Base",
+    "<code>config</code> (schema pydantic), <code>patterns</code> (glob→regex), <code>settings_paths</code> (fronteira machine-local), <code>hook_launcher</code> (comando fail-closed), <code>killswitch</code> (sentinel + snippet embutido), <code>governance/approval</code> (matriz de política).",
+    "<b>Regra:</b> cada um é fonte ÚNICA de uma verdade. A duplicação de tabela entre camadas é o bug que este desenho existe para prevenir."]
+};
+document.querySelectorAll('.layerbox[data-layer]').forEach(g=>{
+  g.onclick=()=>{
+    document.querySelectorAll('.layerbox').forEach(x=>x.classList.remove('sel'));
+    g.classList.add('sel');
+    const d=LAYERS[g.dataset.layer];
+    document.getElementById('layerdetail').innerHTML=
+      '<b>'+d[0]+'</b><br>'+d[1]+'<br><br>'+d[2];
+  };
+});
+
+/* ===================== GRAPH ===================== */
+const GN=[
+ {id:'yaml', x:92,  y:78,  w:150,h:34, t:'harness.yaml',      c:'--acc2', d:'A spec de governança: política de aprovação, orçamento, TDD, branches protegidas, comandos extras.'},
+ {id:'spec', x:92,  y:150, w:150,h:34, t:'spec + Plans',      c:'--acc2', d:'O contrato da demanda. O quê e o como, com o gate de aprovação no frontmatter.'},
+ {id:'repo', x:92,  y:222, w:150,h:34, t:'repositório',       c:'--acc2', d:'O código real. Lido pelo analyzer para produzir fatos com evidência.'},
+ {id:'comp', x:290, y:78,  w:150,h:34, t:'compiler.py',       c:'--acc',  d:'yaml → permissions + hooks de TDD + bloco gerenciado do AGENTS.md.'},
+ {id:'cont', x:290, y:150, w:150,h:34, t:'contract.py',       c:'--acc',  d:'Gate de aprovação + compilação do contrato. Sem assinatura, não escreve nada.'},
+ {id:'anal', x:290, y:222, w:150,h:34, t:'analyzer.py',       c:'--acc',  d:'Detecta linguagem, package manager, comando e glob de teste — cada achado com evidência.'},
+ {id:'sper', x:290, y:294, w:150,h:34, t:'session_perms',     c:'--acc',  d:'Contrato + perfil → superfície ENUMERADA de permissions, com filtro final de floor.'},
+ {id:'sett', x:490, y:78,  w:150,h:34, t:'settings.local',    c:'--vio',  d:'permissions allow/ask + registro dos 5 hooks, com path absoluto desta máquina.'},
+ {id:'flst', x:490, y:150, w:150,h:34, t:'feature_list.json', c:'--vio',  d:'O contrato compilado. É a fonte que o guard lê a cada tool call.'},
+ {id:'prof', x:490, y:222, w:150,h:34, t:'repo-profile.json', c:'--vio',  d:'Fatos observados do repo. Alimenta test_glob, verify extras e scripts de init.'},
+ {id:'agmd', x:490, y:294, w:150,h:34, t:'AGENTS.md',         c:'--vio',  d:'Governança + os 17 passos, injetado como contexto em toda sessão.'},
+ {id:'bg',   x:680, y:114, w:150,h:34, t:'boundary_guard',    c:'--bad',  d:'Dispatcher único de fronteira. Decide allow/deny lendo o contrato em runtime.'},
+ {id:'gt',   x:680, y:186, w:150,h:34, t:'guard_tests',       c:'--bad',  d:'Hook de TDD: editar arquivo que casa test_glob dispara aprovação humana.'},
+ {id:'ss',   x:680, y:258, w:150,h:34, t:'session_start',     c:'--bad',  d:'Injeta progresso, feature pendente e git log no início da sessão.'},
+ {id:'sh',   x:680, y:330, w:150,h:34, t:'stop_hook',         c:'--bad',  d:'Avisa (sem bloquear) se a sessão vai terminar com trabalho não verificado.'},
+ {id:'ver',  x:878, y:114, w:150,h:34, t:'verify.py',         c:'--good', d:'Roda o verify_cmd real e grava a evidência com exit code e hash.'},
+ {id:'evi',  x:878, y:186, w:150,h:34, t:'evidence/*.json',   c:'--good', d:'A prova. Comparada com o último commit para decidir se o feature-lock abre.'},
+ {id:'aud',  x:878, y:258, w:150,h:34, t:'audit / doctor',    c:'--good', d:'Laudos read-only: drift da compilação, invariantes runtime e as 3 camadas de versão.'},
+ {id:'fin',  x:878, y:330, w:150,h:34, t:'finish.py',         c:'--good', d:'Encerra a demanda: audita o fecho e varre descartáveis. Nunca toca git.'}
+];
+const GE=[['yaml','comp'],['spec','cont'],['repo','anal'],['yaml','sper'],
+ ['comp','sett'],['cont','flst'],['anal','prof'],['comp','agmd'],['sper','sett'],
+ ['flst','sper'],['prof','sper'],
+ ['sett','bg'],['sett','gt'],['sett','ss'],['sett','sh'],
+ ['flst','bg'],['prof','bg'],['agmd','ss'],['flst','ss'],
+ ['flst','ver'],['ver','evi'],['evi','bg'],['flst','aud'],['evi','fin'],['sett','aud']];
+(function(){
+  const ne=document.getElementById('nodes'), ee=document.getElementById('edges');
+  const by={}; GN.forEach(n=>by[n.id]=n);
+  GE.forEach(([a,b])=>{
+    const A=by[a],B=by[b];
+    const x1=A.x+A.w/2, y1=A.y+17, x2=B.x-B.w/2, y2=B.y+17;
+    const mx=(x1+x2)/2;
+    const p=document.createElementNS('http://www.w3.org/2000/svg','path');
+    p.setAttribute('d',`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`);
+    p.setAttribute('class','edge sv-ln'); p.setAttribute('stroke-width','1.3');
+    p.setAttribute('marker-end','url(#ga)');
+    p.dataset.a=a; p.dataset.b=b; ee.appendChild(p);
+  });
+  GN.forEach(n=>{
+    const g=document.createElementNS('http://www.w3.org/2000/svg','g');
+    g.setAttribute('class','node'); g.dataset.id=n.id;
+    g.innerHTML=`<rect x="${n.x-n.w/2}" y="${n.y}" width="${n.w}" height="34" rx="8"
+      fill="var(--panel2)" stroke="var(${n.c})" stroke-width="1.4"/>
+      <text x="${n.x}" y="${n.y+22}" class="sv-tx" text-anchor="middle"
+      style="font-size:11.5px">${n.t}</text>`;
+    g.addEventListener('mouseenter',()=>{
+      document.getElementById('nodedetail').innerHTML='<b>'+n.t+'</b> — '+n.d;
+      document.querySelectorAll('#nodes .node').forEach(x=>x.classList.add('dim'));
+      g.classList.remove('dim');
+      document.querySelectorAll('#edges .edge').forEach(p=>{
+        if(p.dataset.a===n.id||p.dataset.b===n.id){
+          p.classList.add('on'); p.classList.remove('dim');
+          document.querySelector(`#nodes .node[data-id="${p.dataset.a}"]`).classList.remove('dim');
+          document.querySelector(`#nodes .node[data-id="${p.dataset.b}"]`).classList.remove('dim');
+        } else { p.classList.add('dim'); p.classList.remove('on'); }
+      });
+    });
+    ne.appendChild(g);
+  });
+  document.getElementById('graph').addEventListener('mouseleave',()=>{
+    document.querySelectorAll('.node,.edge').forEach(x=>{x.classList.remove('dim');x.classList.remove('on')});
+    document.getElementById('nodedetail').innerHTML='<b>Passe o mouse</b> sobre um nó.';
+  });
+})();
+
+/* ===================== MODULE FILTER ===================== */
+const mf=document.getElementById('modfilter');
+if(mf){ mf.oninput=()=>{
+  const q=mf.value.toLowerCase().trim(); let n=0;
+  document.querySelectorAll('#modtable tbody tr').forEach(tr=>{
+    const hit=!q||tr.textContent.toLowerCase().includes(q);
+    tr.style.display=hit?'':'none'; if(hit)n++;
+  });
+  document.getElementById('modcount').textContent=n+' módulo'+(n===1?'':'s');
+};}
+
+/* ===================== SEQUENCE RENDERER ===================== */
+function seq(el,spec){
+  const A=spec.actors, W=980, pad=20;
+  const colW=(W-pad*2)/A.length, top=88, rowH=44;
+  let y=top, out='', notes=0;
+  const cx=i=>pad+colW*i+colW/2;
+  spec.rows.forEach(r=>{ y+= (r.k==='note'||r.k==='sep')?38:rowH; });
+  const H=y+34;
+  A.forEach((a,i)=>{
+    out+=`<rect x="${cx(i)-colW/2+8}" y="18" width="${colW-16}" height="46" rx="9"
+      fill="var(--panel2)" stroke="var(${a.c||'--line2'})" stroke-width="1.4"/>`;
+    const words=a.n.split('|');
+    out+=`<text x="${cx(i)}" y="${words.length>1?38:47}" class="sv-tx" text-anchor="middle"
+      style="font-size:11.5px">${words[0]}</text>`;
+    if(words[1]) out+=`<text x="${cx(i)}" y="54" class="sv-tx3" text-anchor="middle">${words[1]}</text>`;
+    out+=`<line x1="${cx(i)}" y1="64" x2="${cx(i)}" y2="${H-14}" stroke="var(--line2)"
+      stroke-width="1" stroke-dasharray="4 4"/>`;
+  });
+  y=top;
+  spec.rows.forEach(r=>{
+    if(r.k==='sep'){
+      out+=`<line x1="${pad}" y1="${y-8}" x2="${W-pad}" y2="${y-8}" stroke="var(--line2)" stroke-dasharray="3 4"/>`;
+      out+=`<text x="${W/2}" y="${y+8}" class="sv-tx3" text-anchor="middle">${r.t}</text>`;
+      y+=38; return;
+    }
+    if(r.k==='note'){
+      const x1=cx(r.from), col=r.c||'--warn';
+      out+=`<rect x="${x1-colW/2+14}" y="${y-14}" width="${colW-28}" height="30" rx="7"
+        fill="var(--bg2)" stroke="var(${col})" stroke-width="1.2"/>`;
+      out+=`<text x="${x1}" y="${y+5}" class="sv-tx3" text-anchor="middle">${r.t}</text>`;
+      y+=38; return;
+    }
+    if(r.k==='self'){
+      const x1=cx(r.from);
+      out+=`<path d="M${x1},${y-6} h34 v22 h-34" fill="none" stroke="var(${r.c||'--line2'})"
+        stroke-width="1.4" marker-end="url(#qa)"/>`;
+      out+=`<text x="${x1+42}" y="${y+2}" class="sv-tx2" style="font-size:11px">${r.t}</text>`;
+      y+=rowH; return;
+    }
+    const x1=cx(r.from), x2=cx(r.to), dir=x2>x1?1:-1;
+    const col=r.c|| (r.k==='ret'?'--tx3':'--acc');
+    out+=`<line x1="${x1+dir*4}" y1="${y}" x2="${x2-dir*9}" y2="${y}" stroke="var(${col})"
+      stroke-width="1.6" ${r.k==='ret'?'stroke-dasharray="5 3"':''} marker-end="url(#qa)"/>`;
+    out+=`<text x="${(x1+x2)/2}" y="${y-8}" class="sv-tx2" text-anchor="middle"
+      style="font-size:11px">${r.t}</text>`;
+    if(r.s) out+=`<text x="${(x1+x2)/2}" y="${y+15}" class="sv-tx3" text-anchor="middle">${r.s}</text>`;
+    y+=rowH;
+  });
+  el.innerHTML=`<div class="figure"><svg viewBox="0 0 ${W} ${H}" role="img">
+    <defs><marker id="qa" markerWidth="9" markerHeight="7" refX="8.5" refY="3.5" orient="auto">
+    <path d="M0,0 L9,3.5 L0,7 z" fill="var(--acc)"/></marker></defs>${out}</svg>
+    <div class="figcap">${spec.cap}</div></div>`;
+}
+seq(document.getElementById('seq1'),{
+ cap:'Seq. A — Da demanda ao contrato compilado. O único gate humano obrigatório por demanda.',
+ actors:[{n:'Humano',c:'--acc2'},{n:'Skill|/plan'},{n:'contract.py|CLI',c:'--acc'},
+         {n:'.harness/work|spec + Plans',c:'--vio'},{n:'feature_list|+ branch',c:'--vio'}],
+ rows:[
+  {k:'msg',from:0,to:1,t:'"quero que o guard pare de bloquear X"'},
+  {k:'msg',from:1,to:3,t:'redige spec.md + Plans.md',s:'escopo, critérios, stop conditions, files[], verify_cmd'},
+  {k:'msg',from:1,to:0,t:'apresenta o contrato para aprovação',c:'--amb'},
+  {k:'note',from:0,t:'GATE HUMANO ÚNICO',c:'--amb'},
+  {k:'msg',from:0,to:3,t:'assina: approved_by + approved_at',c:'--good'},
+  {k:'sep',t:'só agora a compilação pode acontecer'},
+  {k:'msg',from:0,to:2,t:'harness compile-contract --slug <slug>'},
+  {k:'msg',from:2,to:3,t:'lê frontmatter',c:'--tx3'},
+  {k:'ret',from:3,to:2,t:'approved_by presente?'},
+  {k:'note',from:2,t:'sem assinatura → 0 bytes escritos',c:'--bad'},
+  {k:'msg',from:2,to:4,t:'grava feature_list.json',c:'--good'},
+  {k:'msg',from:0,to:2,t:'harness compile-session'},
+  {k:'msg',from:2,to:4,t:'branch contract/<slug> + permissions + guards',s:'branch-first: posiciona ANTES de qualquer escrita'}
+ ]});
+seq(document.getElementById('seq2'),{
+ cap:'Seq. B — Uma tool call de escrita. Todo o enforcement cabe entre a intenção e o disco.',
+ actors:[{n:'Agente|sessão'},{n:'Claude Code|host',c:'--vio'},{n:'boundary_guard|hook',c:'--bad'},
+         {n:'feature_list|+ profile',c:'--vio'},{n:'Disco'}],
+ rows:[
+  {k:'msg',from:0,to:1,t:'Write("src/harness/cli.py", ...)'},
+  {k:'msg',from:1,to:2,t:'PreToolUse: payload JSON no stdin',s:'tool_name, tool_input, cwd, session_id'},
+  {k:'self',from:2,t:'0 · kill-switch ativo? → allow e encerra',c:'--vio'},
+  {k:'self',from:2,t:'ancora a raiz no próprio __file__ (cwd pode ter derivado)',c:'--tx3'},
+  {k:'self',from:2,t:'1 · runtime floor: segredo / plano de controle',c:'--bad'},
+  {k:'self',from:2,t:'2 · superfícies sempre graváveis: work, scratch, progress, docs',c:'--acc2'},
+  {k:'msg',from:2,to:3,t:'lê contrato ativo + test_glob do perfil'},
+  {k:'ret',from:3,to:2,t:'files[] de todas as tarefas'},
+  {k:'self',from:2,t:'3 · o path está na superfície declarada?',c:'--acc'},
+  {k:'ret',from:2,to:1,t:'permissionDecision + permissionDecisionReason',c:'--good'},
+  {k:'note',from:1,t:'deny → a razão vira a mensagem ao agente',c:'--warn'},
+  {k:'msg',from:1,to:4,t:'só então a escrita acontece',c:'--good'}
+ ]});
+seq(document.getElementById('seq3'),{
+ cap:'Seq. C — Verificação, aprovação e fecho. A prova precede a marcação; a marcação precede o commit.',
+ actors:[{n:'Agente'},{n:'harness verify|CLI',c:'--acc'},{n:'evidence/|prova',c:'--good'},
+         {n:'boundary_guard',c:'--bad'},{n:'Humano',c:'--acc2'}],
+ rows:[
+  {k:'msg',from:0,to:1,t:'harness verify T-01'},
+  {k:'self',from:1,t:'executa o verify_cmd REAL em subprocess',c:'--acc'},
+  {k:'note',from:1,t:'exit != 0 → nada é gravado',c:'--bad'},
+  {k:'msg',from:1,to:2,t:'grava evidência: exit_code, recorded_at, files_hash',c:'--good'},
+  {k:'msg',from:1,to:0,t:'passes:true gravado — tarefa fechada',c:'--good'},
+  {k:'sep',t:'se o agente tentasse marcar à mão, o feature-lock entraria'},
+  {k:'msg',from:0,to:3,t:'Edit(feature_list.json) → passes:true'},
+  {k:'msg',from:3,to:2,t:'evidência existe e é mais nova que o último commit?'},
+  {k:'note',from:3,t:'evidência velha → deny citando o id',c:'--bad'},
+  {k:'sep',t:'passo 15 do lifecycle'},
+  {k:'msg',from:0,to:4,t:'descrição funcional + link file:line do teste',c:'--amb'},
+  {k:'note',from:4,t:'T-ID + JSON cru NÃO é aprovação legível',c:'--warn'},
+  {k:'msg',from:4,to:0,t:'OK para commitar',c:'--good'},
+  {k:'msg',from:0,to:1,t:'harness finish — audita o fecho, varre descartáveis'}
+ ]});
+
+/* ===================== LIFECYCLE STEPPER ===================== */
+const STEPS=[
+ ['Ler AGENTS.md','Primeiro passo de toda sessão: carregar a governança compilada — permissions, hooks e o próprio lifecycle — antes de tocar em qualquer arquivo.','Se o agente começasse a trabalhar antes de ler as regras, o primeiro deny seria uma surpresa em vez de uma fronteira conhecida.'],
+ ['Rodar init.sh / init.ps1','Script gerado a partir do perfil do projeto: instala dependências e roda um health check para confirmar que o ambiente é utilizável.','Descobrir que faltava uma dependência depois de três tarefas implementadas custa muito mais do que trinta segundos no início.'],
+ ['Ler .harness/progress.md','Resumo da sessão anterior: o que foi feito, o que ficou pendente, o que quebrou.','É o que elimina o humano ter que recontar contexto a cada handoff — o sintoma mais caro de sessões longas.'],
+ ['Ler feature_list.json','A lista de features do plano aprovado, cada uma com status e critério de verificação.','O contrato é a única fonte de "o que estou autorizado a fazer". Não é o chat, não é a memória.'],
+ ['Checar git log','Confirma o que foi de fato commitado, cruzando com o que progress.md e feature_list.json alegam.','Detecta divergência entre estado declarado e estado real do repositório — a classe de bug mais difícil de enxergar sem cruzar as duas fontes.'],
+ ['Escolher UMA feature pendente','Disciplina de escopo: uma feature por vez, nunca em paralelo dentro da mesma sessão.','Mantém o raio de impacto pequeno e o diff revisável. O runtime_audit trata duas features em progresso como finding crítico.'],
+ ['Planejar a implementação','Antes de editar: quais arquivos mudam, que testes cobrem a mudança, qual é o critério de pronto.','O plano é o que permite detectar cedo que a tarefa precisa de um arquivo fora da superfície — antes de bater no deny.'],
+ ['Implementar dentro do raio','Editar apenas os arquivos ligados à feature escolhida. O boundary_guard nega qualquer coisa fora dessa superfície.','Aqui a governança deixa de ser instrução e vira mecanismo: não depende de o agente lembrar da regra.'],
+ ['Rodar o verify_cmd','O comando de verificação vindo do contrato — build, lint ou suíte — é a prova executável de que a implementação funciona.','"Funciona" não é uma opinião do agente sobre o próprio trabalho. É um exit code.'],
+ ['Autocorrigir e re-rodar','Loop de autocorreção sem envolver o humano, respeitando as stop conditions declaradas no frontmatter do spec.md.','As stop conditions são o disjuntor. Sem elas, um loop de correção vira consumo infinito de contexto sobre um problema impossível.'],
+ ['Registrar a prova','Grava a evidência de que o verify_cmd passou: timestamp, comando, exit code e hash do conteúdo.','É o que autoriza o passo 13. Marcar concluído sem isso enfraquece a única garantia que o ciclo inteiro existe para proteger.'],
+ ['Atualizar progress.md','Documenta o que foi feito nesta sessão, para que a próxima retome sem perder contexto.','Fecha o ciclo com o passo 3. É bookkeeping do próprio harness — por isso o arquivo é sempre gravável, mesmo fora da superfície do contrato.'],
+ ['Marcar a feature concluída','passes:true no feature_list.json — só acontece com evidência fresca do passo 11.','O feature-lock enforça isto por mecanismo: sem evidência mais nova que o último commit, a edição é negada citando o id.'],
+ ['Documentar o que quebrou','Transparência: o que ficou incompleto ou quebrado é registrado explicitamente.','Nunca escondido atrás de um commit "limpo". Um relatório honesto de falha vale mais que um verde que ninguém confia.'],
+ ['Parar e pedir aprovação humana','Gate obrigatório antes do commit. A mensagem PRECISA conter descrição funcional em linguagem natural do comportamento que mudou e o link file:line do teste que prova.','Mostrar só o T-ID e o JSON cru do verify não é suficiente — ninguém entende o que está aprovando com isso. Foi uma correção vinda de uso real.'],
+ ['Commit em estado retomável','O commit local só acontece depois do sinal verde, e apenas com o repositório num estado que a próxima sessão consegue retomar sem arqueologia.','Push segue restrito pelo floor à branch do contrato; commit em branch protegida é negado incondicionalmente.'],
+ ['Deixar a working tree limpa','Nenhuma mudança solta fora de commit, nenhum arquivo temporário esquecido.','O handoff para a próxima sessão começa de um estado previsível. Artefatos temporários têm destino próprio: .harness/scratch/.']
+];
+let cur=0;
+const dots=document.getElementById('dots');
+STEPS.forEach((s,i)=>{
+  const b=document.createElement('button');
+  b.textContent=String(i+1).padStart(2,'0');
+  b.className = i<5?'ph1' : i<11?'ph2' : 'ph3';
+  b.onclick=()=>{cur=i;render();};
+  dots.appendChild(b);
+});
+function render(){
+  const s=STEPS[cur];
+  document.getElementById('stepnum').textContent=String(cur+1).padStart(2,'0');
+  document.getElementById('steptitle').textContent=s[0];
+  document.getElementById('stepbody').textContent=s[1];
+  document.getElementById('stepwhy').innerHTML='<b>Por que importa:</b> '+s[2];
+  document.getElementById('stepphase').textContent =
+    cur<5?'Orientação' : cur<11?'Execução' : 'Handoff';
+  document.getElementById('prev').disabled = cur===0;
+  document.getElementById('next').disabled = cur===STEPS.length-1;
+  [...dots.children].forEach((b,i)=>b.setAttribute('aria-current', i===cur?'true':'false'));
+}
+document.getElementById('prev').onclick=()=>{if(cur>0){cur--;render();}};
+document.getElementById('next').onclick=()=>{if(cur<STEPS.length-1){cur++;render();}};
+render();
+
+/* ===================== BOUNDARY GUARD SIMULATOR ===================== */
+const SURFACE=['src/harness/boundary_guard.py','tests/test_boundary_guard.py','src/harness/cli.py'];
+const CHIPS={
+ Write:['src/harness/boundary_guard.py','src/harness/compiler.py','tests/test_boundary_guard.py',
+        'tests/test_compiler.py','docs/plugin/GUIDE.md','.harness/scratch/dump.html',
+        '.harness/progress.md','.harness/harness.yaml','.claude/settings.local.json','.env'],
+ Bash:['python -m pytest tests/test_boundary_guard.py -k date -q','git status','git commit -m "fix: x"',
+       'git push origin contract/atritos-do-ciclo','git push origin main','curl https://exemplo.com',
+       'harness verify T-01','harness disable','npm publish','ruff check .',
+       'echo SECRET > .env','cat README.md && rm -rf /','pytest $(cat cmd.txt)'],
+ Read:['src/harness/verify.py','.env','qualquer/coisa.py']
+};
+let SIMSTATE='normal';
+const $=id=>document.getElementById(id);
+function chips(){
+  const t=$('simtool').value, box=$('simchips'); box.innerHTML='';
+  (CHIPS[t]||[]).forEach(v=>{
+    const b=document.createElement('button'); b.textContent=v;
+    b.onclick=()=>{$('siminput').value=v; run();};
+    box.appendChild(b);
+  });
+  $('siminputlabel').textContent = t==='Bash'?'Linha de comando':'Caminho do arquivo';
+  $('siminput').value=(CHIPS[t]||[''])[0];
+}
+const SECRET=/(^|\/)(\.env|.*\.pem|id_rsa|[^/]*credentials[^/]*)($|\.)/i;
+const CONTROL=[/^\.claude\/settings.*\.json$/i,/^\.harness\/hooks\//i,/^\.harness\/harness\.yaml$/i,
+               /^\.harness\/compiled-state.*\.json$/i,/^agents\.md$/i,/^claude\.md$/i];
+const FLOORCMD=[/\bgit\s+push\b/,/\bcurl\b/,/\bwget\b/,/\bnpm\s+publish\b/,/\bpip\s+upload\b/,
+                /\btwine\s+upload\b/,/\bgh\s+release\b/];
+/* Allowlist FIXA — vale com ou sem contrato: git local, subcomandos do proprio
+   harness, utilitarios read-only e cd intra-repo. E o "modo bootstrap". */
+const ALLOW_FIXED=[/^git\s+(status|log|diff|add|commit)\b/,
+                   /^harness\s+(compile|compile-contract|compile-session|verify|audit|audit-runtime|audit-team|analyze|preflight|review|supervise|team|task|finish|status|doctor)\b/,
+                   /^(cat|head|tail|wc|ls|echo|find|grep|rg)\b/,/^cd\s/];
+/* Derivada do CONTRATO + do repo-profile: verify_cmd, lint, typecheck, build,
+   instalacao. Sem contrato compilado, nada disto existe na superficie. */
+const ALLOW_CONTRACT=[/^python\s+-m\s+pytest\b/,/^pytest\b/,/^ruff\s+check\b/,/^pip\s+install\s+-e\b/];
+const allowCmds=()=> SIMSTATE==='nocontract' ? ALLOW_FIXED : ALLOW_FIXED.concat(ALLOW_CONTRACT);
+function evaluate(tool,val){
+  const steps=[]; const S=(k,t,st)=>steps.push({k,t,st});
+  const fire=(dec,rz,rule)=>({dec,rz,rule,steps});
+  if(SIMSTATE==='off'){
+    S(0,'kill-switch: sentinel .harness/harness.disabled presente','fired');
+    return fire('allow','O harness está desativado pelo usuário. Todos os hooks fazem no-op até `harness enable`. Nenhum gate roda — nem o floor.','killswitch._harness_disabled()');
+  }
+  S(0,'kill-switch: sentinel ausente','passed');
+  if(tool==='Read'){
+    S(1,'tool read-only conhecida (Read/Grep/Glob/Task/WebFetch/TodoWrite)','fired');
+    return fire('allow','Ferramenta de leitura na allowlist fixa — fora do escopo de escrita do boundary_guard. Um aviso é emitido se o alvo é arquivo de segredo, mas o floor de segredo é de ESCRITA.','_READONLY_ALLOWLIST_TOOLS');
+  }
+  const p=val.replace(/\\/g,'/').replace(/^\.\//,'');
+  if(tool!=='Bash'){
+    if(SECRET.test(p)){ S(1,'floor: arquivo de segredo','fired');
+      return fire('deny','Escrita em arquivo de segredo (.env / .pem / id_rsa / *credentials*) é bloqueio incondicional, com ou sem contrato ativo.','is_floor_secret_path()'); }
+    S(1,'floor: não é arquivo de segredo','passed');
+    if(CONTROL.some(r=>r.test(p)) && !/^\.harness\/(work|scratch)\//i.test(p)){
+      S(1,'floor: plano de controle','fired');
+      return fire('deny','Este arquivo DEFINE a superfície que o guard aplica — editá-lo seria auto-ampliação sem gate humano. Declará-lo em files[] não abre exceção. Edite no SEU terminal e rode `harness compile-session`.','is_floor_control_plane_path()'); }
+    S(2,'floor: plano de controle intocado','passed');
+    if(/^\.harness\/work\//i.test(p)){ S(3,'superfície: .harness/work/**','fired');
+      return fire('allow','Área de autoria de contrato, sempre gravável — permite planejar o próximo contrato sem replanejar o atual.','_is_work_surface_path()'); }
+    if(/^\.harness\/scratch\//i.test(p)){ S(3,'superfície: .harness/scratch/**','fired');
+      return fire('allow','Destino correto de artefato temporário de verificação. Auto-ignorado pelo git, apagável a qualquer momento — nunca referencie de código.','_is_scratch_surface_path()'); }
+    if(/^\.harness\/progress\.md$/i.test(p)){ S(3,'superfície: progress.md','fired');
+      return fire('allow','Bookkeeping do próprio harness — o passo 12 do lifecycle manda atualizá-lo a cada sessão. Sempre gravável.','_is_progress_file_path()'); }
+    if(/^docs\//i.test(p)){ S(3,'superfície: docs/**','fired');
+      return fire('allow','Superfície de documentação dedicada — prosa não quebra teste. AGENTS.md, CLAUDE.md, Plans.md, spec.md e harness.yaml continuam excluídos.','_is_docs_surface_path()'); }
+    S(3,'superfícies sempre graváveis: nenhuma casou','passed');
+    if(SIMSTATE==='nocontract'){ S(4,'contrato ativo: ausente','fired');
+      return fire('deny','Nenhum contrato ativo no projeto. Rode /harness-creator:plan para compilar um contrato e autorizar a superfície de edição; artefatos temporários podem ir para .harness/scratch/.','feature_list.json ausente'); }
+    if(SIMSTATE==='done'){ S(4,'contrato concluído (todas as features passam)','fired');
+      return fire('allow','O guard se aposenta da superfície de escrita até o próximo /harness-creator:plan. O floor (segredo, rede, push) continua incondicional.','_contract_fully_passed()'); }
+    S(4,'contrato ativo: atritos-do-ciclo','passed');
+    const inSurf=SURFACE.includes(p);
+    if(/^tests\/.*\.py$/i.test(p)){
+      S(5,'casa test_glob = tests/**/*.py','fired');
+      return inSurf
+        ? fire('allow','Arquivo de teste declarado em files[] de uma tarefa do contrato ativo. A permissão é por tarefa, não global.','test_glob + _path_in_surface()')
+        : fire('deny','Arquivo de teste protegido: nenhuma tarefa do contrato ativo o declara em files[] — seria enfraquecimento de teste fora do escopo aprovado.','test_glob + _path_in_surface()');
+    }
+    S(5,'não casa test_glob','passed');
+    S(6,'raio de impacto do contrato','fired');
+    return inSurf
+      ? fire('allow','Arquivo declarado em files[] de uma tarefa do contrato ativo.','_path_in_surface()')
+      : fire('deny','Fora da superfície do contrato ativo. Se este arquivo PERTENCE ao escopo já aprovado, o escape barato é `harness task add-file T-0x '+p+'` — um comando, sem replanejar. Replaneje via /harness-creator:plan só se o escopo mudou de verdade.','_evaluate_file() → deny padrão');
+  }
+  /* ---- Bash ---- */
+  const c=val.trim();
+  if(FLOORCMD.some(r=>r.test(c))){
+    if(/\bgit\s+push\b/.test(c)){
+      S(1,'floor: git push','fired');
+      if(/push\s+\S+\s+contract\//.test(c))
+        return fire('allow','Push da branch do contrato ativo para ela mesma — a aprovação do contrato já autorizou este passo. O floor segue incondicional para branch protegida, --force, --mirror, --delete e push encadeado.','_push_floor_problem() → None');
+      return fire('deny','Push fora da branch do contrato ativo. Bloqueio de floor: branch protegida, refspec explícito e flags destrutivas nunca passam.','_push_floor_problem()');
+    }
+    S(1,'floor: comando de rede/publicação','fired');
+    return fire('deny','Comando de push, publicação ou rede não planejada — bloqueio incondicional, independente de contrato ativo. Rede sempre exige aprovação humana, em qualquer política.','is_floor_bash_command()');
+  }
+  S(1,'floor: push/rede — não casou','passed');
+  if(/(>|>>|tee)\s*['"]?[^ '"]*(\.env|\.pem|id_rsa|credentials)/i.test(c)){
+    S(1,'floor: redirecionamento para segredo','fired');
+    return fire('deny','Redirecionamento (> / >> / tee) para arquivo de segredo é bloqueio incondicional. Escopo restrito a redirecionamento — não persegue escrita indireta via interpretador.','is_floor_bash_secret_redirect()');
+  }
+  S(2,'floor: redirect de segredo — não casou','passed');
+  if(/harness\s+disable/.test(c)){
+    S(2,'floor: auto-desativação','fired');
+    return fire('deny','O agente não pode se auto-desativar. Rode `harness disable` no SEU terminal, fora do Claude Code, onde nenhum hook intercepta.','is_floor_disable_command()');
+  }
+  S(3,'floor: kill-switch — não casou','passed');
+  if(/^git\s+commit\b/.test(c) && SIMSTATE!=='nocontract'){
+    S(3,'branch atual: contract/atritos-do-ciclo (não protegida)','passed');
+  }
+  if(SIMSTATE==='done'){
+    S(4,'contrato concluído','fired');
+    return fire('allow','Todas as features passam — o guard se aposenta da superfície de comando até o próximo plan. Floor e restrição de push continuam valendo.','_contract_fully_passed()');
+  }
+  if(/\$\(|`/.test(c)){
+    S(4,'command substitution detectada','fired');
+    return fire('deny','$(...) e crase não são permitidos — cada sub-comando precisa estar declarado explicitamente na superfície do contrato.','"$(" in command');
+  }
+  S(4,'command substitution: ausente','passed');
+  const segs=c.split(/&&|\|\||;|\|/).map(s=>s.trim()).filter(Boolean);
+  const ok=allowCmds();
+  const bad=segs.find(s=>!ok.some(r=>r.test(s)));
+  if(bad){
+    S(5,'segmento fora da superfície: "'+bad.slice(0,40)+'"','fired');
+    if(SIMSTATE==='nocontract')
+      return fire('deny','Sem contrato ativo, só ficam liberados git local, subcomandos do próprio harness, utilitários read-only e cd intra-repo. Rode /harness-creator:plan — ou declare o comando em governance.extra_allowed_commands no harness.yaml.','_no_contract_command_deny()');
+    return fire('deny','Segmento fora da superfície compilada do contrato (verify_cmd, lint, typecheck, build, install, git local). Cada segmento é avaliado separadamente — colar um comando arbitrário com && a um declarado não escapa.','_segment_prefixes_any()');
+  }
+  S(5,'todos os segmentos na superfície','fired');
+  return fire('allow','Comando na superfície compilada do contrato (verify_cmd / lint / build / install / git local), utilitário read-only ou cd intra-repo.','_evaluate_bash() → allow');
+}
+const CASCADE_ALL=['kill-switch','runtime floor','plano de controle','superfícies livres','contrato ativo','test_glob / segmentos','raio de impacto'];
+function run(){
+  const r=evaluate($('simtool').value,$('siminput').value);
+  const v=$('simverdict');
+  v.className='verdict '+r.dec;
+  v.querySelector('.vv').textContent = r.dec==='allow'?'✓ ALLOW':(r.dec==='ask'?'? ASK':'✕ DENY');
+  v.querySelector('.rz').textContent = r.rz;
+  v.querySelector('.rule').textContent = 'regra: '+r.rule;
+  const ul=$('simcascade'); ul.innerHTML='';
+  r.steps.forEach((s,i)=>{
+    const li=document.createElement('li'); li.className=s.st;
+    li.innerHTML='<span class="k">'+i+'</span><span>'+s.t+'</span>';
+    ul.appendChild(li);
+  });
+}
+$('simtool').onchange=()=>{chips();run();};
+$('siminput').oninput=run;
+document.querySelectorAll('[data-state]').forEach(b=>{
+  b.onclick=()=>{
+    SIMSTATE=b.dataset.state;
+    document.querySelectorAll('[data-state]').forEach(x=>x.style.borderColor='');
+    b.style.borderColor='var(--acc)';
+    const M={
+      normal:'<b>Contrato ativo:</b> <code>atritos-do-ciclo</code> · superfície = <code>src/harness/boundary_guard.py</code>, <code>tests/test_boundary_guard.py</code>, <code>src/harness/cli.py</code> · branch <code>contract/atritos-do-ciclo</code> · <code>test_glob = tests/**/*.py</code>',
+      nocontract:'<b>Bootstrap:</b> não há <code>feature_list.json</code>. A superfície de ESCRITA continua negada; a de COMANDO abre o mínimo (git local + subcomandos do harness + utilitários read-only) para que o primeiro contrato possa ser criado.',
+      done:'<b>Contrato concluído:</b> todas as features com <code>passes:true</code>. O guard se aposenta das superfícies de escrita e comando até o próximo <code>/harness-creator:plan</code> — mas o floor continua incondicional.',
+      off:'<b>Kill-switch ligado:</b> o sentinel <code>.harness/harness.disabled</code> existe. Todos os hooks fazem no-op. Só <code>harness status</code> revela isso — a sessão não dá sinal nenhum.'
+    };
+    $('simstate').innerHTML=M[SIMSTATE];
+    run();
+  };
+});
+chips(); run();
+</script>
+</body>
+</html>
