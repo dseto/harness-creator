@@ -46,11 +46,19 @@ def _write_installed_plugins(tmp_path: Path, plugin_id: str, version: str) -> Pa
 
 # ---------------- compiled_version ----------------
 
-def test_compiled_version_none_when_never_compiled(tmp_path: Path) -> None:
+def test_a_directory_that_does_not_use_the_harness_is_never_scolded(tmp_path: Path) -> None:
+    """Diretório cru: nunca compilado, sem settings, sem instalação de plugin.
+    Tudo isso é NOTA, não issue — o gate do doctor é a config versionada
+    (`harness.yaml`), não a ausência do estado de máquina."""
     report = run_doctor(tmp_path, plugins_file=tmp_path / "no-such-file.json")
+
+    assert report.ok
     assert report.compiled_version is None
     assert any("ainda não foi compilado" in n for n in report.notes)
-    assert report.ok  # nunca compilado é nota, não issue
+    assert report.plugin_installs == []
+    assert any("nenhuma instalação" in n for n in report.notes)
+    assert report.hooks == []
+    assert not any(MANAGED_SETTINGS_FILE in i for i in report.issues)
 
 
 def test_compiled_version_matching_pip_is_ok(tmp_path: Path) -> None:
@@ -68,13 +76,6 @@ def test_compiled_version_mismatch_is_issue(tmp_path: Path) -> None:
 
 
 # ---------------- plugin_installs ----------------
-
-def test_no_plugin_installs_found_is_note_not_issue(tmp_path: Path) -> None:
-    report = run_doctor(tmp_path, plugins_file=tmp_path / "no-such-file.json")
-    assert report.plugin_installs == []
-    assert any("nenhuma instalação" in n for n in report.notes)
-    assert report.ok
-
 
 def test_plugin_install_matching_pip_is_ok(tmp_path: Path) -> None:
     plugins_file = _write_installed_plugins(
@@ -222,12 +223,6 @@ def test_malformed_settings_does_not_raise(tmp_path: Path) -> None:
     assert report.ok
 
 
-def test_no_settings_file_yields_no_hooks(tmp_path: Path) -> None:
-    report = run_doctor(tmp_path, plugins_file=tmp_path / "no-such-file.json")
-    assert report.hooks == []
-    assert report.ok
-
-
 # ---------------- to_json ----------------
 
 def test_to_json_roundtrips_all_fields(tmp_path: Path) -> None:
@@ -280,15 +275,6 @@ def test_harness_yaml_without_managed_settings_is_issue(tmp_path: Path) -> None:
 
     assert not report.ok
     assert any("harness compile" in i and "clone" in i for i in report.issues)
-
-
-def test_no_harness_yaml_does_not_demand_compile(tmp_path: Path) -> None:
-    """Diretório que não usa o harness não é cobrado — o gate é a config
-    versionada, não a ausência do settings."""
-    report = run_doctor(tmp_path, plugins_file=tmp_path / "no-such-file.json")
-
-    assert report.ok
-    assert not any(MANAGED_SETTINGS_FILE in i for i in report.issues)
 
 
 def test_hook_command_pointing_to_missing_script_is_issue(tmp_path: Path) -> None:

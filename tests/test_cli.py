@@ -709,100 +709,65 @@ def _sentinel(tmp_path: Path) -> Path:
     return tmp_path / ".harness" / "harness.disabled"
 
 
-def test_disable_subcommand_creates_sentinel_and_exits_zero(
+def test_killswitch_subcommands_round_trip(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(
-        sys, "argv", ["harness", "disable", "--dir", str(tmp_path), "--note", "destravando deploy"]
-    )
-    with pytest.raises(SystemExit) as exc_info:
-        main()
+    """O ciclo inteiro do kill-switch pela CLI: `status` num repo intocado,
+    `disable` com nota, `status` de novo (a nota tem que voltar), `enable`, e
+    `enable` outra vez — que é no-op, não erro.
 
-    assert exc_info.value.code == 0
-    data = json.loads(capsys.readouterr().out)
+    Este é o comando que o humano usa quando o harness atrapalha; qualquer exit
+    code diferente de 0 aqui empurra para apagar o sentinel na mão."""
+    def rodar(*argv: str) -> dict:
+        monkeypatch.setattr(sys, "argv", ["harness", *argv, "--dir", str(tmp_path)])
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+        assert exc_info.value.code == 0, argv
+        return json.loads(capsys.readouterr().out)
+
+    assert rodar("status")["disabled"] is False
+
+    data = rodar("disable", "--note", "destravando deploy")
     assert data["disabled"] is True
     assert data["note"] == "destravando deploy"
     assert _sentinel(tmp_path).is_file()
 
-
-def test_status_subcommand_reports_active_then_disabled(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    monkeypatch.setattr(sys, "argv", ["harness", "status", "--dir", str(tmp_path)])
-    with pytest.raises(SystemExit) as exc_info:
-        main()
-    assert exc_info.value.code == 0
-    assert json.loads(capsys.readouterr().out)["disabled"] is False
-
-    from harness.killswitch import disable as _disable
-
-    _disable(tmp_path, note="manutencao")
-    monkeypatch.setattr(sys, "argv", ["harness", "status", "--dir", str(tmp_path)])
-    with pytest.raises(SystemExit) as exc_info:
-        main()
-    assert exc_info.value.code == 0
-    data = json.loads(capsys.readouterr().out)
+    data = rodar("status")
     assert data["disabled"] is True
-    assert data["note"] == "manutencao"
+    assert data["note"] == "destravando deploy"
 
-
-def test_enable_subcommand_removes_sentinel_and_exits_zero(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    from harness.killswitch import disable as _disable
-
-    _disable(tmp_path)
-    assert _sentinel(tmp_path).is_file()
-
-    monkeypatch.setattr(sys, "argv", ["harness", "enable", "--dir", str(tmp_path)])
-    with pytest.raises(SystemExit) as exc_info:
-        main()
-
-    assert exc_info.value.code == 0
-    data = json.loads(capsys.readouterr().out)
+    data = rodar("enable")
     assert data["disabled"] is False
     assert not _sentinel(tmp_path).is_file()
 
-
-def test_enable_subcommand_when_already_active_is_noop_exits_zero(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    monkeypatch.setattr(sys, "argv", ["harness", "enable", "--dir", str(tmp_path)])
-    with pytest.raises(SystemExit) as exc_info:
-        main()
-
-    assert exc_info.value.code == 0
-    data = json.loads(capsys.readouterr().out)
+    data = rodar("enable")
     assert data["disabled"] is False
-    assert data["removed"] is False
+    assert data["removed"] is False, "reativar o que ja esta ativo e no-op, nao erro"
 
 
-def test_audit_runtime_subcommand_exits_one_when_score_low(
+def test_audit_runtime_subcommand_exit_code_follows_the_score(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # nenhum feature_list.json -> critical -> score baixo -> exit 1
-    monkeypatch.setattr(sys, "argv", ["harness", "audit-runtime", "--dir", str(tmp_path)])
-    with pytest.raises(SystemExit) as exc_info:
-        main()
+    """O exit code é o contrato com o CI: 1 quando há finding crítico, 0 quando
+    o runtime está saudável."""
+    def rodar(alvo: Path) -> tuple[int, dict]:
+        monkeypatch.setattr(sys, "argv", ["harness", "audit-runtime", "--dir", str(alvo)])
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+        return exc_info.value.code, json.loads(capsys.readouterr().out)
 
-    assert exc_info.value.code == 1
-    data = json.loads(capsys.readouterr().out)
+    # sem feature_list.json -> critical -> score baixo -> exit 1
+    doente = tmp_path / "doente"
+    doente.mkdir()
+    code, data = rodar(doente)
+    assert code == 1
     assert "missing_feature_list" in {f["code"] for f in data["findings"]}
     assert data["score"] <= 60
 
-
-def test_audit_runtime_subcommand_exits_zero_when_healthy(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
     _write_feature_list(tmp_path, _true_cmd())
     _write(tmp_path / ".harness/progress.md", "# Progresso\n")
-
-    monkeypatch.setattr(sys, "argv", ["harness", "audit-runtime", "--dir", str(tmp_path)])
-    with pytest.raises(SystemExit) as exc_info:
-        main()
-
-    assert exc_info.value.code == 0
-    data = json.loads(capsys.readouterr().out)
+    code, data = rodar(tmp_path)
+    assert code == 0
     assert not any(f["severity"] == "critical" for f in data["findings"])
     assert data["score"] >= 60
 

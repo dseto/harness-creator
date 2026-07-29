@@ -65,9 +65,21 @@ def _write_profile(target: Path, data: dict) -> None:
 
 # ---------------- render_session_permissions ----------------
 
-def test_files_from_all_features_without_duplicates() -> None:
-    rules = render_session_permissions(FEATURE_LIST, None)
-    allow = rules["allow"]
+def test_the_allow_surface_is_files_plus_verify_cmd_plus_the_harness_cli() -> None:
+    """Um arquivo declarado em duas features entra uma vez só, e o mesmo
+    `verify_cmd` repetido vira UMA regra.
+
+    O `verify_cmd` sai em DUAS formas porque `Bash(<cmd>)` sem wildcard casa o
+    comando EXATO (doc oficial de permissions). Todas as outras regras já eram
+    prefixadas; só o `verify_cmd` ficou exato, então
+    `pytest tests/test_config.py -q -k foo` — que o `boundary_guard` LIBERA —
+    caía no fluxo de permissão e virava prompt. Atrito silencioso: não é deny, e
+    por isso nunca apareceu em relato de fricção. As duas formas convivem porque
+    `:*` exige algo depois do prefixo, e o comando NU é o canônico do contrato.
+
+    `run` nunca entra: é orquestrador com rede fora do floor."""
+    allow = render_session_permissions(FEATURE_LIST, None)["allow"]
+
     assert allow.count("Edit(src/harness/config.py)") == 1
     assert allow.count("Write(src/harness/config.py)") == 1
     assert "Edit(tests/test_config.py)" in allow
@@ -75,11 +87,13 @@ def test_files_from_all_features_without_duplicates() -> None:
     assert "Edit(src/harness/compiler.py)" in allow
     assert "Write(src/harness/compiler.py)" in allow
 
-
-def test_repeated_verify_cmd_becomes_single_bash_rule() -> None:
-    rules = render_session_permissions(FEATURE_LIST, None)
-    allow = rules["allow"]
     assert allow.count("Bash(pytest tests/test_config.py -q)") == 1
+    assert "Bash(pytest tests/test_config.py -q:*)" in allow
+
+    assert "Bash(harness analyze*)" in allow
+    assert "Bash(python -m harness.cli verify*)" in allow
+    assert not any(rule.startswith("Bash(harness run") for rule in allow)
+    assert not any(rule.startswith("Bash(python -m harness.cli run") for rule in allow)
 
 
 def test_profile_with_extras_adds_lint_typecheck_build() -> None:
@@ -225,20 +239,6 @@ def test_hostile_secret_variants_are_not_echoed_in_allow() -> None:
 
 # ---------------- SUBAGENTE 01: subcomandos do harness na superficie ----------------
 
-def test_harness_cli_subcommands_are_in_allow() -> None:
-    rules = render_session_permissions(FEATURE_LIST, None)
-    allow = rules["allow"]
-    assert "Bash(harness analyze*)" in allow
-    assert "Bash(python -m harness.cli verify*)" in allow
-
-
-def test_harness_run_subcommand_is_never_in_allow() -> None:
-    rules = render_session_permissions(FEATURE_LIST, None)
-    allow = rules["allow"]
-    assert not any(rule.startswith("Bash(harness run") for rule in allow)
-    assert not any(rule.startswith("Bash(python -m harness.cli run") for rule in allow)
-
-
 # ---------------- compile_session_permissions ----------------
 
 def test_compile_without_feature_list_raises(tmp_path: Path) -> None:
@@ -327,23 +327,6 @@ def test_compile_without_profile_is_not_an_error(tmp_path: Path) -> None:
 # prefixada
 # ===========================================================================
 
-def test_verify_cmd_emitted_in_both_exact_and_prefixed_forms() -> None:
-    """`Bash(<cmd>)` sem wildcard casa o comando EXATO (doc oficial de
-    permissions: "Matches the exact command `npm run build`"). Todas as outras
-    regras já eram prefixadas; só o `verify_cmd` ficou exato, então
-    `pytest tests/test_config.py -q -k foo` — que o `boundary_guard` LIBERA —
-    caía no fluxo de permissão e virava prompt. Atrito silencioso: não é deny,
-    e por isso nunca apareceu em relato de fricção.
-
-    As DUAS formas são emitidas porque `:*` exige algo depois do prefixo, e o
-    comando NU é justamente o canônico do contrato."""
-    rules = render_session_permissions(FEATURE_LIST, None)
-    allow = rules["allow"]
-
-    assert "Bash(pytest tests/test_config.py -q)" in allow
-    assert "Bash(pytest tests/test_config.py -q:*)" in allow
-
-
 def test_profile_commands_emitted_in_both_forms() -> None:
     """O Item 8 nomeia só o `verify_cmd`, mas lint/typecheck/build e o comando
     de instalação sofrem do mesmo defeito exato, pelo mesmo motivo — e o
@@ -428,10 +411,3 @@ def test_compile_session_permissions_reads_extra_allowed_commands_from_harness_y
     assert "Bash(python -m mar_committee*)" in settings["permissions"]["allow"]
 
 
-def test_compile_session_permissions_without_harness_yaml_is_not_an_error(
-    tmp_path: Path,
-) -> None:
-    _write_feature_list(tmp_path, FEATURE_LIST)
-    settings_path = compile_session_permissions(tmp_path)
-    settings = json.loads(settings_path.read_text(encoding="utf-8"))
-    assert "Bash(git status)" in settings["permissions"]["allow"]
