@@ -1,5 +1,141 @@
 # Changelog
 
+## v0.26.0 — seis atritos do ciclo, achados com o guard ligado
+
+Issue #55, PR #56. Primeira demanda rodada de ponta a ponta com a governança de
+fato ativa desde 2026-07-24 — o kill-switch tinha ficado ligado quatro dias sem
+ninguém notar (#52), então tudo o que passou nesse período rodou sem guard.
+Religado, o atrito apareceu de uma vez.
+
+Nenhuma regra de segurança foi afrouxada. As únicas liberações novas são três
+comandos de LEITURA, e o floor de branch protegida continua exatamente como
+estava.
+
+### `date` entra na allowlist de utilitários read-only
+
+A skill `plan` EXIGE carimbar `approved_at` com o timestamp ISO do momento da
+aprovação humana, e nenhuma rota de ler a hora era permitida — nem `date`, nem
+`python -c`. O agente ficava sem como cumprir uma regra do próprio processo; a
+saída em uso era rodar `harness analyze`, uma análise inteira do repositório, só
+para ler o campo `analyzed_at` da saída.
+
+`date` agora está em `READONLY_SHELL_UTILITIES`, com `-s`/`--set` barrados por
+`DATE_WRITE_FLAGS` — mesmo padrão de `FIND_WRITE_FLAGS` e `GREP_RG_EXEC_FLAGS`.
+Ajustar o relógio do host continua deny: é mudança de configuração de sistema,
+não leitura. `python -c` segue negado, e por escolha: é execução arbitrária de
+código, uma porta larga para fechar uma janela.
+
+### O `test_command` do perfil entra na superfície de comando
+
+`_collect_allowed_bash_commands` montava a superfície com o `verify_cmd` de cada
+tarefa mais `lint_command`, `typecheck_command` e `build_command` do
+`repo-profile.json` — e ignorava o `test_command`, que está no mesmo profile.
+Assimetria pura: o lint do projeto rodava a qualquer momento, o teste do projeto
+só na grafia exata do `verify_cmd` da tarefa em curso. Não havia como testar uma
+mudança em código compartilhado contra o resto da suíte antes do commit.
+
+Pagou na mesma sessão: com o arquivo de teste inteiro liberado, apareceram duas
+regressões que o `-k` da tarefa sozinho não veria.
+
+Ressalva de diagnóstico, para quem for investigar algo parecido: depois que
+TODAS as features passam, `_contract_fully_passed` aposenta o guard da
+superfície e qualquer `pytest` é aceito — testar no fim do ciclo leva à
+conclusão errada de que não há furo.
+
+### `git branch --show-current` deixa de ser negado
+
+Leitura pura, enquanto `git status`/`log`/`diff` já passavam; o agente descobria
+a branch atual lendo a primeira linha do `git status`. Entrou em
+`FIXED_GIT_SEQUENCES` como sequência de TRÊS tokens: com dois, `git branch -D`
+entraria de carona, porque o match de superfície é por prefixo.
+
+### `cli.main` reconfigura o stderr junto com o stdout
+
+Reconfigurar só o `stdout` para UTF-8 deixava os dois streams em codecs
+DIFERENTES. As mensagens de erro acentuadas do CLI saíam no codec do console
+(cp1252 no Windows pt-BR), e quem captura o `stderr` decodificando UTF-8 recebia
+`UnicodeDecodeError` na thread leitora do `subprocess`, com `stderr` valendo
+`None` no lugar do texto. Afetava qualquer chamador programático do CLI; o
+sintoma visível era `tests/e2e/test_contract_flow.py` quebrando com `TypeError`
+num assert sobre a mensagem — um sintoma que não parece de encoding.
+
+### O deny de branch protegida ganha uma terceira saída
+
+O floor continua intacto — decisão explícita do usuário. O que estava errado era
+a mensagem: oferecia `git checkout -b` e `harness compile-session`, e as duas
+são conselho ruim para chore de release, que por política vai direto para a
+`main`.
+
+A saída nova diz que a decisão é do HUMANO, que o commit vai no terminal dele, e
+que não se deve procurar outra rota — redação escolhida para não ensinar o
+agente a contornar o gate de PR. É incondicional em vez de condicionada ao diff
+staged porque classificar "chore" por caminho não pega `src/harness/__init__.py`,
+onde mora o `__version__`, e nenhuma allowlist genérica de documentação alcança
+um `.py` sem virar regra específica de um repositório.
+
+### O stub de encerramento do `finish` volta ao header canônico
+
+Defeito entregue na v0.25.0 pelo próprio `harness finish`. O stub abria com
+``Contrato `slug` ENCERRADO``, mas `install_templates` só regenera o
+`progress.md` quando lê o slug antigo pelo header canônico ``Contrato: `slug` ``
+— com dois-pontos e terminando em crase. Sem casar, `_extract_progress_contract`
+devolvia `None` e a regeneração era pulada em silêncio.
+
+Aconteceu de verdade: o hook `SessionStart` injetou "nenhuma feature pendente" no
+começo de uma sessão com seis tarefas a fazer — exatamente o modo de falha que o
+`finish` existe para matar.
+
+### A suíte passa a ter uma tabela por regra
+
+Issue #57, PR #58. A suíte tinha chegado a 1008 testes em 140s para 11k linhas
+de `src/`, e o número virou atrito por si só. A análise por AST mostrou que a
+redundância não estava nas asserções — estava na FORMA: um `def test_` por par
+(payload, desfecho), cada um pagando uma instalação de guard e um subprocesso
+Python só para variar uma string. Em `test_boundary_guard.py`, 222 dos 274
+testes subiam subprocesso. A suíte crescia com o número de CASOS, não de REGRAS.
+
+O padrão certo já existia num lugar só (`_CONTROL_PLANE_VARIANTS`) e virou a
+regra da casa: **um teste = uma regra de política, com os casos numa tabela**. A
+infra fica no topo de `tests/test_boundary_guard.py` — `Case` aceita
+`reason`/`absent` (substring exigida/proibida na razão do deny), `cwd` (simula o
+shell derivado) e `before` (callable para o estado que o hook relê do disco a
+cada chamada). O campo `why` de cada caso aparece na mensagem de falha, então a
+intenção do teste original sobrevive ao colapso, e `_expect` roda a tabela
+inteira antes de falhar: uma regressão que quebra cinco casos aparece de uma
+vez, não uma por execução.
+
+1008 → 724 testes, 140s → 115s, −1.945 linhas de teste. **Nenhuma asserção foi
+removida.**
+
+Os e2e de fase foram medidos, não estimados: com o `trace` da stdlib, os três
+`test_fase{2,3,4}_outcomes.py` não cobrem nenhuma linha de `src/` que os
+unitários já não cubram. As "exclusivas" que a medição apontou são falso
+positivo — caem todas nas funções de feature-lock, que `test_boundary_guard.py`
+exercita através do hook instalado, em SUBPROCESSO, invisível ao `trace`.
+
+O corte, ainda assim, não foi mecânico: cobertura de linha não é equivalência
+comportamental. `fase4` caiu de 21 para 4 — os 17 removidos eram asserção
+unitária disfarçada de e2e, cada um com equivalente direto e mais completo em
+`test_teams`/`test_review`/`test_team_audit`/`test_supervisor`; ficaram as
+cadeias que atravessam módulos de verdade. `fase2` e `fase3` ficaram intactos:
+são o backbone de integração do produto.
+
+Também podados 3 worktrees stale em `.claude/worktrees/` (limpos e já mergeados)
+que faziam qualquer varredura recursiva enxergar ~4 cópias da suíte.
+
+Onde a suíte parou: o agrupamento por setup idêntico encontra ~20 testes
+colapsáveis no que sobrou. Ir abaixo de ~700 exige fundir cenários genuinamente
+distintos — um teste por subcomando de CLI em vez de um por exit code —, o que
+troca localização de falha por contagem. Fica como decisão consciente, não como
+default.
+
+### Registrado, fora de escopo
+
+Correção no `boundary_guard` só entra em vigor depois de `harness
+compile-session` reinstalar o hook. Não é bug, é como a compilação funciona — mas
+significa que quem mexe no guard trabalha contra a versão anterior durante todo
+o contrato.
+
 ## v0.25.0 — o ciclo ganha um fim, e o segundo contrato deixa de travar
 
 Itens 5+7 do backlog do dogfood miojo (são o mesmo item), issue #53, PR #54.
