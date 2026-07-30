@@ -30,32 +30,45 @@ neste repositório, sem contradizer o que já foi decidido?*
 > é o portão do **repositório**. Rodar antes do `/harness-creator:plan` custa
 > uma leitura; descobrir depois custa um contrato inteiro.
 
-## Como executar — delegue a um subagente
+## Como executar — dois subagentes, dois modelos
 
-**Recomendação forte: rode os Passos 1–4 dentro de um subagente com contexto
-limpo, e traga de volta só o laudo.** Não é regra dura — repo pequeno e demanda
-óbvia rodam bem inline —, mas o padrão deveria ser delegar, por dois motivos.
+**Recomendação forte: rode a coleta (Passo 2) num subagente `model: "haiku"`,
+e o julgamento (Passo 3) + a emissão do laudo (Passo 4) num segundo
+subagente no modelo forte, alimentado pelas evidências que o primeiro
+trouxe.** Não é regra dura — repo pequeno e demanda óbvia rodam bem inline
+—, mas o padrão deveria ser delegar, por dois motivos.
 
 **1. Contexto.** Medido em 6 avaliações reais: cada uma consumiu em média
 **~64k tokens e ~17 tool calls** de levantamento (greps, leitura de fonte,
 `git log`, contratos anteriores) para produzir um laudo de **~1.2k**. Rodando
 inline, ~98% disso vira ruído permanente na sessão principal — sobre um
-repositório que pode nem ser o alvo do trabalho seguinte.
+repositório que pode nem ser o alvo do trabalho seguinte. A coleta (Passo 2)
+é justamente essa parte mecânica: grep, glob, `git log`, leitura de arquivo,
+sem julgamento nenhum envolvido — por isso é a metade que roda em Haiku, não
+em modelo forte. O julgamento (Passo 3/4) é quem decide, e continua caro de
+propósito.
 
 **2. Independência — o motivo que importa mais.** A sessão principal é onde o
 viés mora: quem acabou de ouvir a demanda descrita com entusiasmo, ou passou a
 última hora construindo em direção a ela, não é um bom juiz dela. Um subagente
 frio não sabe qual resposta se espera. É o mesmo princípio de produtor ≠
-revisor da Fase 4, e do juiz frio que a Fase 5 propõe para o contrato.
+revisor da Fase 4, e do juiz frio que a Fase 5 propõe para o contrato. Rodar o
+julgamento num segundo subagente (modelo forte) preserva essa independência
+mesmo depois que a coleta trocou de modelo — o que muda de nível não é
+*quem* julga, é *quem* busca.
 
 Observado na prática: numa execução inline, o avaliador marcou D3 como `OK`
 sem ter o que ler e deixou passar dois defeitos na própria demanda que tinha
 ajudado a redigir. Os subagentes frios, sobre a mesma demanda, pegaram os dois.
 
-Ao delegar, o prompt do subagente precisa conter, no mínimo: o caminho desta
-`SKILL.md`, o **caminho absoluto do repositório-alvo** (ele não herda o seu
-`cwd`, e avaliar contra o repo errado produz um laudo plausível e inútil), a
-demanda literal, e a instrução de devolver **apenas** o laudo.
+Ao delegar, o prompt do subagente **de coleta** (Haiku) precisa conter, no
+mínimo: o caminho desta `SKILL.md`, o **caminho absoluto do repositório-alvo**
+(ele não herda o seu `cwd`, e avaliar contra o repo errado produz um laudo
+plausível e inútil), a demanda literal, e a instrução de devolver as
+evidências cruas do Passo 2 (`arquivo:linha` por fonte) — **não** um
+veredito. O prompt do subagente **de julgamento** (modelo forte) recebe essa
+coleta, o caminho da `SKILL.md` e a demanda literal, e devolve **apenas** o
+laudo (Passo 3 + Passo 4).
 
 Rodar inline não invalida nada — só saiba que você está trocando independência
 e contexto por uma ida a menos.

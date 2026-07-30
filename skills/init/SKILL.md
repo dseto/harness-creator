@@ -13,11 +13,8 @@ raiz do projeto atual) e compilá-la para os mecanismos nativos do Claude Code.
 
 ## Pré-requisito (só se o Passo 3 falhar)
 
-Não rode uma checagem de import à parte — é um `Bash` a mais pedindo
-aprovação sem necessidade. Se `harness.cli` der `ModuleNotFoundError`, ISSO
-que indica falta de `PYTHONPATH`; só então rode com
-`$env:PYTHONPATH = "${CLAUDE_PLUGIN_ROOT}\src"` (PowerShell) e repita o
-comando.
+Se der `ModuleNotFoundError`: `$env:PYTHONPATH = "${CLAUDE_PLUGIN_ROOT}\src"` e
+repita o comando (motivo em [GUIDE.md](../../docs/plugin/GUIDE.md), seção 1).
 
 ## Passo 1 — Entrevista curta (use AskUserQuestion)
 

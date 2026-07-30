@@ -16,10 +16,8 @@ ciclo Plan→Work→Review funcionar.
 
 ## Pré-requisito (só se os comandos abaixo falharem)
 
-Não rode uma checagem de import à parte. Se `harness.cli` der
-`ModuleNotFoundError`, ISSO que indica falta de `PYTHONPATH`; só então rode
-com `$env:PYTHONPATH = "${CLAUDE_PLUGIN_ROOT}\src"` (PowerShell) e repita o
-comando.
+Se der `ModuleNotFoundError`: `$env:PYTHONPATH = "${CLAUDE_PLUGIN_ROOT}\src"` e
+repita o comando (motivo em [GUIDE.md](../../docs/plugin/GUIDE.md), seção 1).
 
 ## Passo 1 — Rodar o preflight
 

@@ -1,0 +1,15 @@
+{
+  "feature_id": "T-03",
+  "contract": "onda-4-prompts-e-docs",
+  "desc": "Anedota do kill-switch contada uma única vez, com TUTORIAL e ARCHITECTURE apontando para o GUIDE",
+  "files": [
+    "docs/plugin/GUIDE.md",
+    "docs/plugin/TUTORIAL.md",
+    "docs/plugin/ARCHITECTURE.md",
+    "tests/test_prompt_docs_dedup.py"
+  ],
+  "verify_cmd": "pytest tests/test_prompt_docs_dedup.py -k killswitch -q",
+  "recorded_at": "2026-07-30T15:31:01.369288+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:cc5dcbd12bb61a91bebeb069a715f2c3340cd5fd805d4406280f183ee8fe1c46"
+}
