@@ -1,0 +1,21 @@
+{
+  "feature_id": "T-04",
+  "contract": "onda-1-flags-e-facas",
+  "desc": "O hook legado de proteção de arquivo de teste deixa de ser gerado, já que o boundary_guard cobre a mesma proteção por tarefa desde a Fase 2 — nenhum arquivo novo nasce prometendo um registro que nunca acontece",
+  "files": [
+    "src/harness/compiler.py",
+    "tests/test_compiler.py",
+    "tests/e2e/test_boundary_flow.py",
+    "tests/e2e/test_fase2_outcomes.py",
+    "tests/e2e/evidence/fase2-outcomes-verification.md",
+    "docs/plugin/TUTORIAL.md",
+    "docs/plugin/GUIDE.md",
+    "docs/plugin/ARCHITECTURE.md",
+    "tests/test_docs_enforcement_claims.py",
+    "tests/test_audit.py"
+  ],
+  "verify_cmd": "python -m pytest tests/test_compiler.py tests/e2e/test_boundary_flow.py tests/e2e/test_fase2_outcomes.py -q",
+  "recorded_at": "2026-07-30T11:43:32.864163+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:c7df98a28c75a23ffac156ed806e303700c143c59f4a25d72943da663796a621"
+}

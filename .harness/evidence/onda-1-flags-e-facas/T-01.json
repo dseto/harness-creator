@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-01",
+  "contract": "onda-1-flags-e-facas",
+  "desc": "Hooks de PreToolUse iniciam sem herdar site-packages de outros projetos da máquina, então uma tool call comum roda mais rápido",
+  "files": [
+    "src/harness/hook_launcher.py",
+    "tests/test_hook_launcher.py"
+  ],
+  "verify_cmd": "python -m pytest tests/test_hook_launcher.py -k flags -q",
+  "recorded_at": "2026-07-30T11:09:44.427176+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:060ff01258b73359fe7ecf582521cc572a50926eea5caf794423ee40542820bd"
+}

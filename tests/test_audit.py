@@ -72,7 +72,7 @@ def test_missing_hooks_and_settings_detected(tmp_path: Path) -> None:
 def test_hook_drift_detected_after_manual_edit(tmp_path: Path) -> None:
     _bootstrap(tmp_path)
     compile_project(tmp_path)
-    hook = tmp_path / ".harness" / "hooks" / "guard_tests.py"
+    hook = tmp_path / ".harness" / "hooks" / "guard_test_runner.py"
     hook.write_text(hook.read_text(encoding="utf-8") + "\n# editado à mão\n", encoding="utf-8")
 
     report = audit_project(tmp_path)

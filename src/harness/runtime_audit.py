@@ -26,11 +26,11 @@ Invariantes verificados por `audit_runtime`:
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from harness.contract import FEATURE_LIST_FILE
+from harness.findings import Finding as RuntimeFinding, Report as RuntimeAuditReport, finish as _finish
 from harness.stop_hook import is_feature_in_progress
 from harness.templates import PROGRESS_FILE
 from harness.verify import EVIDENCE_DIR, evidence_path
@@ -39,40 +39,6 @@ __all__ = ["PROGRESS_FILE", "RuntimeAuditReport", "RuntimeFinding", "audit_runti
 
 _REQUIRED_FEATURE_FIELDS = ("id", "desc", "files", "verify_cmd", "depends", "passes")
 _REQUIRED_EVIDENCE_FIELDS = ("verify_cmd", "recorded_at", "exit_code", "files_hash")
-
-
-@dataclass
-class RuntimeFinding:
-    severity: str          # "critical" | "warning" | "info"
-    code: str              # slug estável p/ máquina
-    message: str           # frase p/ humano
-    fix: str               # como corrigir
-
-    def to_dict(self) -> dict[str, str]:
-        return {"severity": self.severity, "code": self.code,
-                "message": self.message, "fix": self.fix}
-
-
-@dataclass
-class RuntimeAuditReport:
-    score: int
-    findings: list[RuntimeFinding] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {"score": self.score, "findings": [f.to_dict() for f in self.findings]}
-
-    def to_json(self) -> str:
-        return json.dumps(self.to_dict(), indent=2, ensure_ascii=False)
-
-
-_PENALTY = {"critical": 40, "warning": 15, "info": 5}
-
-
-def _finish(findings: list[RuntimeFinding]) -> RuntimeAuditReport:
-    score = 100
-    for f in findings:
-        score -= _PENALTY.get(f.severity, 0)
-    return RuntimeAuditReport(score=max(0, score), findings=findings)
 
 
 def audit_runtime(target_dir: Path) -> RuntimeAuditReport:

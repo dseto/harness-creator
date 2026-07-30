@@ -10,12 +10,12 @@ Cobre:
     1. `analyze --dir` -> `.harness/repo-profile.json`.
     2. `spec.md` já aprovado + `Plans.md` com 1 tarefa -> `compile-contract`
        -> `.harness/feature_list.json` com 1 feature.
-    3. Mecanismo antigo já desativado na fonte: `compile --dir` (harness.yaml
-       com `enforce_tdd: false`) GERA o script `guard_tests.py` mas não o
-       registra — desde a issue #61 o `compiler.render()` não emite essa
-       entrada, porque o `boundary_guard.py` já cobre a proteção de teste
-       por-tarefa. A limpeza da entrada LEGADA (settings herdado de <=v0.27)
-       continua coberta em `test_fase2_outcomes.py`.
+    3. Mecanismo antigo aposentado (T-04/onda-1): `compile --dir` (harness.yaml
+       com `enforce_tdd: false`) NÃO gera nem registra `guard_tests.py` — o
+       `boundary_guard.py` cobre a proteção de teste por-tarefa desde a
+       Fase 2, tornando o script estático puro peso morto. A limpeza da
+       entrada LEGADA (settings herdado de <=v0.27, quando o mecanismo ainda
+       era registrado) continua coberta em `test_fase2_outcomes.py`.
     4. `compile-session --dir` -> `.claude/settings.local.json` com a superfície
        `allow` derivada do contrato (nunca `git push`) e `boundary_guard.py`
        registrado em `hooks.PreToolUse`.
@@ -141,11 +141,10 @@ def test_boundary_flow_end_to_end(tmp_path: Path) -> None:
     assert feature_list["features"][0]["files"] == ["src/app.py"]
     assert feature_list["features"][0]["verify_cmd"] == "pytest tests/test_app.py -q"
 
-    # ---- (3) CENÁRIO ADICIONAL: colisão com o mecanismo antigo ----
-    # `compile --dir` (harness.yaml mínimo) ainda GERA o script guard_tests.py,
-    # mas desde v0.22.0 o próprio `compile` instala o boundary_guard em
-    # seguida — que já desregistra a entrada legada. A colisão portanto se
-    # resolve aqui, não mais só no `compile-session` do passo (4).
+    # ---- (3) guard_tests.py não nasce mais (T-04/onda-1) ----
+    # `compile --dir` (harness.yaml mínimo) não gera nem registra o script;
+    # `compile` já instala o boundary_guard em seguida, que cobre a mesma
+    # proteção por-tarefa.
     (project / ".harness" / "harness.yaml").write_text(LEGACY_HARNESS_YAML, encoding="utf-8")
     legacy_compile_proc = _run_cli(["compile", "--dir", str(project)], cwd=project)
     assert legacy_compile_proc.returncode == 0, legacy_compile_proc.stderr
@@ -153,7 +152,7 @@ def test_boundary_flow_end_to_end(tmp_path: Path) -> None:
     settings_path = project / ".claude" / "settings.local.json"
     settings = json.loads(settings_path.read_text(encoding="utf-8"))
     pre_tool_use_after_legacy = json.dumps(settings["hooks"]["PreToolUse"])
-    assert (project / ".harness" / "hooks" / "guard_tests.py").is_file()
+    assert not (project / ".harness" / "hooks" / "guard_tests.py").exists()
     assert "guard_tests.py" not in pre_tool_use_after_legacy
     assert "boundary_guard.py" in pre_tool_use_after_legacy
 

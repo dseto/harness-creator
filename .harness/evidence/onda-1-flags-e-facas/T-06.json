@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-06",
+  "contract": "onda-1-flags-e-facas",
+  "desc": "Quando harness verify falha, o agente vê o fim relevante da saída do runner de teste em vez da suíte inteira despejada no contexto",
+  "files": [
+    "src/harness/cli.py",
+    "tests/test_cli.py"
+  ],
+  "verify_cmd": "python -m pytest tests/test_cli.py -k truncat -q",
+  "recorded_at": "2026-07-30T11:45:45.905784+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:26dd087d73941c3b9b9e6c943602b9b398cf3107418259f10d566e324378fedc"
+}

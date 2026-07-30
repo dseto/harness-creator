@@ -31,12 +31,12 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from harness.findings import Finding as TeamFinding, Report as TeamAuditReport, finish as _finish
 from harness.teams import (
     TEAM_AGENT_BEGIN,
     TEAM_AGENT_END,
@@ -50,40 +50,6 @@ MANIFEST_PATH = ".harness/team/manifest.json"
 AGENTS_DIR = ".claude/agents"
 
 _FRONTMATTER_DELIM = "---"
-
-
-@dataclass
-class TeamFinding:
-    severity: str          # "critical" | "warning" | "info"
-    code: str              # slug estável p/ máquina
-    message: str           # frase p/ humano
-    fix: str               # como corrigir
-
-    def to_dict(self) -> dict[str, str]:
-        return {"severity": self.severity, "code": self.code,
-                "message": self.message, "fix": self.fix}
-
-
-@dataclass
-class TeamAuditReport:
-    score: int
-    findings: list[TeamFinding] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {"score": self.score, "findings": [f.to_dict() for f in self.findings]}
-
-    def to_json(self) -> str:
-        return json.dumps(self.to_dict(), indent=2, ensure_ascii=False)
-
-
-_PENALTY = {"critical": 40, "warning": 15, "info": 5}
-
-
-def _finish(findings: list[TeamFinding]) -> TeamAuditReport:
-    score = 100
-    for f in findings:
-        score -= _PENALTY.get(f.severity, 0)
-    return TeamAuditReport(score=max(0, score), findings=findings)
 
 
 def _read_frontmatter(path: Path) -> dict[str, Any] | None:

@@ -11,9 +11,6 @@ enforça sozinho:
 Fontes de verdade reusadas da biblioteca (não duplicar tabelas):
 - `_POLICY_MATRIX`/`_ALWAYS_GATED` (governance/approval.py) — quais classes
   de risco exigem humano em cada modo.
-- `_glob_to_regex` (verification/tdd_loop.py) — matching de arquivos de
-  teste; o regex é EMBUTIDO no hook gerado (hooks são standalone/stdlib,
-  não importam a biblioteca).
 
 O destino é `settings.local.json`, não `settings.json`: o comando de hook
 compilado leva path ABSOLUTO (ver `_hook_entry`), então é dado desta máquina
@@ -41,7 +38,6 @@ from harness.config import HarnessConfig
 from harness.governance.approval import _ALWAYS_GATED, _POLICY_MATRIX
 from harness.hook_launcher import hook_command
 from harness.killswitch import DISABLED_CHECK_SRC
-from harness.patterns import _glob_to_regex
 from harness.settings_paths import prepare_managed_settings, write_managed_settings
 
 HARNESS_YAML = ".harness/harness.yaml"
@@ -62,62 +58,6 @@ _RISK_TO_RULES: dict[str, list[str]] = {
 # Seções do harness.yaml que a compilação usa; as demais (sandbox, routing,
 # eet...) pertencem ao modo de execução congelado e geram aviso.
 _COMPILED_SECTIONS = {"governance", "verification"}
-
-# Fonte única do trecho que lê o contrato compilado de DENTRO dos hooks
-# gerados (standalone/stdlib — eles não importam a biblioteca). Existe porque
-# o diálogo de aprovação do Claude Code só mostra o texto que o hook devolve
-# em `permissionDecisionReason`: sem isto o humano aprova a edição/execução de
-# um teste vendo path e comando, mas não o COMPORTAMENTO coberto (issue #41 —
-# a regra "descrição funcional" do passo 15 do lifecycle nunca chegou aqui).
-# Ancorado por `__file__`, mesmo racional do `DISABLED_CHECK_SRC`: o hook mora
-# em `<repo>/.harness/hooks/`, então `parent.parent` é `<repo>/.harness` e o
-# contrato é `<repo>/.harness/feature_list.json`, independente do `cwd` do
-# payload (que pode derivar). Fail-safe em toda leitura: qualquer erro devolve
-# lista vazia e a razão volta ao texto sem contrato — o gate continua pedindo
-# aprovação, nunca quebra nem vira allow por causa deste enriquecimento.
-CONTRACT_LOOKUP_SRC = '''_DESC_MAX_CHARS = 220
-_MAX_TASKS_IN_REASON = 3
-
-
-def _contract_features() -> list:
-    """Tarefas de `<repo>/.harness/feature_list.json`, ou [] se não houver
-    contrato compilado / o JSON estiver ilegível (fail-safe)."""
-    try:
-        from pathlib import Path as _P
-        path = _P(__file__).resolve().parent.parent / "feature_list.json"
-        features = json.loads(path.read_text(encoding="utf-8")).get("features")
-        return features if isinstance(features, list) else []
-    except Exception:
-        return []
-
-
-def _norm_path(raw: str) -> str:
-    path = (raw or "").replace("\\\\", "/").strip().lower()
-    while path.startswith("./"):
-        path = path[2:]
-    return path
-
-
-def _describe(feature: dict) -> str:
-    desc = (feature.get("desc") or "").strip() or "(tarefa sem descrição no contrato)"
-    if len(desc) > _DESC_MAX_CHARS:
-        desc = desc[:_DESC_MAX_CHARS - 1] + "..."
-    text = str(feature.get("id") or "?") + " — " + desc
-    files = [f for f in (feature.get("files") or []) if f]
-    if files:
-        text += " (arquivos: " + ", ".join(files[:4]) + ")"
-    return text
-
-
-def _contract_note(features: list) -> str:
-    """Prefixo da razão: o que o humano está aprovando, em linguagem de
-    contrato — vem ANTES do path/comando, que sozinhos não dizem nada."""
-    if not features:
-        return ""
-    return "O QUE ESTE TESTE COBRE: " + " | ".join(
-        _describe(f) for f in features[:_MAX_TASKS_IN_REASON]
-    ) + ". "'''
-
 
 @dataclass
 class Artifacts:
@@ -163,27 +103,19 @@ def render(config: HarnessConfig, target_dir: Path, raw_keys: set[str] | None = 
         elif risk_class != "network":  # network nunca vai para allow
             allow.extend(rules)
 
-    hook_files: dict[str, str] = {
-        "guard_tests.py": _render_guard_tests(config.verification.test_glob),
-    }
+    # `guard_tests.py` (mecanismo estático sempre-`ask`) não é mais gerado —
+    # T-04/onda-1. O `boundary_guard.py` (instalado por `install_boundary_guard`
+    # no mesmo comando que `compile_project`) cobre a mesma proteção de
+    # enfraquecimento de teste por decisão POR-TAREFA desde a Fase 2; gerar um
+    # script que nenhuma instalação registra (issue #61) era peso morto puro.
+    # Histórico completo: docs/project/HISTORICO-boundary_guard-2026-07-30.md.
+    hook_files: dict[str, str] = {}
     if config.verification.enforce_tdd:
         hook_files["guard_test_runner.py"] = _render_guard_test_runner(
             config.verification.test_command
         )
 
     hooks_abs = (target_dir / HOOKS_DIR).resolve()
-    # O `guard_tests.py` é GERADO (acima) mas deliberadamente NÃO registrado —
-    # issue #61. `cli.py` chama `install_boundary_guard()` no mesmo comando que
-    # `compile_project()`, e o instalador remove qualquer registro dele
-    # (`_is_legacy_guard_tests`): o boundary_guard substitui o guard estático
-    # sempre-`ask` por decisão por-tarefa, e essa parte está correta. O defeito
-    # era esta lista continuar prometendo um registro que nenhuma instalação
-    # conserva — dois testes e2e travam a ausência
-    # (`test_boundary_flow.py`, `test_fase2_outcomes.py`) —, e como o `audit`
-    # dogfooda exatamente este render, todo repositório compilado colhia um
-    # `critical hook_not_registered` cuja correção sugerida reproduzia o
-    # achado. Corrigido AQUI, na fonte, e não no `audit`: ele não reimplementa
-    # as regras do compilador, ele É o compilador (`ARCHITECTURE.md`).
     hook_entries: list[dict[str, Any]] = []
     if config.verification.enforce_tdd:
         hook_entries.append(_hook_entry("Bash", hooks_abs / "guard_test_runner.py"))
@@ -218,85 +150,8 @@ def _hook_entry(matcher: str, script: Path) -> dict[str, Any]:
     }
 
 
-def _render_guard_tests(test_glob: str) -> str:
-    pattern = _glob_to_regex(test_glob).pattern
-    return f'''"""Hook PreToolUse gerado pelo harness-creator — NÃO editar à mão.
-
-Edição de arquivo de TESTE exige aprovação humana (classe de risco
-edit_test do harness: nenhuma política automática aprova sozinha). Gerado
-de test_glob={test_glob!r}; para mudar, edite .harness/harness.yaml e rode
-`harness compile`.
-"""
-import json
-import re
-import sys
-
-
-{DISABLED_CHECK_SRC}
-
-
-{CONTRACT_LOOKUP_SRC}
-
-
-TEST_PATTERN = re.compile({pattern!r})
-
-
-def main() -> None:
-    if _harness_disabled():
-        print(json.dumps({{
-            "hookSpecificOutput": {{
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "allow",
-                "permissionDecisionReason": (
-                    "harness desativado pelo usuario (.harness/harness.disabled) - "
-                    "kill-switch externo ativo"
-                ),
-            }}
-        }}))
-        return
-    data = json.load(sys.stdin)
-    raw_path = (data.get("tool_input") or {{}}).get("file_path") or ""
-    path = raw_path.replace("\\\\", "/")
-    cwd = (data.get("cwd") or "").replace("\\\\", "/").rstrip("/")
-    if cwd and path.lower().startswith(cwd.lower() + "/"):
-        path = path[len(cwd) + 1:]
-
-    if TEST_PATTERN.match(path):
-        features = _contract_features()
-        declared = [
-            f for f in features
-            if any(_norm_path(x) == _norm_path(path) for x in (f.get("files") or []))
-        ]
-        note = _contract_note(declared)
-        if not note and features:
-            note = (
-                "ATENÇÃO: nenhuma tarefa do contrato ativo declara este arquivo "
-                "de teste — aprovar aqui é aprovar trabalho fora do contrato. "
-            )
-        decision, reason = "ask", (
-            note
-            + "Arquivo de teste protegido pelo harness (edit_test): `" + path
-            + "` casa test_glob — edição exige aprovação humana explícita."
-        )
-    else:
-        decision, reason = "allow", "não é arquivo de teste"
-
-    print(json.dumps({{
-        "hookSpecificOutput": {{
-            "hookEventName": "PreToolUse",
-            "permissionDecision": decision,
-            "permissionDecisionReason": reason,
-        }}
-    }}))
-
-
-if __name__ == "__main__":
-    main()
-'''
-
-
 def _render_guard_test_runner(test_command: str) -> str:
-    # A disciplina TDD gateia a ESCRITA de teste (guard_tests.py / edit_test),
+    # A disciplina TDD gateia a ESCRITA de teste (boundary_guard, por-tarefa),
     # não a execução — pedir aprovação a cada `pytest` rodado é fricção pura
     # depois que o teste já foi aprovado na escrita (issue: dezenas de asks
     # repetidos para o mesmo comando dentro de uma única tarefa). Este hook
@@ -305,9 +160,10 @@ def _render_guard_test_runner(test_command: str) -> str:
     return f'''"""Hook PreToolUse gerado pelo harness-creator — NÃO editar à mão.
 
 Rodar a suíte de teste NÃO exige aprovação humana — a disciplina TDD do
-harness gateia a ESCRITA do arquivo de teste (guard_tests.py), não a sua
-execução repetida. Gerado de test_command={test_command!r}; para mudar,
-edite .harness/harness.yaml e rode `harness compile`.
+harness gateia a ESCRITA do arquivo de teste (boundary_guard, decisão
+por-tarefa), não a sua execução repetida. Gerado de
+test_command={test_command!r}; para mudar, edite .harness/harness.yaml e
+rode `harness compile`.
 """
 import json
 import sys

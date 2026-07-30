@@ -107,3 +107,59 @@ def test_ensure_preserves_lines_the_user_already_had(tmp_path: Path) -> None:
 def test_gitignore_line_sets_are_exposed_for_audit() -> None:
     assert "settings.local.json" in CLAUDE_GITIGNORE_LINES
     assert "hooks/" in HARNESS_GITIGNORE_LINES
+
+
+# ---------------- T-07/onda-1: poda de allow sombreado por regra nua ----------------
+
+def test_write_prunes_bash_pattern_entries_shadowed_by_bare_bash(tmp_path: Path) -> None:
+    """Duas rotinas de merge independentes (compiler.py/session_permissions.py)
+    escrevem `allow` sem se enxergar — nenhuma reconhece uma entrada da outra
+    como 'gerenciada', então `Bash(git status)` nunca era reconhecida como
+    redundante quando `Bash` nu já cobre qualquer comando. O sink único
+    (`write_managed_settings`) poda isso independente de quem escreveu o quê."""
+    path = tmp_path / ".claude" / "settings.local.json"
+    write_managed_settings(path, {
+        "permissions": {"allow": [
+            "Bash", "Bash(git status)", "Bash(git log*)", "Read", "Grep",
+        ]},
+    })
+
+    settings = json.loads(path.read_text(encoding="utf-8"))
+    assert settings["permissions"]["allow"] == ["Bash", "Read", "Grep"]
+
+
+def test_write_keeps_manual_entry_without_a_bare_rule_present(tmp_path: Path) -> None:
+    """Sem `Bash` nu na lista, uma entrada específica é regra MANUAL genuína
+    — nunca podada. A poda só reconhece redundância estrita, não decide por
+    inferência o que o usuário quis dizer."""
+    path = tmp_path / ".claude" / "settings.local.json"
+    write_managed_settings(path, {
+        "permissions": {"allow": ["Bash(npm run build)", "Edit(src/main.py)"]},
+    })
+
+    settings = json.loads(path.read_text(encoding="utf-8"))
+    assert settings["permissions"]["allow"] == ["Bash(npm run build)", "Edit(src/main.py)"]
+
+
+def test_write_does_not_touch_ask_or_deny_lists(tmp_path: Path) -> None:
+    """A poda é escopada a `allow` — `ask`/`deny` não têm o mesmo conceito de
+    'regra nua cobre tudo' (WebFetch/WebSearch continuam sempre `ask`)."""
+    path = tmp_path / ".claude" / "settings.local.json"
+    write_managed_settings(path, {
+        "permissions": {
+            "allow": ["Bash", "Bash(pytest -q)"],
+            "ask": ["WebFetch", "Bash(curl *)"],
+        },
+    })
+
+    settings = json.loads(path.read_text(encoding="utf-8"))
+    assert settings["permissions"]["allow"] == ["Bash"]
+    assert settings["permissions"]["ask"] == ["WebFetch", "Bash(curl *)"]
+
+
+def test_write_is_a_noop_when_there_is_nothing_to_prune(tmp_path: Path) -> None:
+    path = tmp_path / ".claude" / "settings.local.json"
+    write_managed_settings(path, {"permissions": {"allow": ["Read", "Grep", "Glob"]}})
+
+    settings = json.loads(path.read_text(encoding="utf-8"))
+    assert settings["permissions"]["allow"] == ["Read", "Grep", "Glob"]

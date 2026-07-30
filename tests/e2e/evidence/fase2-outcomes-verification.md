@@ -92,12 +92,12 @@ Veredito: **ATINGIDO**
 `tests/test_app.py` casa o test_glob E está em files[] da T-01 -> allow (razão: `arquivo de teste declarado em files[] de uma tarefa do contrato ativo`) — tarefa TDD declarada pode tocar o próprio teste.
 `tests/test_other.py` casa o test_glob e NÃO está em files[] de nenhuma tarefa -> deny (razão: `arquivo de teste protegido: nenhuma tarefa do contrato ativo declara este arquivo em files[] - enfraquecimento de teste fora do escopo aprovado`) — o allow do raio não deixa o agente afrouxar teste fora do escopo aprovado.
 
-## Outcome 5 — compile-session remove o hook legado guard_tests.py sem tocar outros hooks
+## Outcome 5 — guard_tests.py não é gerado nem registrado; compile-session preserva outros hooks
 
 Veredito: **ATINGIDO**
 
-Mecanismo antigo (`harness compile`, enforce_tdd: true): o script `guard_tests.py` é gerado em `.harness/hooks/`, mas NÃO fica registrado em hooks.PreToolUse — o `boundary_guard.py` instalado pelo próprio `compile` já o substitui. `guard_test_runner.py` (Bash) permanece intacto.
-Após `compile-session`: `guard_tests.py` continua FORA de hooks.PreToolUse (a proteção de teste agora é por-tarefa no boundary_guard), `guard_test_runner.py` PRESERVADO intacto, `boundary_guard.py` registrado. Matchers finais: ['*', 'Bash'].
+Mecanismo antigo (`harness compile`, enforce_tdd: true): o script `guard_tests.py` não é gerado nem registrado em hooks.PreToolUse — o `boundary_guard.py` instalado pelo próprio `compile` cobre a mesma proteção por-tarefa. `guard_test_runner.py` (Bash) permanece intacto.
+Após `compile-session`: `guard_tests.py` continua ausente de hooks.PreToolUse (nunca chega a ser gerado; a proteção de teste é por-tarefa no boundary_guard), `guard_test_runner.py` PRESERVADO intacto, `boundary_guard.py` registrado. Matchers finais: ['*', 'Bash'].
 Segunda rodada de `compile-session`: uma única entrada do boundary_guard (idempotente).
 
 ## Outcome 6 — lifecycle de 17 passos como bloco gerenciado idempotente no AGENTS.md + .harness/LIFECYCLE.md

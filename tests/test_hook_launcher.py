@@ -39,11 +39,20 @@ def test_hook_command_bakes_absolute_interpreter() -> None:
 
 def test_hook_command_quotes_both_paths() -> None:
     command = hook_command(Path("/repo com espaço/.harness/hooks/stop_hook.py"))
-    assert command.startswith(f'"{sys.executable}" "')
+    assert command.startswith(f'"{sys.executable}" -S -E "')
     # O caminho do script fica entre aspas mesmo com o sufixo fail-closed
     # depois dele — um path com espaço não pode vazar para o shell.
     assert '.harness' in command
     assert command.split(FAIL_CLOSED_SUFFIX)[0].rstrip().endswith('"')
+
+
+def test_hook_command_uses_isolated_interpreter_flags() -> None:
+    command = hook_command(Path("/repo/.harness/hooks/boundary_guard.py"))
+    # -S: pula site-packages (hooks são stdlib-only por design; medido 90->68ms).
+    # -E: ignora PYTHONPATH herdado — o hook nunca deve importar do repo-alvo.
+    assert f'"{sys.executable}" -S -E "' in command
+    # interpreter_from_command continua extraindo só o interpretador, sem as flags.
+    assert interpreter_from_command(command) == sys.executable
 
 
 def test_resolve_interpreter_is_current_executable() -> None:

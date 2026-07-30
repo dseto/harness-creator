@@ -105,8 +105,14 @@ def hook_command(script_path: Path | str) -> str:
     aspas (caminho com espaço é a regra, não a exceção, em
     `C:\\Users\\<nome> Sobrenome\\...`), mais o sufixo fail-closed
     `|| exit 2` — se o interpretador não resolver, o hook BLOQUEIA a tool call
-    em vez de deixá-la passar. Ver o docstring do módulo."""
-    return f'"{resolve_interpreter()}" "{script_path}" {FAIL_CLOSED_SUFFIX}'
+    em vez de deixá-la passar. Ver o docstring do módulo.
+
+    `-S` pula a varredura de `site-packages`/`.pth` — os hooks são
+    stdlib-only por design, e essa varredura chega a custar dezenas de ms
+    por tool call quando a máquina tem outros projetos Python instalados.
+    `-E` ignora `PYTHONPATH` herdado do ambiente que disparou a tool call —
+    o hook nunca deve importar nada do repo-alvo."""
+    return f'"{resolve_interpreter()}" -S -E "{script_path}" {FAIL_CLOSED_SUFFIX}'
 
 
 def interpreter_from_command(command: str) -> str | None:

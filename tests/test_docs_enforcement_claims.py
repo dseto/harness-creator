@@ -4,8 +4,8 @@ Issue #61: quatro documentos de `docs/plugin/` descreviam o `guard_tests.py`
 como hook de enforcement ativo — `GUIDE.md` chegava a prometer que editar um
 arquivo de teste dispara *aquele* hook. As afirmações já eram falsas antes da
 correção do #61: quem entrega o gate de edição de teste é o `boundary_guard`,
-por decisão por-tarefa. O `guard_tests.py` continua sendo gerado em disco (e
-auditado quanto a drift), mas nenhuma instalação o registra.
+por decisão por-tarefa. (Atualização T-04/onda-1: o `guard_tests.py` deixou
+de ser gerado — antes disso já não era registrado.)
 
 Por que um teste e não uma revisão de doc: essas frases nasceram corretas e
 envelheceram sem sinal nenhum. A mesma classe de defeito da issue #11 e do
@@ -14,10 +14,9 @@ descreve um mecanismo que mudou, com a suíte verde. Um teste transforma o
 envelhecimento silencioso em falha.
 
 Enumeração fechada, e não um grep por `guard_tests`: o nome aparece
-legitimamente em `docs/plugin/` (a linha do inventário que o descreve como
-gerado-mas-não-registrado, e a seção do kill-switch que lista os hooks que
-fazem no-op), e em `docs/project/` inteiro, que é registro histórico datado —
-reescrever registro histórico é falsificá-lo.
+legitimamente em `docs/plugin/` (a linha do inventário que explica por que o
+mecanismo antigo não é mais gerado) e em `docs/project/` inteiro, que é
+registro histórico datado — reescrever registro histórico é falsificá-lo.
 """
 
 from __future__ import annotations
@@ -101,8 +100,9 @@ def test_plugin_docs_do_not_claim_guard_tests_is_active(
     text = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
     assert claim not in text, (
         f"{relative_path}: a afirmação {claim!r} voltou. Ela {why} — o "
-        "guard_tests.py é gerado em disco mas NÃO registrado (issue #61), e "
-        "quem entrega o gate de edição de teste é o boundary_guard. Se a "
+        "guard_tests.py nem é mais gerado (T-04/onda-1; já não era registrado "
+        "desde a issue #61), e quem entrega o gate de edição de teste é o "
+        "boundary_guard. Se a "
         "frase foi reescrita de propósito, atualize _FORBIDDEN_CLAIMS em "
         f"{Path(__file__).name}"
     )

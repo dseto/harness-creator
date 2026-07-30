@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-03",
+  "contract": "onda-1-flags-e-facas",
+  "desc": "O hook de proteção compila para o mesmo conteúdo toda vez, então dá para detectar se alguém o alterou por fora do processo normal",
+  "files": [
+    "src/harness/boundary_guard.py",
+    "tests/test_boundary_guard.py"
+  ],
+  "verify_cmd": "python -m pytest tests/test_boundary_guard.py -k deterministic -q",
+  "recorded_at": "2026-07-30T11:20:43.620530+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:ff770c644b7d954eccdab2b8fed715e52d16362d887a35b6c520bdc490f1fc92"
+}

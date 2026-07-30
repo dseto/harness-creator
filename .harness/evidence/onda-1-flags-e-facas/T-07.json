@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-07",
+  "contract": "onda-1-flags-e-facas",
+  "desc": "Uma regra de permissão específica deixa de sobreviver no arquivo gerado quando uma regra mais ampla do mesmo tipo já cobre o mesmo comando — o arquivo de permissões fica do tamanho do que está de fato em vigor",
+  "files": [
+    "src/harness/settings_paths.py",
+    "tests/test_settings_paths.py"
+  ],
+  "verify_cmd": "python -m pytest tests/test_settings_paths.py -q",
+  "recorded_at": "2026-07-30T11:48:42.472559+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:409f7066f0c9921e99e282ccab19295cd6a37c8348b501c3b75398ace636313b"
+}

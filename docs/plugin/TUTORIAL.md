@@ -116,42 +116,42 @@ fonte canônica: quando esta tabela e aquela seção divergirem, a seção vence
 | 1 | `.harness/` | Container de tudo que é do harness | qualquer comando | n/a |
 | 2 | `.harness/harness.yaml` | A spec de governança, escrita na entrevista do `init` | nunca — é a **entrada** de `compile` | **sim** |
 | 3 | `.harness/hooks/` | Container dos guards | `compile` / `compile-session` | não |
-| 4 | `.harness/hooks/guard_tests.py` | Guard legado de disciplina de teste — **gerado, mas não registrado**: o `boundary_guard` o substituiu por decisão por-tarefa (issue #61) | `harness compile` | não |
-| 5 | `.harness/hooks/guard_test_runner.py` | Registrado no matcher `Bash` (só com `enforce_tdd`), mas sempre `allow` — gateia a escrita do teste, não a execução repetida da suíte | `harness compile` | não |
-| 6 | `.harness/hooks/boundary_guard.py` | Guard do raio de impacto + runtime floor | `harness compile-session` | não |
-| 7 | `.harness/hooks/session_start.py` | Hook que injeta o estado da sessão anterior | `harness compile-session` | não |
-| 8 | `.harness/hooks/stop_hook.py` | Hook de fim de sessão | `harness compile-session` | não |
-| 9 | `.harness/compiled-state.json` | Registro do que `compile` gerencia (merge não-destrutivo) | `harness compile` | não — estado de máquina |
-| 10 | `.harness/compiled-state-session.json` | Idem, para os hooks de sessão | `harness compile-session` | não — estado de máquina |
-| 11 | `.harness/.gitignore` | As regras de ignore do que é machine-local | `compile` / `compile-session` | **sim** — é a própria regra |
-| 12 | `.harness/scratch/` | Área de artefato temporário de verificação | `compile` e `compile-session` | não |
-| 13 | `.harness/scratch/.gitignore` | Auto-ignora o conteúdo do scratch (`*` + `!.gitignore`) | `compile` e `compile-session` | **sim** |
-| 14 | `.harness/repo-profile.json` | Perfil detectado do repo (linguagem, package manager, test command) | `harness analyze` | **sim** |
-| 15 | `.harness/work/` | Container dos contratos | skill `plan` | n/a |
-| 16 | `.harness/work/<slug>/spec.md` | O contrato: escopo, critérios, o que fica de fora | nunca — autorado e aprovado por você | **sim** |
-| 17 | `.harness/work/<slug>/Plans.md` | As tarefas do contrato, uma por seção `## [T-xx]` | nunca (só patch cirúrgico de `harness task`) | **sim** |
-| 18 | `.harness/feature_list.json` | As tarefas compiladas, com `passes` protegido por feature-lock | `harness compile-contract` | **sim** |
-| 19 | `.harness/evidence/<contrato>/<id>.json` | Prova de execução: contrato, comando, exit code, hash dos arquivos, timestamp — escopada por contrato porque todo contrato tem um `T-01` | `harness verify` | **sim** |
-| 20 | `.harness/review/<id>.json` | Estado da revisão produtor-revisor (Fase 4) | `harness review` | **sim** |
-| 21 | `.harness/LIFECYCLE.md` | Detalhe dos 17 passos do lifecycle | `harness compile-session` | **sim** |
-| 22 | `.harness/TEAM.md` | Detalhe do time de agentes | `harness team generate` | **sim** |
-| 23 | `.harness/team/manifest.json` | Papéis, gates e política de revisão do time | `harness team generate` | **sim** |
-| 24 | `.harness/harness.disabled` | Sentinela do kill-switch | `harness disable` / `enable` | não — estado de máquina |
-| 25 | `.harness/metrics.json` | Contagem de ciclos `disable`/`enable`/`compile-session` — o número que o gate de decisão do backlog de fricção precisa | `disable`, `enable`, `compile-session`; lido por `harness status` | não — conta operações desta máquina |
-| 26 | `.harness/progress.md` | Bookkeeping da sessão: o que foi feito, o que quebrou, onde parou | `compile-session` só se ausente ou se o contrato divergiu — **nunca sobrescreve progresso** | **sim** |
-| 27 | `.harness/init.sh` | Bootstrap: instala deps + health check, derivado do profile | `compile-session` — **exceto** se você editou o arquivo (some o marcador, o harness preserva) | **sim** |
-| 28 | `.harness/init.ps1` | Idem, para PowerShell | idem | **sim** |
-| 29 | `.claude/settings.local.json` | Permissions + hooks compilados que o Claude Code aplica | `compile` e `compile-session` | não — **carrega path absoluto desta máquina** |
-| 30 | `.claude/.gitignore` | Ignora o `settings.local.json` | `compile` / `compile-session` | **sim** |
-| 31 | `.claude/agents/<role>.md` | Definição de um agente do time | `harness team generate` | **sim** |
-| 32 | `.claude/skills/<role>/SKILL.md` | Skill de um papel do time | `harness team generate` | **sim** |
-| 33 | **`AGENTS.md`** (raiz) | Híbrido: três blocos gerenciados + a sua prosa, que nunca é tocada | `compile` (bloco de governança), `compile-session` (lifecycle), `team generate` (time) | **sim** |
+| 4 | `.harness/hooks/guard_test_runner.py` | Registrado no matcher `Bash` (só com `enforce_tdd`), mas sempre `allow` — gateia a escrita do teste, não a execução repetida da suíte. O guard legado `guard_tests.py` (sempre-`ask`) não é mais gerado — o `boundary_guard` cobre a mesma proteção por decisão por-tarefa | `harness compile` | não |
+| 5 | `.harness/hooks/boundary_guard.py` | Guard do raio de impacto + runtime floor | `harness compile-session` | não |
+| 6 | `.harness/hooks/session_start.py` | Hook que injeta o estado da sessão anterior | `harness compile-session` | não |
+| 7 | `.harness/hooks/stop_hook.py` | Hook de fim de sessão | `harness compile-session` | não |
+| 8 | `.harness/compiled-state.json` | Registro do que `compile` gerencia (merge não-destrutivo) | `harness compile` | não — estado de máquina |
+| 9 | `.harness/compiled-state-session.json` | Idem, para os hooks de sessão | `harness compile-session` | não — estado de máquina |
+| 10 | `.harness/.gitignore` | As regras de ignore do que é machine-local | `compile` / `compile-session` | **sim** — é a própria regra |
+| 11 | `.harness/scratch/` | Área de artefato temporário de verificação | `compile` e `compile-session` | não |
+| 12 | `.harness/scratch/.gitignore` | Auto-ignora o conteúdo do scratch (`*` + `!.gitignore`) | `compile` e `compile-session` | **sim** |
+| 13 | `.harness/repo-profile.json` | Perfil detectado do repo (linguagem, package manager, test command) | `harness analyze` | **sim** |
+| 14 | `.harness/work/` | Container dos contratos | skill `plan` | n/a |
+| 15 | `.harness/work/<slug>/spec.md` | O contrato: escopo, critérios, o que fica de fora | nunca — autorado e aprovado por você | **sim** |
+| 16 | `.harness/work/<slug>/Plans.md` | As tarefas do contrato, uma por seção `## [T-xx]` | nunca (só patch cirúrgico de `harness task`) | **sim** |
+| 17 | `.harness/feature_list.json` | As tarefas compiladas, com `passes` protegido por feature-lock | `harness compile-contract` | **sim** |
+| 18 | `.harness/evidence/<contrato>/<id>.json` | Prova de execução: contrato, comando, exit code, hash dos arquivos, timestamp — escopada por contrato porque todo contrato tem um `T-01` | `harness verify` | **sim** |
+| 19 | `.harness/review/<id>.json` | Estado da revisão produtor-revisor (Fase 4) | `harness review` | **sim** |
+| 20 | `.harness/LIFECYCLE.md` | Detalhe dos 17 passos do lifecycle | `harness compile-session` | **sim** |
+| 21 | `.harness/TEAM.md` | Detalhe do time de agentes | `harness team generate` | **sim** |
+| 22 | `.harness/team/manifest.json` | Papéis, gates e política de revisão do time | `harness team generate` | **sim** |
+| 23 | `.harness/harness.disabled` | Sentinela do kill-switch | `harness disable` / `enable` | não — estado de máquina |
+| 24 | `.harness/metrics.json` | Contagem de ciclos `disable`/`enable`/`compile-session` — o número que o gate de decisão do backlog de fricção precisa | `disable`, `enable`, `compile-session`; lido por `harness status` | não — conta operações desta máquina |
+| 25 | `.harness/progress.md` | Bookkeeping da sessão: o que foi feito, o que quebrou, onde parou | `compile-session` só se ausente ou se o contrato divergiu — **nunca sobrescreve progresso** | **sim** |
+| 26 | `.harness/init.sh` | Bootstrap: instala deps + health check, derivado do profile | `compile-session` — **exceto** se você editou o arquivo (some o marcador, o harness preserva) | **sim** |
+| 27 | `.harness/init.ps1` | Idem, para PowerShell | idem | **sim** |
+| 28 | `.claude/settings.local.json` | Permissions + hooks compilados que o Claude Code aplica | `compile` e `compile-session` | não — **carrega path absoluto desta máquina** |
+| 29 | `.claude/.gitignore` | Ignora o `settings.local.json` | `compile` / `compile-session` | **sim** |
+| 30 | `.claude/agents/<role>.md` | Definição de um agente do time | `harness team generate` | **sim** |
+| 31 | `.claude/skills/<role>/SKILL.md` | Skill de um papel do time | `harness team generate` | **sim** |
+| 32 | **`AGENTS.md`** (raiz) | Híbrido: três blocos gerenciados + a sua prosa, que nunca é tocada | `compile` (bloco de governança), `compile-session` (lifecycle), `team generate` (time) | **sim** |
 
 Duas leituras que a tabela costuma surpreender:
 
-- **`harness compile` não gera tudo.** Ele regenera cinco coisas: os dois
-  `guard_*.py`, as fatias gerenciadas do `settings.local.json`, o bloco de
-  governança do `AGENTS.md` e o `compiled-state.json`. Todo o resto pertence a
+- **`harness compile` não gera tudo.** Ele regenera quatro coisas:
+  `guard_test_runner.py`, as fatias gerenciadas do `settings.local.json`, o
+  bloco de governança do `AGENTS.md` e o `compiled-state.json`. Todo o resto
+  pertence a
   `compile-session`, `compile-contract`, `analyze`, `verify`, `review`,
   `team generate` ou `disable`.
 - **O harness nunca toca no `.gitignore` da raiz do seu projeto**, nem cria ou
@@ -325,8 +325,8 @@ verification:
 - **`.harness/hooks/guard_test_runner.py`** — hook `PreToolUse` registrado,
   mas sempre `allow`: gateia a ESCRITA do teste, não a execução repetida da
   suíte (rodar `pytest` em RED e GREEN não pede aprovação duas vezes). O
-  **`guard_tests.py`** também é escrito aqui, mas não é registrado: o
-  `boundary_guard` o substituiu (issue #61).
+  mecanismo antigo (**`guard_tests.py`**, sempre-`ask`) não é mais gerado —
+  o `boundary_guard` cobre a mesma proteção por decisão por-tarefa.
 - **`AGENTS.md`** — bloco gerenciado com as instruções operacionais.
 
 ## A.5 Reabrir a sessão (obrigatório)
