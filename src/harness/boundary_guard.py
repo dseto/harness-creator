@@ -40,6 +40,7 @@ Histórico de decisão completo, achados numerados, alternativas rejeitadas:
 
 from __future__ import annotations
 
+import hashlib
 import inspect
 import json
 import re
@@ -67,6 +68,10 @@ HOOKS_DIR = ".harness/hooks"
 BOUNDARY_HOOK_FILENAME = "boundary_guard.py"
 SESSION_STATE_FILE = ".harness/compiled-state-session.json"
 BOUNDARY_STATE_KEY = "boundary_guard_hook_command"
+# T-03/onda-3: hash sha256 do conteúdo gravado em BOUNDARY_HOOK_FILENAME —
+# permite ao hook SessionStart (stdlib-only) detectar edição à mão sem
+# precisar re-renderizar (o que exigiria HarnessConfig/pydantic/yaml).
+BOUNDARY_CONTENT_HASH_STATE_KEY = "boundary_guard_content_hash"
 # Item 6 do backlog de correção do issue #1 (deriva de cwd): chave gravada em
 # SESSION_STATE_FILE por `install_boundary_guard`, uma vez, no momento da
 # compilação (`compile-session`) — a raiz absoluta do projeto-alvo, lida em
@@ -76,6 +81,13 @@ BOUNDARY_STATE_KEY = "boundary_guard_hook_command"
 # docstring do módulo.
 REPO_ROOT_STATE_KEY = "repo_root"
 LEGACY_GUARD_TESTS_MARKER = "guard_tests.py"
+# T-01/onda-3: guard_test_runner.py (matcher Bash, sempre-`allow`, nunca lia
+# o payload) deixou de ser gerado/registrado por `harness compile` — media
+# ~125ms por chamada de Bash sem mudar nenhuma decisão, já que este hook
+# (matcher `*`) cobre todo Bash. Mesmo tratamento do guard_tests.py legado
+# logo abaixo: instalação existente com a entrada antiga não pode ficar
+# rodando os dois hooks pra sempre só porque recompilou.
+LEGACY_GUARD_TEST_RUNNER_MARKER = "guard_test_runner.py"
 
 # Matcher do hook PreToolUse registrado em .claude/settings.json. "*" casa
 # TODA tool call (confirmado via doc oficial do Claude Code — ver docstring
@@ -2714,6 +2726,46 @@ def _no_contract_command_deny(command):
     )
 
 
+def _bootstrap_or_completed(cwd):
+    """Passo GENUINAMENTE identico entre _evaluate_bash e _evaluate_powershell
+    (item 11 do laudo, T-04/onda-3): carga do feature_list (bootstrap se
+    ausente) e o allow-all de contrato concluido. Extraido pra nao divergir
+    sozinho em um dos dois lados - antes desta extracao era codigo colado,
+    nao uma funcao compartilhada de verdade.
+
+    Retorna (bootstrap: bool, feature_list: list, completed: tuple|None). Se
+    completed nao for None, o chamador devolve esse par (decisao, razao)
+    imediatamente."""
+    feature_list = _load_json(cwd, FEATURE_LIST_PATH)
+    bootstrap = feature_list is None
+    if bootstrap:
+        return True, [], None
+    if _contract_fully_passed(feature_list):
+        return False, feature_list, ("allow", (
+            "contrato concluido (todas as features com passes:true) - boundary_guard "
+            "se aposenta da superficie de comando ate o proximo /harness-creator:plan; "
+            "floor (segredo/rede/kill-switch/branch protegida) continua incondicional, "
+            "e push segue restrito a branch do contrato ativo"
+        ))
+    return False, feature_list, None
+
+
+def _build_allowed_sequences(cwd, bootstrap, feature_list):
+    """Passo GENUINAMENTE identico entre _evaluate_bash e _evaluate_powershell
+    (item 11 do laudo, T-04/onda-3): coleta de allowed_commands do
+    profile/contrato + as sequencias fixas de git/harness + extra_allowed_commands
+    do usuario. Em bootstrap (sem contrato), so as fixas + extra do usuario."""
+    allowed_commands = []
+    if not bootstrap:
+        profile = _load_json(cwd, PROFILE_PATH)
+        allowed_commands = _collect_allowed_bash_commands(feature_list, profile)
+    return (
+        FIXED_GIT_SEQUENCES + FIXED_HARNESS_SEQUENCES
+        + [_tokenize_command(c) for c in allowed_commands]
+        + [_tokenize_command(c) for c in read_extra_allowed_commands_runtime(cwd)]
+    )
+
+
 def _evaluate_bash(command, cwd):
     if is_floor_bash_command(command):
         # O floor de push tem UMA excecao estreita: a branch do contrato ativo
@@ -2766,17 +2818,9 @@ def _evaluate_bash(command, cwd):
     # (_evaluate_file nao muda) - a inversao de seguranca do issue #35 fica
     # intacta; o que se libera aqui e floor + git local + subcomandos do
     # proprio harness + utilitarios read-only.
-    feature_list = _load_json(cwd, FEATURE_LIST_PATH)
-    bootstrap = feature_list is None
-    if bootstrap:
-        feature_list = []
-    elif _contract_fully_passed(feature_list):
-        return "allow", (
-            "contrato concluido (todas as features com passes:true) - boundary_guard "
-            "se aposenta da superficie de comando ate o proximo /harness-creator:plan; "
-            "floor (segredo/rede/kill-switch/branch protegida) continua incondicional, "
-            "e push segue restrito a branch do contrato ativo"
-        )
+    bootstrap, feature_list, completed = _bootstrap_or_completed(cwd)
+    if completed is not None:
+        return completed
 
     if "$(" in command or "`" in command:
         return "deny", (
@@ -2784,18 +2828,7 @@ def _evaluate_bash(command, cwd):
             "sub-comando precisa ser declarado explicitamente na superficie do contrato"
         )
 
-    # Em bootstrap nao ha contrato nem profile a consultar: a allowlist e so
-    # a fixa (git local + harness) mais o que o usuario declarou em
-    # governance.extra_allowed_commands.
-    allowed_commands = []
-    if not bootstrap:
-        profile = _load_json(cwd, PROFILE_PATH)
-        allowed_commands = _collect_allowed_bash_commands(feature_list, profile)
-    allowed_sequences = (
-        FIXED_GIT_SEQUENCES + FIXED_HARNESS_SEQUENCES
-        + [_tokenize_command(c) for c in allowed_commands]
-        + [_tokenize_command(c) for c in read_extra_allowed_commands_runtime(cwd)]
-    )
+    allowed_sequences = _build_allowed_sequences(cwd, bootstrap, feature_list)
 
     # Allow assimetrico ao floor: o floor casa 'aparece em qualquer janela'
     # (intocado, acima); o allow segmenta o comando nos operadores de controle
@@ -2947,35 +2980,20 @@ def _evaluate_powershell(command, cwd):
     if protected_problem:
         return "deny", protected_problem
 
-    # Mesmo modo bootstrap do _evaluate_bash: sem contrato, superficie minima
-    # de COMANDO em vez de deny total. Escrita continua fechada - o branch de
+    # Mesmo modo bootstrap do _evaluate_bash (extraido em _bootstrap_or_completed,
+    # item 11 do laudo, T-04/onda-3): sem contrato, superficie minima de
+    # COMANDO em vez de deny total. Escrita continua fechada - o branch de
     # write target abaixo delega a _evaluate_file, que nega sem contrato.
-    feature_list = _load_json(cwd, FEATURE_LIST_PATH)
-    bootstrap = feature_list is None
-    if bootstrap:
-        feature_list = []
-    elif _contract_fully_passed(feature_list):
-        return "allow", (
-            "contrato concluido (todas as features com passes:true) - boundary_guard "
-            "se aposenta da superficie de comando ate o proximo /harness-creator:plan; "
-            "floor (segredo/rede/kill-switch/branch protegida) continua incondicional, "
-            "e push segue restrito a branch do contrato ativo"
-        )
+    bootstrap, feature_list, completed = _bootstrap_or_completed(cwd)
+    if completed is not None:
+        return completed
 
     target = _extract_powershell_write_target(command)
     if target is not None:
         path = _resolve_path(target, cwd)
         return _evaluate_file(path, cwd)
 
-    allowed_commands = []
-    if not bootstrap:
-        profile = _load_json(cwd, PROFILE_PATH)
-        allowed_commands = _collect_allowed_bash_commands(feature_list, profile)
-    allowed_sequences = (
-        FIXED_GIT_SEQUENCES + FIXED_HARNESS_SEQUENCES
-        + [_tokenize_command(c) for c in allowed_commands]
-        + [_tokenize_command(c) for c in read_extra_allowed_commands_runtime(cwd)]
-    )
+    allowed_sequences = _build_allowed_sequences(cwd, bootstrap, feature_list)
 
     # Item 7: mesma estrutura de escapes do _evaluate_bash - cada segmento
     # passa se (1) prefixa alguma allowed_sequence, (2) e cmdlet read-only de
@@ -3029,7 +3047,15 @@ def _evaluate_powershell(command, cwd):
 # Tools read-only/utilitarias CONHECIDAS que passam sem analise de escrita
 # (Item 1 do backlog de correcao do issue #1). Task e usado pelo proprio
 # harness (subagentes) e NAO pode cair no branch de tool desconhecida.
-_READONLY_ALLOWLIST_TOOLS = ("Read", "Glob", "Grep", "Task", "WebFetch", "TodoWrite")
+# TaskCreate/TaskGet/TaskList/TaskOutput/TaskStop/TaskUpdate (item 17 do
+# laudo, T-02/onda-3): ferramentas nativas de acompanhamento de tarefa do
+# proprio Claude Code, read-only-adjacentes (nao escrevem no repositorio-alvo)
+# -- sem isto, "TaskCreate" cai no ramo de tool desconhecida e e negada so por
+# conter "create" no nome (ja aconteceu numa sessao real deste projeto).
+_READONLY_ALLOWLIST_TOOLS = (
+    "Read", "Glob", "Grep", "Task", "WebFetch", "TodoWrite",
+    "TaskCreate", "TaskGet", "TaskList", "TaskOutput", "TaskStop", "TaskUpdate",
+)
 
 # Tool NAO enumerada acima: politica MINIMA pra deploy single-user interno -
 # nome com cara de escrita (contem write/create/edit, case-insensitive,
@@ -3244,13 +3270,14 @@ def install_boundary_guard(target_dir: Path) -> Path:
     `cwd` reportado pela tool call, que pode ter derivado.
 
     Também remove, de `hooks.PreToolUse` do arquivo gerenciado, qualquer
-    entrada legada cujo
-    `command` referencie o `guard_tests.py` gerado pelo `compiler.py`
-    (mecanismo antigo, v0.10.0): o `boundary_guard.py` já cobre a proteção
-    de teste (por tarefa do contrato), e manter os dois ativos faria o hook
-    antigo disparar `ask` (auto-negado em modo headless) para o mesmo Edit
-    que este já libera por `allow`. Nenhuma outra entrada de
-    `hooks.PreToolUse` é tocada (ex.: `guard_test_runner.py`).
+    entrada legada cujo `command` referencie o `guard_tests.py` gerado pelo
+    `compiler.py` (mecanismo antigo, v0.10.0) OU o `guard_test_runner.py`
+    (aposentado em T-01/onda-3): o `boundary_guard.py` já cobre a proteção de
+    teste (por tarefa do contrato) e todo `Bash`, e manter qualquer um dos
+    dois ativo faria um segundo processo rodar por tool call sem mudar
+    nenhuma decisão (o antigo `guard_tests.py` ainda disparava `ask`,
+    auto-negado em modo headless, para o mesmo Edit que este já libera por
+    `allow`). Nenhuma outra entrada de `hooks.PreToolUse` é tocada.
     """
     target_dir = target_dir.resolve()
 
@@ -3258,10 +3285,19 @@ def install_boundary_guard(target_dir: Path) -> Path:
     hooks_dir.mkdir(parents=True, exist_ok=True)
     script_path = hooks_dir / BOUNDARY_HOOK_FILENAME
     protected_branches = load_protected_branches(target_dir)
-    script_path.write_text(
-        render_boundary_guard(protected_branches),
-        encoding="utf-8",
-    )
+    content = render_boundary_guard(protected_branches)
+    script_path.write_text(content, encoding="utf-8")
+    # T-03/onda-3 (item 10 restante do laudo): hash do conteúdo gravado, para
+    # o hook `SessionStart` (stdlib-only, não pode chamar `render_boundary_guard`
+    # — este depende de `HarnessConfig`/pydantic/yaml via `load_protected_branches`)
+    # detectar, sem re-renderizar nada, se o arquivo instalado foi editado à
+    # mão desde então. `harness audit` continua sendo a checagem completa
+    # (recompila e compara o conteúdo inteiro); isto é só um sinal barato na
+    # sessão seguinte, mesmo canal que já avisa sobre kill-switch desligado.
+    # Hash calculado a partir do que `write_text` de fato gravou (não do
+    # `content` em memória): `write_text` traduz `\n` -> `\r\n` no Windows —
+    # hashear a string em memória divergiria do arquivo real a cada sessão.
+    content_hash = hashlib.sha256(script_path.read_bytes()).hexdigest()
 
     # Item 1 do backlog do dogfood venv-Windows: interpretador ABSOLUTO
     # bakeado (nao `python` nu resolvido pelo PATH de runtime) — ver
@@ -3296,6 +3332,12 @@ def install_boundary_guard(target_dir: Path) -> Path:
             for h in entry.get("hooks", [])
         )
 
+    def _is_legacy_guard_test_runner(entry: dict[str, Any]) -> bool:
+        return any(
+            LEGACY_GUARD_TEST_RUNNER_MARKER in (h.get("command") or "")
+            for h in entry.get("hooks", [])
+        )
+
     def _references_our_script(entry: dict[str, Any]) -> bool:
         """Entrada que aponta para o NOSSO script, independente da forma do
         comando. Necessário desde que o formato do `command` mudou (`python
@@ -3314,6 +3356,7 @@ def install_boundary_guard(target_dir: Path) -> Path:
         e for e in pre
         if not _is_old_managed(e)
         and not _is_legacy_guard_tests(e)
+        and not _is_legacy_guard_test_runner(e)
         and not _references_our_script(e)
     ]
     new_entry = {
@@ -3325,6 +3368,7 @@ def install_boundary_guard(target_dir: Path) -> Path:
     write_managed_settings(settings_path, settings)
 
     state[BOUNDARY_STATE_KEY] = command
+    state[BOUNDARY_CONTENT_HASH_STATE_KEY] = content_hash
     # Item 6 do backlog de correção do issue #1 (deriva de cwd): grava a raiz
     # absoluta do projeto-alvo UMA vez, sob REPO_ROOT_STATE_KEY, preservando
     # (merge não-destrutivo, igual acima) quaisquer outras chaves já

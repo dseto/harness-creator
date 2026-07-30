@@ -96,8 +96,8 @@ Veredito: **ATINGIDO**
 
 Veredito: **ATINGIDO**
 
-Mecanismo antigo (`harness compile`, enforce_tdd: true): o script `guard_tests.py` não é gerado nem registrado em hooks.PreToolUse — o `boundary_guard.py` instalado pelo próprio `compile` cobre a mesma proteção por-tarefa. `guard_test_runner.py` (Bash) permanece intacto.
-Após `compile-session`: `guard_tests.py` continua ausente de hooks.PreToolUse (nunca chega a ser gerado; a proteção de teste é por-tarefa no boundary_guard), `guard_test_runner.py` PRESERVADO intacto, `boundary_guard.py` registrado. Matchers finais: ['*', 'Bash'].
+Mecanismo antigo (`harness compile`, enforce_tdd: true): nem `guard_tests.py` nem `guard_test_runner.py` são gerados/registrados em hooks.PreToolUse — o `boundary_guard.py` instalado pelo próprio `compile` cobre a mesma proteção por-tarefa e todo `Bash`, num único processo.
+Após `compile-session`: nem `guard_tests.py` nem `guard_test_runner.py` aparecem em hooks.PreToolUse (nenhum dos dois chega a ser gerado), só `boundary_guard.py` registrado. Matchers finais: ['*'].
 Segunda rodada de `compile-session`: uma única entrada do boundary_guard (idempotente).
 
 ## Outcome 6 — lifecycle de 17 passos como bloco gerenciado idempotente no AGENTS.md + .harness/LIFECYCLE.md

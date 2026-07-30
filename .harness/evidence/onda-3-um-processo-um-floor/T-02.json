@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-02",
+  "contract": "onda-3-um-processo-um-floor",
+  "desc": "Ferramentas nativas de acompanhamento de tarefa (TaskCreate e afins) não são mais negadas por engano de nome",
+  "files": [
+    "src/harness/boundary_guard.py",
+    "tests/test_boundary_guard.py"
+  ],
+  "verify_cmd": "pytest tests/test_boundary_guard.py -q",
+  "recorded_at": "2026-07-30T13:52:41.908071+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:952cdca54b38082bcb7dc26b765f7ff808bd2451c13e8d9d0a0f44f15d51afbc"
+}

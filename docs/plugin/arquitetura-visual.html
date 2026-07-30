@@ -553,7 +553,7 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
       <g class="layerbox" data-layer="guard">
         <rect x="20" y="252" width="920" height="82" rx="11" fill="var(--panel2)" stroke="var(--bad)" stroke-width="1.5"/>
         <text x="40" y="277" class="sv-tx">CAMADA 3 · ENFORCEMENT RUNTIME (hooks gerados, stdlib puro)</text>
-        <text x="40" y="299" class="sv-mono">boundary_guard.py · guard_test_runner.py · session_start.py · stop_hook.py</text>
+        <text x="40" y="299" class="sv-mono">boundary_guard.py · session_start.py · stop_hook.py</text>
         <text x="40" y="320" class="sv-tx3">rodam FORA do pacote instalado, a cada tool call — decidem allow / ask / deny</text>
       </g>
       <!-- L4 prova -->
@@ -1425,10 +1425,9 @@ const GN=[
  {id:'flst', x:490, y:150, w:150,h:34, t:'feature_list.json', c:'--vio',  d:'O contrato compilado. É a fonte que o guard lê a cada tool call.'},
  {id:'prof', x:490, y:222, w:150,h:34, t:'repo-profile.json', c:'--vio',  d:'Fatos observados do repo. Alimenta test_glob, verify extras e scripts de init.'},
  {id:'agmd', x:490, y:294, w:150,h:34, t:'AGENTS.md',         c:'--vio',  d:'Governança + os 17 passos, injetado como contexto em toda sessão.'},
- {id:'bg',   x:680, y:114, w:150,h:34, t:'boundary_guard',    c:'--bad',  d:'Dispatcher único de fronteira. Decide allow/deny lendo o contrato em runtime.'},
- {id:'gt',   x:680, y:186, w:150,h:34, t:'guard_test_runner', c:'--bad',  d:'Registrado no matcher Bash, sempre allow: a disciplina TDD gateia a escrita do teste, não a execução repetida da suíte.'},
- {id:'ss',   x:680, y:258, w:150,h:34, t:'session_start',     c:'--bad',  d:'Injeta progresso, feature pendente e git log no início da sessão.'},
- {id:'sh',   x:680, y:330, w:150,h:34, t:'stop_hook',         c:'--bad',  d:'Avisa (sem bloquear) se a sessão vai terminar com trabalho não verificado.'},
+ {id:'bg',   x:680, y:114, w:150,h:34, t:'boundary_guard',    c:'--bad',  d:'Dispatcher único de fronteira. Decide allow/deny lendo o contrato em runtime — cobre Edit/Write/Bash num único processo.'},
+ {id:'ss',   x:680, y:186, w:150,h:34, t:'session_start',     c:'--bad',  d:'Injeta progresso, feature pendente e git log no início da sessão.'},
+ {id:'sh',   x:680, y:258, w:150,h:34, t:'stop_hook',         c:'--bad',  d:'Avisa (sem bloquear) se a sessão vai terminar com trabalho não verificado.'},
  {id:'ver',  x:878, y:114, w:150,h:34, t:'verify.py',         c:'--good', d:'Roda o verify_cmd real e grava a evidência com exit code e hash.'},
  {id:'evi',  x:878, y:186, w:150,h:34, t:'evidence/*.json',   c:'--good', d:'A prova. Comparada com o último commit para decidir se o feature-lock abre.'},
  {id:'aud',  x:878, y:258, w:150,h:34, t:'audit / doctor',    c:'--good', d:'Laudos read-only: drift da compilação, invariantes runtime e as 3 camadas de versão.'},
@@ -1437,7 +1436,7 @@ const GN=[
 const GE=[['yaml','comp'],['spec','cont'],['repo','anal'],['yaml','sper'],
  ['comp','sett'],['cont','flst'],['anal','prof'],['comp','agmd'],['sper','sett'],
  ['flst','sper'],['prof','sper'],
- ['sett','bg'],['sett','gt'],['sett','ss'],['sett','sh'],
+ ['sett','bg'],['sett','ss'],['sett','sh'],
  ['flst','bg'],['prof','bg'],['agmd','ss'],['flst','ss'],
  ['flst','ver'],['ver','evi'],['evi','bg'],['flst','aud'],['evi','fin'],['sett','aud']];
 (function(){

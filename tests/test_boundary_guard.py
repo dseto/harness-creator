@@ -11,11 +11,13 @@ from pathlib import Path
 
 
 from harness.boundary_guard import (
+    BOUNDARY_CONTENT_HASH_STATE_KEY,
     BOUNDARY_HOOK_FILENAME,
     BOUNDARY_HOOK_MATCHER,
     BOUNDARY_STATE_KEY,
     REPO_ROOT_STATE_KEY,
     SESSION_STATE_FILE,
+    _review_gate_problem,
     install_boundary_guard,
     is_floor_control_plane_path,
 )
@@ -708,6 +710,23 @@ def test_install_registers_one_hook_and_bakes_the_absolute_interpreter(
     assert state["session_permissions_hook_command"] == "sibling"
     assert BOUNDARY_STATE_KEY in state
 
+
+def test_install_records_content_hash_matching_the_installed_file(tmp_path: Path) -> None:
+    """T-03/onda-3 (item 10 restante do laudo): o hook SessionStart (stdlib-only)
+    detecta edição à mão do boundary_guard.py instalado comparando hashes, sem
+    poder re-renderizar (dependeria de HarnessConfig/pydantic/yaml). O hash
+    gravado precisa bater com os BYTES reais do arquivo — não com a string em
+    memória antes do `write_text` (que traduz `\\n` -> `\\r\\n` no Windows)."""
+    import hashlib
+
+    script = install_boundary_guard(tmp_path)
+
+    state_path = tmp_path / SESSION_STATE_FILE
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert BOUNDARY_CONTENT_HASH_STATE_KEY in state
+    assert state[BOUNDARY_CONTENT_HASH_STATE_KEY] == hashlib.sha256(script.read_bytes()).hexdigest()
+
+
 def test_install_replaces_legacy_command_format_without_duplicating(tmp_path: Path) -> None:
     """Entrada no formato antigo AUSENTE do compiled-state-session.json (state
     apagado, ou settings.json versionado vindo de outra máquina) não pode
@@ -742,7 +761,7 @@ def test_install_preserves_unrelated_settings_and_hooks(tmp_path: Path) -> None:
         "permissions": {"allow": ["Bash(npm run *)"]},
         "hooks": {"PreToolUse": [
             {"matcher": "Bash", "hooks": [{"type": "command", "command": "meu-hook.sh"}]},
-            {"matcher": "Bash", "hooks": [{"type": "command", "command": "python .harness/hooks/guard_test_runner.py"}]},
+            {"matcher": "Bash", "hooks": [{"type": "command", "command": "outra-ferramenta.py"}]},
         ]},
     }), encoding="utf-8")
 
@@ -753,8 +772,8 @@ def test_install_preserves_unrelated_settings_and_hooks(tmp_path: Path) -> None:
     assert "Bash(npm run *)" in settings["permissions"]["allow"]
     user_hooks = [e for e in settings["hooks"]["PreToolUse"] if "meu-hook.sh" in json.dumps(e)]
     assert len(user_hooks) == 1
-    runner_hooks = [e for e in settings["hooks"]["PreToolUse"] if "guard_test_runner.py" in json.dumps(e)]
-    assert len(runner_hooks) == 1
+    outros_hooks = [e for e in settings["hooks"]["PreToolUse"] if "outra-ferramenta.py" in json.dumps(e)]
+    assert len(outros_hooks) == 1
 
 
 def test_install_removes_legacy_guard_tests_hook(tmp_path: Path) -> None:
@@ -771,6 +790,31 @@ def test_install_removes_legacy_guard_tests_hook(tmp_path: Path) -> None:
 
     settings = json.loads((claude_dir / "settings.local.json").read_text(encoding="utf-8"))
     legacy = [e for e in settings["hooks"]["PreToolUse"] if "guard_tests.py" in json.dumps(e)]
+    assert legacy == []
+    new_entries = [e for e in settings["hooks"]["PreToolUse"] if e.get("matcher") == BOUNDARY_HOOK_MATCHER]
+    assert len(new_entries) == 1
+
+
+def test_install_removes_legacy_guard_test_runner_hook(tmp_path: Path) -> None:
+    """T-01/onda-3: guard_test_runner.py (matcher Bash, sempre-`allow`, nunca
+    lia o payload) foi aposentado — media ~125ms por chamada de Bash sem
+    mudar nenhuma decisão, já que este hook (matcher `*`) cobre todo Bash.
+    Uma instalação existente com a entrada antiga não pode ficar rodando os
+    dois hooks pra sempre só porque recompilou; mesmo tratamento que
+    `guard_tests.py` já recebe acima."""
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+    (claude_dir / "settings.local.json").write_text(json.dumps({
+        "hooks": {"PreToolUse": [
+            {"matcher": "Bash",
+             "hooks": [{"type": "command", "command": 'python ".harness/hooks/guard_test_runner.py"'}]},
+        ]},
+    }), encoding="utf-8")
+
+    install_boundary_guard(tmp_path)
+
+    settings = json.loads((claude_dir / "settings.local.json").read_text(encoding="utf-8"))
+    legacy = [e for e in settings["hooks"]["PreToolUse"] if "guard_test_runner.py" in json.dumps(e)]
     assert legacy == []
     new_entries = [e for e in settings["hooks"]["PreToolUse"] if e.get("matcher") == BOUNDARY_HOOK_MATCHER]
     assert len(new_entries) == 1
@@ -927,6 +971,75 @@ def test_feature_lock_requires_a_justification_for_a_test_diff(tmp_path: Path) -
     _write_review(tmp_path, "T-01", status="approved", updated_at="2026-06-01T00:00:00+00:00",
                   justification="expectativa mudou porque o contrato foi renegociado")
     _expect(script, Case("Write", payload["tool_input"], "allow"))
+
+
+# ---------------------------------------------------------------------------
+# T-04/onda-3: prova de paridade entre as duas implementações do veto do
+# revisor — a importável (`_review_gate_problem`, usa `harness.review.
+# load_review`) e a embutida no script standalone (não pode importar
+# `harness.review`: puxaria `harness.analyzer`/`harness.patterns`, não-stdlib
+# — ver docstring do módulo). "Embutir via inspect.getsource()", a técnica
+# sugerida pelo laudo original para o item 11, não é executável aqui por
+# essa mesma razão (correção registrada no spec.md desta onda). A prova
+# possível é esta: mesmos fixtures, mesmo veredito (allow/deny) dos dois
+# lados — trava a divergência já encontrada (mensagens de erro diferentes
+# para JSON malformado) sem prometer uma fusão que a arquitetura impede.
+# ---------------------------------------------------------------------------
+
+def test_review_gate_parity_between_importable_and_standalone_implementations(
+    tmp_path: Path,
+) -> None:
+    _init_git_repo_with_commit(tmp_path, "2026-01-01T00:00:00+00:00")
+    _write_feature_list(tmp_path, [
+        {"id": "T-01", "desc": "x", "files": ["src/main.py"], "verify_cmd": "pytest -q",
+         "depends": [], "passes": False}
+    ])
+    _write_evidence(tmp_path, "T-01", recorded_at="2026-03-01T00:00:00+00:00")
+    _write_manifest(tmp_path)
+    script = _script(tmp_path)
+    payload = _transition_payload(tmp_path)
+
+    def _standalone_allows() -> bool:
+        out = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
+                                  "tool_input": payload["tool_input"]})
+        return out["permissionDecision"] == "allow"
+
+    def _importable_allows() -> bool:
+        problem = _review_gate_problem(
+            tmp_path, "T-01",
+            {"id": "T-01", "files": ["src/main.py"]},
+            "2026-01-01T00:00:00+00:00",
+            {"recorded_at": "2026-03-01T00:00:00+00:00"},
+        )
+        return problem is None
+
+    casos = (
+        ("sem registro de revisao", lambda: None),
+        ("status pending", lambda: _write_review(tmp_path, "T-01", status="pending",
+                                                  updated_at="2026-09-01T00:00:00+00:00")),
+        ("status in_review", lambda: _write_review(tmp_path, "T-01", status="in_review",
+                                                     updated_at="2026-09-01T00:00:00+00:00")),
+        ("status rejected", lambda: _write_review(tmp_path, "T-01", status="rejected",
+                                                    updated_at="2026-09-01T00:00:00+00:00")),
+        ("aprovacao anterior ao commit", lambda: _write_review(
+            tmp_path, "T-01", status="approved", updated_at="2025-01-01T00:00:00+00:00")),
+        ("aprovacao anterior a evidencia", lambda: _write_review(
+            tmp_path, "T-01", status="approved", updated_at="2026-02-01T00:00:00+00:00")),
+        ("aprovacao fresca", lambda: _write_review(
+            tmp_path, "T-01", status="approved", updated_at="2026-06-01T00:00:00+00:00")),
+        ("json malformado", lambda: (tmp_path / ".harness" / "review" / "T-01.json")
+            .write_text("{nao e json valido", encoding="utf-8")),
+    )
+
+    divergencias = []
+    for why, setup in casos:
+        setup()
+        standalone = _standalone_allows()
+        importavel = _importable_allows()
+        if standalone != importavel:
+            divergencias.append(f"{why}: standalone={standalone} importavel={importavel}")
+    assert not divergencias, "\n".join(divergencias)
+
 
 # ---------------- Achado 1: command smuggling no guard de Bash ----------------
 
@@ -1219,7 +1332,14 @@ def test_unknown_tools_are_judged_by_the_name_pattern(tmp_path: Path) -> None:
     causaria: leitura (Read/Glob/Grep) e utilitárias conhecidas — Task incluída,
     que o próprio harness usa — continuam allow. Tool desconhecida cujo nome NÃO
     casa write/create/edit vira allow LOGADO: política mínima, risco residual
-    assumido e documentado."""
+    assumido e documentado.
+
+    T-02/onda-3 (item 17 do laudo): `TaskCreate` foi negada por engano numa
+    sessão real deste projeto — o nome contém "create" e a tool não estava
+    na allowlist conhecida. `TaskCreate`/`TaskGet`/`TaskList`/`TaskOutput`/
+    `TaskStop`/`TaskUpdate` são as ferramentas nativas read-only-adjacentes de
+    acompanhamento de tarefa do próprio Claude Code (não escrevem no
+    repositório-alvo) — entram na allowlist junto de `Task`."""
     _expect(
         _script(tmp_path),
         Case("mcp__filesystem__write_file", {"path": "/etc/passwd", "content": "x"}, "deny"),
@@ -1232,6 +1352,12 @@ def test_unknown_tools_are_judged_by_the_name_pattern(tmp_path: Path) -> None:
         Case("Task", {"file_path": "src/main.py"}, "allow"),
         Case("WebFetch", {"file_path": "src/main.py"}, "allow"),
         Case("TodoWrite", {"file_path": "src/main.py"}, "allow"),
+        Case("TaskCreate", {"title": "x"}, "allow"),
+        Case("TaskGet", {"id": "1"}, "allow"),
+        Case("TaskList", {}, "allow"),
+        Case("TaskOutput", {"id": "1"}, "allow"),
+        Case("TaskStop", {"id": "1"}, "allow"),
+        Case("TaskUpdate", {"id": "1"}, "allow"),
         Case("mcp__foo__persist_snapshot", {}, "allow", reason="allow-logado"),
     )
 

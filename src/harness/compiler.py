@@ -13,9 +13,12 @@ Fontes de verdade reusadas da biblioteca (não duplicar tabelas):
   de risco exigem humano em cada modo.
 
 O destino é `settings.local.json`, não `settings.json`: o comando de hook
-compilado leva path ABSOLUTO (ver `_hook_entry`), então é dado desta máquina
-e nunca pode viajar no git — ver `harness.settings_paths` para a política e
-para a migração do alvo já instalado.
+compilado leva path ABSOLUTO, então é dado desta máquina e nunca pode viajar
+no git — ver `harness.settings_paths` para a política e para a migração do
+alvo já instalado. Este módulo não gera hook próprio nenhum hoje (ver
+`render()`); o `boundary_guard.py` que cobre `Bash`/`Edit`/`Write` é
+instalado por `harness.boundary_guard.install_boundary_guard`, chamado logo
+depois de `compile_project` no mesmo comando `harness compile`.
 
 Estratégia de merge: nunca sobrescrever o que o usuário tem lá. As entradas
 gerenciadas pelo harness ficam registradas em `.harness/compiled-state.json`;
@@ -36,8 +39,6 @@ import yaml
 from harness import __version__ as _HARNESS_VERSION
 from harness.config import HarnessConfig
 from harness.governance.approval import _ALWAYS_GATED, _POLICY_MATRIX
-from harness.hook_launcher import hook_command
-from harness.killswitch import DISABLED_CHECK_SRC
 from harness.settings_paths import prepare_managed_settings, write_managed_settings
 
 HARNESS_YAML = ".harness/harness.yaml"
@@ -103,22 +104,19 @@ def render(config: HarnessConfig, target_dir: Path, raw_keys: set[str] | None = 
         elif risk_class != "network":  # network nunca vai para allow
             allow.extend(rules)
 
-    # `guard_tests.py` (mecanismo estático sempre-`ask`) não é mais gerado —
-    # T-04/onda-1. O `boundary_guard.py` (instalado por `install_boundary_guard`
-    # no mesmo comando que `compile_project`) cobre a mesma proteção de
-    # enfraquecimento de teste por decisão POR-TAREFA desde a Fase 2; gerar um
-    # script que nenhuma instalação registra (issue #61) era peso morto puro.
+    # Nenhum hook próprio: `guard_tests.py` (mecanismo estático sempre-`ask`)
+    # não é mais gerado desde T-04/onda-1, e `guard_test_runner.py` (matcher
+    # Bash, sempre-`allow`, nunca lia o payload) deixou de ser gerado e
+    # registrado em T-01/onda-3 — media ~125ms por chamada de `Bash` sem
+    # mudar nenhuma decisão, porque o `boundary_guard.py` (instalado por
+    # `install_boundary_guard` no mesmo comando que `compile_project`, matcher
+    # `*`) já cobre TODO `Bash`, incluindo a proteção de enfraquecimento de
+    # teste por decisão POR-TAREFA desde a Fase 2. `hook_files`/`hook_entries`
+    # seguem declarados (dataclass `Artifacts`) para o caso de o compilador um
+    # dia precisar gerar outro hook próprio — hoje nenhum existe.
     # Histórico completo: docs/project/HISTORICO-boundary_guard-2026-07-30.md.
     hook_files: dict[str, str] = {}
-    if config.verification.enforce_tdd:
-        hook_files["guard_test_runner.py"] = _render_guard_test_runner(
-            config.verification.test_command
-        )
-
-    hooks_abs = (target_dir / HOOKS_DIR).resolve()
     hook_entries: list[dict[str, Any]] = []
-    if config.verification.enforce_tdd:
-        hook_entries.append(_hook_entry("Bash", hooks_abs / "guard_test_runner.py"))
 
     agents_block = _render_agents_block(config)
 
@@ -129,74 +127,6 @@ def render(config: HarnessConfig, target_dir: Path, raw_keys: set[str] | None = 
         agents_block=agents_block,
         warnings=warnings,
     )
-
-
-def _hook_entry(matcher: str, script: Path) -> dict[str, Any]:
-    # Path absoluto embutido na compilação: portátil entre shells (cmd não
-    # expande $VAR); se o repo mudar de lugar, `harness audit` acusa o drift.
-    #
-    # `hook_command()` é o MESMO ponto único dos três hooks de sessão
-    # (`boundary_guard`, `session_start`, `stop_hook`): interpretador absoluto
-    # + sufixo `|| exit 2`. Este aqui ficou para trás quando o Item 1/1b
-    # entrou, e o achado F8 do dogfood venv-Windows mostrou o custo: um
-    # repo que rodou só `harness compile` — estado por onde TODA instalação
-    # passa, antes de existir contrato — ficava com os guards de TDD lançados
-    # por `python` nu. Interpretador irresolúvel ⇒ processo morre com código
-    # != 2 ⇒ a doc do Claude Code manda a tool call PASSAR. Ver
-    # `harness.hook_launcher` para o mecanismo inteiro.
-    return {
-        "matcher": matcher,
-        "hooks": [{"type": "command", "command": hook_command(script)}],
-    }
-
-
-def _render_guard_test_runner(test_command: str) -> str:
-    # A disciplina TDD gateia a ESCRITA de teste (boundary_guard, por-tarefa),
-    # não a execução — pedir aprovação a cada `pytest` rodado é fricção pura
-    # depois que o teste já foi aprovado na escrita (issue: dezenas de asks
-    # repetidos para o mesmo comando dentro de uma única tarefa). Este hook
-    # fica registrado (matcher Bash) só para permitir reativar a checagem no
-    # futuro sem recompilar do zero; hoje sempre allow.
-    return f'''"""Hook PreToolUse gerado pelo harness-creator — NÃO editar à mão.
-
-Rodar a suíte de teste NÃO exige aprovação humana — a disciplina TDD do
-harness gateia a ESCRITA do arquivo de teste (boundary_guard, decisão
-por-tarefa), não a sua execução repetida. Gerado de
-test_command={test_command!r}; para mudar, edite .harness/harness.yaml e
-rode `harness compile`.
-"""
-import json
-import sys
-
-
-{DISABLED_CHECK_SRC}
-
-
-def main() -> None:
-    if _harness_disabled():
-        reason = (
-            "harness desativado pelo usuario (.harness/harness.disabled) - "
-            "kill-switch externo ativo"
-        )
-    else:
-        json.load(sys.stdin)
-        reason = (
-            "execução da suíte de teste não exige aprovação — a disciplina "
-            "TDD gateia a escrita do teste, não sua execução repetida"
-        )
-
-    print(json.dumps({{
-        "hookSpecificOutput": {{
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "allow",
-            "permissionDecisionReason": reason,
-        }}
-    }}))
-
-
-if __name__ == "__main__":
-    main()
-'''
 
 
 def _render_agents_block(config: HarnessConfig) -> str:

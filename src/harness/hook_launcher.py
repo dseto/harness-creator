@@ -77,11 +77,15 @@ _FALLBACK_INTERPRETER = "python"
 FAIL_CLOSED_SUFFIX = "|| exit 2"
 
 # Instrução de correção comum aos problemas abaixo. Nomeia os DOIS comandos
-# porque os hooks gerenciados saem de dois lugares: `guard_tests`/
-# `guard_test_runner` vêm de `harness compile`, os outros três de
-# `compile-session`. A versão anterior citava só o segundo — e mandar o usuário
-# rodar um comando que não regrava o hook dele é a classe de instrução que
-# transforma um diagnóstico correto em laço de tentativa e erro.
+# porque os hooks gerenciados saem de dois lugares: `boundary_guard.py` de
+# `harness compile` (via `install_boundary_guard`, chamado logo depois de
+# `compile_project` no mesmo comando), os outros três (`session_start`,
+# `stop_hook`, e o próprio `boundary_guard` reinstalado) de
+# `compile-session`. `harness compile` sozinho não gera hook próprio nenhum
+# mais — `guard_tests.py`/`guard_test_runner.py` foram aposentados (T-04/onda-1,
+# T-01/onda-3). A versão anterior deste comentário citava só o segundo — e
+# mandar o usuário rodar um comando que não regrava o hook dele é a classe de
+# instrução que transforma um diagnóstico correto em laço de tentativa e erro.
 _REGRAVAR_HINT = (
     "Rode `harness compile` (e `harness compile-session`, se houver contrato "
     "ativo) para regravar o comando."

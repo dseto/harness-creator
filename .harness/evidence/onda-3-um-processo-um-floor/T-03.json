@@ -1,0 +1,16 @@
+{
+  "feature_id": "T-03",
+  "contract": "onda-3-um-processo-um-floor",
+  "desc": "A auditoria do projeto detecta sozinha quando o hook de segurança instalado ficou desatualizado em relação ao código-fonte, e avisa disso na sessão seguinte",
+  "files": [
+    "src/harness/audit.py",
+    "src/harness/session_start.py",
+    "tests/test_audit.py",
+    "tests/test_session_start.py",
+    "src/harness/boundary_guard.py"
+  ],
+  "verify_cmd": "pytest tests/test_audit.py tests/test_session_start.py -q",
+  "recorded_at": "2026-07-30T14:03:45.080305+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:14ac8aa9574a7967c8f94060f332928769ebdcb3e5c1c7f1fef93f102feb82d9"
+}

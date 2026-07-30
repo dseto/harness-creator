@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -61,13 +59,19 @@ def test_auto_still_gates_network(tmp_path: Path) -> None:
     assert all("curl" not in r and "WebFetch" not in r for r in rules["allow"])
 
 
-def test_enforce_tdd_false_drops_runner_hook(tmp_path: Path) -> None:
-    config = HarnessConfig.model_validate({"verification": {"enforce_tdd": False}})
+@pytest.mark.parametrize("enforce_tdd", [True, False], ids=["tdd-on", "tdd-off"])
+def test_render_never_generates_a_bash_hook_file(tmp_path: Path, enforce_tdd: bool) -> None:
+    """`render()` não gera nem registra hook próprio nenhum, com `enforce_tdd`
+    ligado ou desligado. `guard_tests.py` não é gerado desde T-04/onda-1
+    (proteção de edição de teste é do boundary_guard, por-tarefa); e
+    `guard_test_runner.py` (matcher Bash, sempre-`allow`, nunca lia o
+    payload) deixou de ser gerado/registrado em T-01/onda-3 — media ~125ms
+    por chamada de Bash sem mudar nenhuma decisão, já que o boundary_guard.py
+    (instalado à parte, matcher `*`) já cobre todo Bash."""
+    config = HarnessConfig.model_validate({"verification": {"enforce_tdd": enforce_tdd}})
     artifacts = render(config, tmp_path)
-    assert "guard_test_runner.py" not in artifacts.hook_files
-    # guard_tests.py não é mais gerado (T-04/onda-1): a proteção de edição de
-    # teste é do boundary_guard, por-tarefa, independente de enforce_tdd.
-    assert "guard_tests.py" not in artifacts.hook_files
+    assert artifacts.hook_files == {}
+    assert artifacts.hook_entries == []
 
 
 def test_ignored_sections_generate_warning(tmp_path: Path) -> None:
@@ -85,14 +89,15 @@ def test_compile_writes_all_artifacts(tmp_path: Path) -> None:
     settings = json.loads(result.settings_path.read_text(encoding="utf-8"))
     assert "Bash" in settings["permissions"]["ask"]
     hook_cmds = json.dumps(settings["hooks"]["PreToolUse"])
-    assert "guard_test_runner.py" in hook_cmds
-    # `guard_tests.py` não é gerado nem registrado (T-04/onda-1) — o mecanismo
-    # estático (sempre-`ask`) foi substituído pela decisão por-tarefa do
-    # boundary_guard desde a Fase 2; gerar o script sem nunca registrá-lo
-    # (issue #61) era peso morto puro. Ver
-    # docs/project/HISTORICO-boundary_guard-2026-07-30.md.
+    # Nem `guard_tests.py` (T-04/onda-1) nem `guard_test_runner.py`
+    # (T-01/onda-3) são gerados/registrados por `compile_project` — a
+    # proteção de teste e o roteamento de `Bash` são do `boundary_guard.py`,
+    # instalado à parte por `install_boundary_guard` no mesmo comando
+    # `harness compile`. Ver docs/project/HISTORICO-boundary_guard-2026-07-30.md.
     assert "guard_tests.py" not in hook_cmds
+    assert "guard_test_runner.py" not in hook_cmds
     assert not (tmp_path / ".harness" / "hooks" / "guard_tests.py").exists()
+    assert not (tmp_path / ".harness" / "hooks" / "guard_test_runner.py").exists()
 
     agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
     assert AGENTS_BEGIN in agents and AGENTS_END in agents
@@ -181,12 +186,13 @@ def test_merge_preserves_user_settings_and_is_idempotent(tmp_path: Path) -> None
     user_hooks = [e for e in settings["hooks"]["PreToolUse"]
                   if "meu-hook.sh" in json.dumps(e)]
     assert len(user_hooks) == 1                                         # hook do usuário intacto
-    # A idempotência é a regra sob teste; o sujeito é o guard de execução de
-    # teste — o único que compiler.py registra hoje (guard_tests.py nem
-    # gera mais, T-04/onda-1).
-    guard_entries = [e for e in settings["hooks"]["PreToolUse"]
-                     if "guard_test_runner.py" in json.dumps(e)]
-    assert len(guard_entries) == 1                                      # sem duplicar o nosso
+    # `compiler.py` não registra hook próprio nenhum hoje (guard_tests.py
+    # nem gera mais desde T-04/onda-1; guard_test_runner.py idem desde
+    # T-01/onda-3) — a idempotência sob teste aqui é a de permissions/hooks
+    # de usuário, cobertas pelas asserções acima.
+    assert settings["hooks"]["PreToolUse"] == [
+        {"matcher": "Bash", "hooks": [{"type": "command", "command": "meu-hook.sh"}]}
+    ]
 
 
 def test_recompile_after_policy_change_swaps_rules(tmp_path: Path) -> None:
@@ -239,48 +245,6 @@ def test_agents_block_does_not_repeat_fixed_text_already_in_the_manual_section(
 def test_compile_without_yaml_raises_clear_error(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="harness-creator:init"):
         compile_project(tmp_path)
-
-
-# ---------------- hooks gerados: standalone, executados de verdade ----------------
-
-def _run_hook(script: Path, payload: dict) -> dict:
-    proc = subprocess.run(
-        [sys.executable, str(script)],
-        input=json.dumps(payload), capture_output=True, text=True, timeout=30,
-    )
-    assert proc.returncode == 0, proc.stderr
-    return json.loads(proc.stdout)["hookSpecificOutput"]
-
-
-def test_guard_test_runner_always_allows(tmp_path: Path) -> None:
-    """Execução da suíte não gateia mais — só a ESCRITA do teste exige
-    aprovação (decisão por-tarefa do boundary_guard). Rodar `pytest`
-    repetidas vezes na mesma tarefa não deve pedir aprovação de novo."""
-    _write_yaml(tmp_path, BASIC_YAML)
-    compile_project(tmp_path)
-    script = tmp_path / ".harness" / "hooks" / "guard_test_runner.py"
-
-    for cmd in ("pytest -x", "pytest&&true", "(pytest)", "true|pytest",
-                "dotnet test", "git status"):
-        out = _run_hook(script, {"tool_name": "Bash", "tool_input": {"command": cmd}})
-        assert out["permissionDecision"] == "allow", cmd
-
-
-# ---------------- kill-switch: guard_test_runner no-op ----------------
-
-def test_guard_test_runner_hook_noop_when_sentinel_present(tmp_path: Path) -> None:
-    """guard_test_runner é allow com ou sem o sentinel — só a razão muda."""
-    _write_yaml(tmp_path, BASIC_YAML)
-    compile_project(tmp_path)
-    script = tmp_path / ".harness" / "hooks" / "guard_test_runner.py"
-
-    before = _run_hook(script, {"tool_name": "Bash", "tool_input": {"command": "pytest -x"}})
-    assert before["permissionDecision"] == "allow"
-
-    (tmp_path / ".harness" / "harness.disabled").write_text("{}", encoding="utf-8")
-    after = _run_hook(script, {"tool_name": "Bash", "tool_input": {"command": "pytest -x"}})
-    assert after["permissionDecision"] == "allow"
-    assert after["permissionDecisionReason"] != before["permissionDecisionReason"]
 
 
 # ---------------------------------------------------------------------------

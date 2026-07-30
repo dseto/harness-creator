@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-04",
+  "contract": "onda-3-um-processo-um-floor",
+  "desc": "A checagem de comando de terminal para de repetir os mesmos 6 passos em duas funções, e a divergência entre as duas versões do veto do revisor passa a ser travada por teste em vez de invisível",
+  "files": [
+    "src/harness/boundary_guard.py",
+    "tests/test_boundary_guard.py"
+  ],
+  "verify_cmd": "pytest tests/test_boundary_guard.py -q",
+  "recorded_at": "2026-07-30T14:12:47.714295+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:bdb75b16c76789dfb4fb2a287c8699b286fd3528d716797b0c4e2d026b11ffd5"
+}

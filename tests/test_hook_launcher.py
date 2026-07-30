@@ -318,11 +318,18 @@ _HARNESS_YAML = (
 def _compile_commands(target: Path) -> list[str]:
     import json
 
+    from harness.boundary_guard import install_boundary_guard
     from harness.compiler import compile_project
 
     (target / ".harness").mkdir(parents=True, exist_ok=True)
     (target / ".harness" / "harness.yaml").write_text(_HARNESS_YAML, encoding="utf-8")
+    # Sequência REAL do subcomando `compile` (ver cli.py): as duas chamadas,
+    # nesta ordem. `compile_project` sozinho não registra mais hook próprio
+    # nenhum (guard_tests.py nem gera desde T-04/onda-1, guard_test_runner.py
+    # nem gera/registra desde T-01/onda-3) — quem registra o único hook que
+    # `harness compile` instala hoje é `install_boundary_guard`.
     compile_project(target)
+    install_boundary_guard(target)
     settings = json.loads(
         (target / ".claude" / "settings.local.json").read_text(encoding="utf-8")
     )
@@ -338,11 +345,12 @@ def test_compile_hooks_carry_the_absolute_interpreter_and_fail_closed_suffix(
 ) -> None:
     commands = _compile_commands(tmp_path)
 
-    # Só o guard_test_runner: o `guard_tests.py` é gerado em disco mas não
-    # registrado desde a issue #61 (ver `compiler.render`). O invariante sob
-    # teste aqui é o do launcher — interpretador absoluto e sufixo fail-closed
-    # —, não a quantidade de hooks; o número acompanha quem de fato é
-    # registrado.
+    # Só o boundary_guard.py: nem `guard_tests.py` (T-04/onda-1) nem
+    # `guard_test_runner.py` (T-01/onda-3) são gerados/registrados por
+    # `harness compile` mais — o boundary_guard.py (matcher `*`) já cobre
+    # todo Bash/Edit/Write. O invariante sob teste aqui é o do launcher —
+    # interpretador absoluto e sufixo fail-closed —, não a quantidade de
+    # hooks; o número acompanha quem de fato é registrado.
     assert len(commands) == 1, commands
     for command in commands:
         assert command.endswith(FAIL_CLOSED_SUFFIX), command
@@ -373,9 +381,11 @@ def test_doctor_now_sees_the_compile_hooks(tmp_path: Path) -> None:
     sessão, então o `doctor` dava verde falso sobre exatamente o estado que o
     check existe para pegar.
 
-    Eram dois hooks quando este teste foi escrito; hoje é um, porque o
-    `guard_tests.py` deixou de ser registrado (issue #61). O que o teste
-    protege é o `doctor` VER o que está registrado, não o número."""
+    Eram dois hooks quando este teste foi escrito; hoje é um
+    (`boundary_guard.py`), porque `guard_tests.py` deixou de ser registrado
+    (issue #61) e `guard_test_runner.py` deixou de ser gerado/registrado
+    (T-01/onda-3). O que o teste protege é o `doctor` VER o que está
+    registrado, não o número."""
     from harness.doctor import run_doctor
 
     _compile_commands(tmp_path)
@@ -383,5 +393,5 @@ def test_doctor_now_sees_the_compile_hooks(tmp_path: Path) -> None:
 
     assert len(report.hooks) == 1, report.hooks
     commands = " ".join(h["command"] for h in report.hooks)
-    assert "guard_test_runner.py" in commands
+    assert "boundary_guard.py" in commands
     assert all(h["ok"] is True for h in report.hooks), report.hooks

@@ -1,68 +1,67 @@
 {
-  "contract": "onda-2-contexto-veridico",
-  "compiled_at": "2026-07-30T12:39:55.655073+00:00",
+  "contract": "onda-3-um-processo-um-floor",
+  "compiled_at": "2026-07-30T13:58:00.753101+00:00",
   "compiled_with_version": "0.29.0",
   "features": [
     {
       "id": "T-01",
-      "desc": "AGENTS.md para de prometer sandbox/container e ferramentas que não existem no Claude Code",
+      "desc": "Rodar um comando de terminal não lança mais dois processos de guarda — o segundo hoje só soma latência sem mudar nenhuma decisão",
       "files": [
-        "AGENTS.md",
-        "tests/test_docs_enforcement_claims.py"
+        "src/harness/compiler.py",
+        "src/harness/hook_launcher.py",
+        "src/harness/killswitch.py",
+        "tests/test_compiler.py",
+        "tests/test_hook_launcher.py",
+        "tests/test_boundary_guard.py",
+        "tests/test_audit.py",
+        "tests/test_docs_enforcement_claims.py",
+        "tests/e2e/test_boundary_flow.py",
+        "tests/e2e/test_fase2_outcomes.py",
+        "docs/plugin/GUIDE.md",
+        "docs/plugin/TUTORIAL.md",
+        "docs/plugin/ARCHITECTURE.md",
+        "docs/plugin/arquitetura-visual.html"
       ],
-      "verify_cmd": "pytest tests/test_docs_enforcement_claims.py -q",
+      "verify_cmd": "pytest tests/test_compiler.py tests/test_hook_launcher.py tests/test_boundary_guard.py tests/test_audit.py tests/test_docs_enforcement_claims.py -q",
       "depends": [],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-02",
-      "desc": "O bloco gerado do AGENTS.md para de repetir, em texto fixo, regras que já vivem na parte manual",
+      "desc": "Ferramentas nativas de acompanhamento de tarefa (TaskCreate e afins) não são mais negadas por engano de nome",
       "files": [
-        "src/harness/compiler.py",
-        "tests/test_compiler.py"
+        "src/harness/boundary_guard.py",
+        "tests/test_boundary_guard.py"
       ],
-      "verify_cmd": "pytest tests/test_compiler.py -q",
+      "verify_cmd": "pytest tests/test_boundary_guard.py -q",
       "depends": [],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-03",
-      "desc": "O hook SessionStart deixa de reinjetar contexto a cada compact, só no início real da sessão",
+      "desc": "A auditoria do projeto detecta sozinha quando o hook de segurança instalado ficou desatualizado em relação ao código-fonte, e avisa disso na sessão seguinte",
       "files": [
+        "src/harness/audit.py",
         "src/harness/session_start.py",
+        "tests/test_audit.py",
         "tests/test_session_start.py",
-        "tests/e2e/test_fase2_outcomes.py"
+        "src/harness/boundary_guard.py"
       ],
-      "verify_cmd": "pytest tests/test_session_start.py -q",
+      "verify_cmd": "pytest tests/test_audit.py tests/test_session_start.py -q",
       "depends": [],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-04",
-      "desc": "Sessão nascendo com o kill-switch desligado mostra isso na primeira mensagem, sem precisar perguntar",
+      "desc": "A checagem de comando de terminal para de repetir os mesmos 6 passos em duas funções, e a divergência entre as duas versões do veto do revisor passa a ser travada por teste em vez de invisível",
       "files": [
-        "src/harness/session_start.py",
-        "tests/test_session_start.py"
+        "src/harness/boundary_guard.py",
+        "tests/test_boundary_guard.py"
       ],
-      "verify_cmd": "pytest tests/test_session_start.py -q",
-      "depends": [
-        "T-03"
-      ],
-      "cwd": null,
-      "passes": true
-    },
-    {
-      "id": "T-05",
-      "desc": "Reverificar a mesma feature não duplica nota no progresso, e trocar de contrato não carrega nota de evidência que não existe mais",
-      "files": [
-        "src/harness/templates.py",
-        "tests/test_templates.py",
-        "src/harness/verify.py"
-      ],
-      "verify_cmd": "pytest tests/test_templates.py -q",
+      "verify_cmd": "pytest tests/test_boundary_guard.py -q",
       "depends": [],
       "cwd": null,
       "passes": true
