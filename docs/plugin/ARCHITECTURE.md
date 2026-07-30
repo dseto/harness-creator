@@ -4,7 +4,7 @@
 > O modelo fornece o raciocínio; o harness garante execução confiável,
 > segurança e governança.
 
-**v0.27.0** · versão navegável e interativa deste documento:
+**v0.28.0** · versão navegável e interativa deste documento:
 [`arquitetura-visual.html`](arquitetura-visual.html) (abre offline, com
 diagramas clicáveis e um simulador da cascata de decisão do
 `boundary_guard`).

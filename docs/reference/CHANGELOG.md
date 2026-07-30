@@ -1,5 +1,128 @@
 # Changelog
 
+## v0.28.0 — o portão de auditoria volta a reprovar só o que está errado
+
+Uma correção entregue e uma descartada, as duas da mesma família: mecanismo de
+verificação que afirma mais do que verificou. A issue #61 era o falso
+**vermelho** e foi corrigida (PR #63). A issue #59 era o falso **verde**, foi
+implementada, revisada a frio duas vezes, e **descartada em execução** quando a
+medição derrubou a premissa — continua aberta, agora com a rota errada
+documentada.
+
+### `harness audit` deixa de reprovar todo repositório compilado (issue #61, PR #63)
+
+O comando emitia um `critical` **falso** em qualquer repositório onde `harness
+compile` rodou — ou seja, em todo repositório que usa o produto — e o `fix` que
+ele sugeria reproduzia o achado:
+
+```
+[critical] hook_not_registered
+FIX: Rode `harness compile`.
+```
+
+A causa era `cli.py` chamar `compile_project()`, que registra o
+`guard_tests.py`, e `install_boundary_guard()`, que remove o registro por
+design, no **mesmo comando**. Essa parte estava certa: o `boundary_guard`
+substitui o guard estático sempre-`ask` por decisão por-tarefa. O defeito era o
+`audit` não saber que o `boundary_guard` existe — ele dogfooda
+`compiler.render()`, que é a coisa certa a fazer, mas auditava a saída de UMA
+camada num arquivo que DUAS camadas escrevem.
+
+Três consequências, todas medidas: o gate de CI que o `README` documenta
+reprovava repositório saudável (`exit 1`); um `critical` custa 40 pontos, então
+todo repo nascia com teto de 60 e a faixa de score perdia significado; e um
+`critical` verdadeiro ficaria escondido no ruído.
+
+A correção vai na **fonte**: `compiler.render()` deixa de emitir a entrada de
+registro. A rota alternativa — ensinar o `audit` a conhecer o `boundary_guard` —
+criaria a segunda definição de "certo" que o `ARCHITECTURE.md` existe para
+impedir ("o `audit` não reimplementa as regras do compilador — ele **é** o
+compilador"). O `audit` não ganhou uma linha. O `guard_tests.py` continua sendo
+gerado em disco e auditado quanto a drift; só não é mais registrado.
+
+**Efeito neste repositório: score 45 → 85, exit 1 → 0.**
+
+A pergunta de escopo que a issue condicionava foi respondida com evidência
+antes de decidir: não existe caminho que mantenha o registro. `compile_project`
+tem um único call site, seguido de `install_boundary_guard` incondicional; o
+kill-switch não toca settings; e dois testes e2e já travavam a ausência.
+
+### Cobertura nova, porque o detector não estava protegido por nada
+
+`hook_not_registered` não tinha **nenhuma** ocorrência em `tests/`. A correção
+barata poderia ter apagado o único detector do caso legítimo sem sinal — trocar
+um falso vermelho por um falso verde permanente é pior, porque é invisível.
+
+- o audit sobre a sequência **real** de `compile` (as duas chamadas, na ordem)
+  não tem `critical`;
+- tabela de dois casos para `hook_not_registered`: registro intacto **não**
+  acusa, registro removido à mão acusa. O par é o teste — é o que distingue
+  "o achado sumiu porque o bug foi corrigido" de "o achado sumiu porque foi
+  silenciado";
+- `_harness_compile` passa a exercitar as duas chamadas do `cli.py`. Os testes
+  que rodavam só `compile_project` auditavam um estado que nenhum usuário tem,
+  e foi essa lacuna que deixou o bug passar com a suíte verde.
+
+### A documentação para de prometer um portão que não roda
+
+Quatro documentos descreviam o `guard_tests.py` como hook de enforcement ativo,
+e o `GUIDE.md` prometia que editar um arquivo de teste dispara *aquele* hook.
+Era falso desde antes desta versão. `tests/test_docs_enforcement_claims.py`
+trava as oito afirmações removidas — enumeração fechada, porque o nome aparece
+legitimamente na linha do inventário e em `docs/project/`, que é registro
+histórico datado.
+
+Duas correções entraram por **revisão fria**, depois de a primeira versão
+trocar uma afirmação falsa por outra — a frase nova era mais convincente
+justamente por citar o mecanismo certo:
+
+- o `boundary_guard` nunca emite `ask`, só `allow`/`deny`, e a decisão é
+  por-tarefa (o arquivo está ou não em `files[]`);
+- ele não lê o `desc` da tarefa (usa o id); quem põe o `desc` na frente do
+  prompt é o `guard_test_runner`, via `_contract_note`.
+
+A tabela da seção 3 do `GUIDE.md` também tinha três linhas medidas falsas:
+descrevia prompts `ask` onde o mecanismo hoje dá `allow` ou `deny` direto. Foi
+escrita antes do default-deny da v0.22.0 e ninguém a revisitou. Corrigida
+junto, com a pré-condição do contrato ativo agora explícita.
+
+### Achado registrado e NÃO corrigido: issue #59 segue aberta
+
+A detecção de "verde vazio" pela saída do runner foi implementada e descartada.
+Três rodadas de medição contra .NET 10.0.101:
+
+1. `Passed!` é **traduzido** — sai `Aprovado!` em pt-BR;
+2. trocado pelo TFM entre parênteses e pelo rodapé `.dll (net10.0)`, que
+   pareciam literais: os dois saem do **banner de descoberta**, impresso antes
+   de qualquer teste rodar. Projeto de teste com zero `[Fact]`, `--filter` que
+   não casa nada (sai **0**, não 1) e `--list-tests` passavam todos como prova;
+3. reduzido ao contador do sumário (`Total: N`, `N > 0`), a medição em **9
+   locales** encontrou `gesamt:` (de-DE), `total :` com espaço (fr-FR),
+   `Totale:` (it-IT), `合計:` (ja-JP), `总计:` (zh-CN) e `всего` sem
+   dois-pontos (ru-RU). Falha em **6 de 9**, e para o lado do **falso-deny**: a
+   evidência sai marcada, o feature-lock passa a recusá-la, e re-rodar o verify
+   só reescreve a mesma prova envenenada. Numa máquina alemã, uma tarefa .NET
+   nunca fecharia.
+
+A lição é sobre o método: **a saída do `dotnet test` é prosa para humano em 9
+idiomas, e não serve de sinal de máquina.** Português e inglês escrevem "Total"
+igual, e foi essa coincidência léxica que passou por invariante em duas rodadas
+seguidas — nas duas com a suíte verde, porque as fixtures codificavam só esses
+dois idiomas.
+
+Vale registrar o que funcionou: as rodadas 2 e 3 caíram por **revisão fria** —
+revisor sem contexto da implementação, instruído a refutar, com permissão de
+rodar o toolchain. É o mesmo princípio de produtor ≠ revisor da Fase 4, aplicado
+a uma correção em vez de a um contrato.
+
+Duas pistas medidas ficam registradas na issue: o token de duração `ms`
+sobreviveu à tradução nos 9 locales (não verificado contra as saídas de zero
+teste), e o Microsoft.Testing.Platform devolve **exit 8** para "zero testes
+executados" enquanto o VSTest devolve 0 — sinal de máquina de verdade. O
+encaminhamento preferido, porém, é o item 5 da Fase 5 do
+`roadmap-autonomous.md`: exigir o par red→green fecha o mesmo furo sem
+interpretar uma linha de prosa.
+
 ## v0.27.0 — o ciclo ganha um portão para a demanda, e a documentação volta a bater com o produto
 
 Duas frentes. A skill `/harness-creator:assess`, que avalia a demanda antes de
