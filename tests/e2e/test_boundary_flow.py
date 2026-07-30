@@ -68,11 +68,11 @@ PLANS_ONE_TASK = """## [T-01] Implementar endpoint de health check
 - verify: `pytest tests/test_app.py -q`
 """
 
-# enforce_tdd False -> o compile não registra hook nenhum: nem
-# guard_test_runner.py (que depende de enforce_tdd), nem guard_tests.py (que
-# desde a issue #61 é gerado sem ser registrado). Assim a comparação "só sobra
-# a do boundary_guard.py" após compile-session fica exata (uma única entrada
-# remanescente).
+# `compile` não registra hook próprio nenhum hoje, com enforce_tdd true ou
+# false: nem guard_test_runner.py (aposentado em T-01/onda-3), nem
+# guard_tests.py (gerado sem ser registrado desde a issue #61). Assim a
+# comparação "só sobra a do boundary_guard.py" após compile-session fica
+# exata (uma única entrada remanescente).
 LEGACY_HARNESS_YAML = """
 governance:
   approval_policy: balanced

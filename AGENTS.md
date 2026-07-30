@@ -117,14 +117,11 @@ Política de aprovação: **auto**. Rede (WebFetch/WebSearch/curl)
 sempre exige aprovação humana.
 
 1. **TDD obrigatório**: escreva o teste falho antes da implementação. Suíte: `pytest -x --tb=short`. Arquivos de teste (`tests/**/*.py`) são protegidos — editá-los dispara aprovação humana (hook do harness).
-2. **Escopo mínimo**: modifique apenas arquivos diretamente ligados à
-   tarefa; refactors oportunistas exigem tarefa própria.
-3. **Sem segredos** em código, logs ou commits.
-4. **Orçamento (orientação)**: alvo de ~500,000 tokens
+2. **Orçamento (orientação)**: alvo de ~500,000 tokens
    por tarefa e 120 tool calls. O Claude Code não
    expõe contagem de tokens a hooks — este teto é disciplina, não enforcement;
    se a tarefa estourar muito, pare e replaneje com o humano.
-5. **Artefatos temporários de verificação** (screenshots, dumps de rede,
+3. **Artefatos temporários de verificação** (screenshots, dumps de rede,
    HTML de debug, JSON de resposta de API): salve SEMPRE em
    `.harness/scratch/` — única área liberada para arquivos que não pertencem
    a nenhuma tarefa do contrato. A pasta é auto-ignorada pelo git e apagável

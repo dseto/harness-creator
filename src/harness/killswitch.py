@@ -2,8 +2,9 @@
 
 Estado = arquivo-sentinela `.harness/harness.disabled` (machine-local,
 gitignored). Presente = o usuário desativou o harness completamente: cada hook
-gerado (`boundary_guard`, `session_start`, `stop_hook`, `guard_tests`,
-`guard_test_runner`) faz no-op no topo do `main()`.
+gerado (`boundary_guard`, `session_start`, `stop_hook`) faz no-op no topo do
+`main()`. `guard_tests.py`/`guard_test_runner.py` são mecanismos aposentados
+(T-04/onda-1, T-01/onda-3) — não geram mais hook nenhum.
 
 Invariante de segurança: o AGENTE dentro do Claude Code não pode se
 auto-desativar — o `boundary_guard` tem uma regra de nível *floor* que nega,
@@ -17,8 +18,7 @@ Este módulo é stdlib-only e NÃO importa outros módulos do pacote (evita cicl
 
 `DISABLED_CHECK_SRC` é a FONTE ÚNICA do snippet `_harness_disabled()`
 embutido literalmente por cada render de hook (`render_boundary_guard`,
-`render_session_start_hook`, `render_stop_hook`, `_render_guard_tests`,
-`_render_guard_test_runner`). Ancorado por `__file__` — o hook mora sempre em
+`render_session_start_hook`, `render_stop_hook`). Ancorado por `__file__` — o hook mora sempre em
 `<repo>/.harness/hooks/<nome>.py`, então `parent.parent` é `<repo>/.harness` e
 o sentinel é `<repo>/.harness/harness.disabled`, independente do `cwd` do
 payload (que pode derivar; mesmo racional de `boundary_guard`

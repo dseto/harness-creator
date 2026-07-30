@@ -23,6 +23,11 @@ from harness.compiler import (
     HOOKS_DIR,
     render,
 )
+from harness.boundary_guard import (
+    BOUNDARY_HOOK_FILENAME,
+    load_protected_branches,
+    render_boundary_guard,
+)
 from harness.findings import Finding, Report as AuditReport, finish as _finish
 from harness.patterns import _glob_to_regex
 from harness.settings_paths import MANAGED_SETTINGS_FILE, managed_settings_path
@@ -76,6 +81,28 @@ def audit_project(target_dir: Path) -> AuditReport:
                 "Rode `harness compile` (hooks não devem ser editados à mão).",
             ))
 
+    # boundary_guard.py não passa por `compiler.render()` — é instalado à
+    # parte por `install_boundary_guard` (mesmo comando de `harness compile`,
+    # e de novo em `compile-session`), então nunca aparecia no loop acima.
+    # Item 10 restante do laudo (T-03/onda-3): sem isto, o maior hook do
+    # produto podia divergir do código-fonte atual (ou nem existir) sem
+    # nenhum finding — o repo já viveu esse drift de verdade (hook compilado
+    # v0.28 rodando junto de pacote v0.29).
+    boundary_path = hooks_dir / BOUNDARY_HOOK_FILENAME
+    expected_boundary_content = render_boundary_guard(load_protected_branches(target_dir))
+    if not boundary_path.is_file():
+        findings.append(Finding(
+            "critical", "missing_hook",
+            f"Hook {BOUNDARY_HOOK_FILENAME} ausente — o runtime floor não vale em sessão.",
+            "Rode `harness compile` (instala o boundary_guard via install_boundary_guard).",
+        ))
+    elif boundary_path.read_text(encoding="utf-8") != expected_boundary_content:
+        findings.append(Finding(
+            "warning", "hook_drift",
+            f"Hook {BOUNDARY_HOOK_FILENAME} difere do que o código-fonte atual geraria.",
+            "Rode `harness compile` (hooks não devem ser editados à mão).",
+        ))
+
     # --- 3. settings gerenciado coerente (permissions + hooks registrados) ---
     # O arquivo auditado é o MACHINE-LOCAL (`.claude/settings.local.json`): é
     # onde o compile grava, porque o comando do hook leva path absoluto desta
@@ -122,6 +149,20 @@ def audit_project(target_dir: Path) -> AuditReport:
                         f"Hook não registrado em {MANAGED_SETTINGS_FILE}: {script}",
                         "Rode `harness compile`.",
                     ))
+            # boundary_guard.py (item 10 restante do laudo, T-03/onda-3): o
+            # comando exato depende do interpretador resolvido em runtime
+            # (`hook_command`), então casa por MARCADOR de nome de arquivo —
+            # mesmo critério já usado por `install_boundary_guard` para
+            # reconhecer sua própria entrada legada. Só cobra registro se o
+            # arquivo existe (ausência já virou `missing_hook` acima).
+            if boundary_path.is_file() and not any(
+                BOUNDARY_HOOK_FILENAME in (cmd or "") for cmd in registered
+            ):
+                findings.append(Finding(
+                    "critical", "hook_not_registered",
+                    f"Hook não registrado em {MANAGED_SETTINGS_FILE}: {BOUNDARY_HOOK_FILENAME}",
+                    "Rode `harness compile`.",
+                ))
 
     # --- 4. AGENTS.md com bloco gerenciado ---
     agents_path = target_dir / "AGENTS.md"

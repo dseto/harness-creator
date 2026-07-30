@@ -110,6 +110,30 @@ _FORBIDDEN_CLAIMS: tuple[tuple[str, str, str], ...] = (
         "`tools/`, `verification/`, `context/`, `governance/`, `telemetry/`, `routing/`",
         "listava pacotes que não existem em src/harness/ (hoje módulos soltos + governance/ e teams/)",
     ),
+    # Onda 3/T-01: guard_test_runner.py (matcher Bash, sempre-`allow`, nunca
+    # lia o payload) foi aposentado — media ~125ms por chamada de Bash sem
+    # mudar nenhuma decisão, já que o boundary_guard.py (matcher `*`) já
+    # cobre todo Bash. Estas frases o descreviam como hook ATIVO/gerado.
+    (
+        "docs/plugin/GUIDE.md",
+        "`.harness/hooks/guard_test_runner.py` — registrado como hook `PreToolUse`,",
+        "descrevia guard_test_runner.py como hook ativo registrado por `harness init`",
+    ),
+    (
+        "docs/plugin/TUTORIAL.md",
+        "Registrado no matcher `Bash` (só com `enforce_tdd`), mas sempre `allow`",
+        "linha de tabela descrevendo guard_test_runner.py como hook ativo",
+    ),
+    (
+        "docs/plugin/ARCHITECTURE.md",
+        "`boundary_guard`, `guard_test_runner`, `session_start`, `stop_hook`",
+        "listava guard_test_runner na camada 3 de enforcement runtime",
+    ),
+    (
+        "docs/plugin/arquitetura-visual.html",
+        "boundary_guard.py · guard_test_runner.py · session_start.py · stop_hook.py",
+        "mesma lista de enforcement, no texto da camada 3 do diagrama",
+    ),
 )
 
 

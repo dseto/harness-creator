@@ -126,6 +126,69 @@ def test_git_log_appears_when_repo_has_commits(tmp_path: Path) -> None:
     assert "commit inicial unico" in _context(payload)
 
 
+# ---------------- T-03/onda-3: drift do boundary_guard.py instalado ----------------
+
+def test_no_drift_warning_when_content_hash_matches_installed_hook(tmp_path: Path) -> None:
+    """Hash registrado bate com o conteúdo real em disco -> nenhum aviso.
+
+    Hash calculado a partir dos BYTES do arquivo já gravado (`read_bytes`),
+    não da string em memória — `write_text` traduz `\\n` -> `\\r\\n` no
+    Windows, então hashear a string antes de escrever divergiria do arquivo
+    real (mesmo cuidado do `install_boundary_guard`)."""
+    hooks_dir = tmp_path / ".harness" / "hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    hook_path = hooks_dir / "boundary_guard.py"
+    hook_path.write_text("conteudo-fake-do-boundary-guard\n", encoding="utf-8")
+
+    import hashlib
+    state_path = tmp_path / ".harness" / "compiled-state-session.json"
+    state_path.write_text(json.dumps({
+        "boundary_guard_content_hash": hashlib.sha256(hook_path.read_bytes()).hexdigest(),
+    }), encoding="utf-8")
+
+    script_path = _write_hook_script(tmp_path)
+    payload = _run_hook(script_path, tmp_path)
+    assert "boundary_guard.py pode estar desatualizado" not in _context(payload)
+
+
+def test_drift_warning_appears_when_installed_hook_does_not_match_recorded_hash(
+    tmp_path: Path,
+) -> None:
+    """T-03/onda-3 (item 10 restante do laudo): hoje `session_start` não avisa
+    quando o `boundary_guard.py` instalado diverge do que foi gravado na
+    última instalação (edição à mão, ou código-fonte mudou sem recompilar) —
+    o único jeito de perceber era rodar `harness audit` de propósito, mesma
+    classe de blind-spot do kill-switch invisível (issue #52)."""
+    hooks_dir = tmp_path / ".harness" / "hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    (hooks_dir / "boundary_guard.py").write_text("conteudo EDITADO a mao\n", encoding="utf-8")
+
+    state_path = tmp_path / ".harness" / "compiled-state-session.json"
+    state_path.write_text(json.dumps({
+        "boundary_guard_content_hash": "0" * 64,  # hash de um conteudo diferente
+    }), encoding="utf-8")
+
+    script_path = _write_hook_script(tmp_path)
+    payload = _run_hook(script_path, tmp_path)
+    context = _context(payload)
+    assert "boundary_guard.py pode estar desatualizado" in context
+    assert "harness audit" in context
+
+
+def test_no_drift_warning_when_state_has_no_recorded_hash(tmp_path: Path) -> None:
+    """Instalação anterior a esta feature (sem a chave nova no state) não pode
+    virar um falso-positivo permanente."""
+    hooks_dir = tmp_path / ".harness" / "hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    (hooks_dir / "boundary_guard.py").write_text("x", encoding="utf-8")
+    state_path = tmp_path / ".harness" / "compiled-state-session.json"
+    state_path.write_text(json.dumps({"boundary_guard_hook_command": "x"}), encoding="utf-8")
+
+    script_path = _write_hook_script(tmp_path)
+    payload = _run_hook(script_path, tmp_path)
+    assert "boundary_guard.py pode estar desatualizado" not in _context(payload)
+
+
 def test_disabled_sentinel_shows_visible_banner_instead_of_normal_context(
     tmp_path: Path,
 ) -> None:

@@ -78,6 +78,7 @@ e o `git log` recente, para o agente nascer sabendo onde parou.
 Schema de saida: hookSpecificOutput.additionalContext (SessionStart nao
 bloqueia nada, ao contrario de PreToolUse que usa permissionDecision).
 """
+import hashlib
 import json
 import subprocess
 import sys
@@ -143,6 +144,40 @@ def _read_git_log(cwd: Path) -> str | None:
     return output or None
 
 
+def _boundary_guard_drift_warning(cwd: Path) -> str | None:
+    """T-03/onda-3 (item 10 restante do laudo): sem isto, o boundary_guard.py
+    instalado podia divergir do que a última instalação gravou (edicao a
+    mao, ou codigo-fonte mudou sem recompilar) e ninguem percebia ate rodar
+    `harness audit` de proposito -- mesma classe de blind-spot do
+    kill-switch invisivel (issue #52). So um sinal barato (hash), nao a
+    checagem completa: `harness audit` recompila e compara o conteudo
+    inteiro; aqui nao da pra fazer isso (dependeria de HarnessConfig/
+    pydantic/yaml, e este hook e stdlib-only por design)."""
+    state_path = cwd / ".harness" / "compiled-state-session.json"
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    expected_hash = state.get("boundary_guard_content_hash")
+    if not expected_hash:
+        return None
+    hook_path = cwd / ".harness" / "hooks" / "boundary_guard.py"
+    try:
+        content = hook_path.read_bytes()
+    except OSError:
+        return None
+    if hashlib.sha256(content).hexdigest() == expected_hash:
+        return None
+    return (
+        "## AVISO: boundary_guard.py pode estar desatualizado\\n\\n"
+        "O hook instalado em .harness/hooks/boundary_guard.py nao bate com "
+        "o hash registrado na ultima instalacao (compile/compile-session) "
+        "-- foi editado a mao, ou o codigo-fonte mudou sem recompilar.\\n\\n"
+        "Rode `harness audit` para confirmar o drift exato, ou "
+        "`harness compile-session` para reinstalar."
+    )
+
+
 def build_context(cwd: Path) -> str:
     parts = ["## Estado da sessao anterior (injetado pelo harness)"]
     parts.append(_read_feature_summary(cwd))
@@ -154,6 +189,10 @@ def build_context(cwd: Path) -> str:
     git_log = _read_git_log(cwd)
     if git_log:
         parts.append("### git log -n 5 --oneline\\n" + git_log)
+
+    drift_warning = _boundary_guard_drift_warning(cwd)
+    if drift_warning:
+        parts.append(drift_warning)
 
     return "\\n\\n".join(parts)
 
