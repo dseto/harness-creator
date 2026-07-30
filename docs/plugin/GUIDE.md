@@ -587,6 +587,15 @@ Efeito colateral que importa: o `progress.md` reescrito é o que **destrava o
 contrato seguinte**. Sem ele, a sessão nova herdava o estado da demanda
 anterior.
 
+**Ordem recomendada: rode isto ANTES do PR, ainda na branch do contrato**
+— não depois do merge. `harness finish` não toca git, então rodá-lo cedo
+não tem custo; rodá-lo tarde (pós-merge, em `main`) sempre deixa a
+reescrita do `progress.md` como sobra não commitada numa branch protegida,
+obrigando um commit manual só pra fechar o contrato. Rode `finish` depois
+que todas as tarefas passarem, resolva os `blockers` ali mesmo (`harness
+verify <T-ID>` de novo se `evidence_stale`), e só então peça a aprovação
+do commit final — o `progress.md` já reescrito entra no mesmo commit/PR.
+
 ## 11. Kill-switch — desligar tudo
 
 Se nada dos escapes da seção 6 resolver, o kill-switch desliga **todos** os

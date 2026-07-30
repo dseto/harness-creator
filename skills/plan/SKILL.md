@@ -198,6 +198,28 @@ Isso é ADICIONAL aos `verify_cmd` automatizados de cada tarefa, não os
 substitui. Sem UI tocada nas tarefas (mudança só de backend/API/CLI), este
 passo não se aplica.
 
+## Passo 9 — Encerrar o contrato (`harness finish`) ANTES do commit final
+
+Depois que todas as tarefas passarem e o Passo 8 (se aplicável) estiver
+feito, rode `harness finish --dir <alvo>` **ainda na branch do contrato**
+(`contract/<slug>`) — **antes** de pedir a aprovação humana do commit e
+**antes** de fazer push/PR. Não espere o merge para rodar isto.
+
+Por quê: `harness finish` reescreve `.harness/progress.md` como demanda
+encerrada. Rodar isso depois do merge deixa essa reescrita como uma sobra
+não commitada em `main` — branch protegida onde o agente nunca pode
+commitar — e obriga o humano a rodar `git add`/`commit`/`push` manualmente
+toda vez só para fechar o contrato. Rodando antes, a reescrita entra no
+MESMO commit/PR que já vai ser revisado e mesclado: pós-merge não sobra
+nada.
+
+Se `harness finish` reportar `blockers` (ex.: `evidence_stale` — o
+`files_hash` gravado não bate mais com o arquivo atual), resolva ali
+mesmo: rode `harness verify <T-ID>` de novo para cada tarefa apontada e
+repita `harness finish`. Só peça a aprovação do commit final depois que
+`finish` sair com `blockers: []` — o diff que o humano aprova já inclui o
+`progress.md` reescrito.
+
 ## Regras
 
 - Nunca auto-aprove o contrato: `approved_by`/`approved_at` só são

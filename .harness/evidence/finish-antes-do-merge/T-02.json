@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-02",
+  "contract": "finish-antes-do-merge",
+  "desc": "`docs/plugin/GUIDE.md` § 10 documenta a ordem recomendada (branch do contrato, antes do PR)",
+  "files": [
+    "docs/plugin/GUIDE.md",
+    "tests/test_finish_lifecycle_docs.py"
+  ],
+  "verify_cmd": "pytest tests/test_finish_lifecycle_docs.py -k guide_secao_10 -q",
+  "recorded_at": "2026-07-30T16:01:57.300032+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:6b0efd1f89de8bd9eb39366d3684a2e3472af38f7ed0f537a3dc236d28745b4e"
+}
