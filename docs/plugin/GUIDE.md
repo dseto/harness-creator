@@ -628,7 +628,7 @@ registre um marketplace local apontando pro diretório do plugin.
      "name": "harness-creator-local",
      "owner": { "name": "<seu nome>" },
      "plugins": [
-       { "name": "harness-creator", "source": "./", "version": "0.28.0" }
+       { "name": "harness-creator", "source": "./", "version": "0.29.0" }
      ]
    }
    ```

@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.29.0 — rodar teste não pede mais aprovação, só escrevê-lo pede (issue #64, PR #65)
+
+`guard_test_runner.py` (hook `PreToolUse`, matcher `Bash`) disparava `ask` a
+cada `pytest` executado — em RED e em GREEN, quantas vezes o comando rodasse
+dentro da mesma tarefa. Numa sessão real isso virou dezenas de aprovações
+repetidas para o **mesmo** teste, já aprovado na escrita.
+
+A disciplina TDD gateia a escrita do arquivo de teste (`edit_test`, via
+`boundary_guard`) — pedir aprovação de novo na execução não adiciona sinal
+nenhum, só fricção. É exatamente o oposto do objetivo do harness: fricção
+mínima com segurança mantida.
+
+### `guard_test_runner` vira sempre-`allow`
+
+O hook continua registrado (matcher `Bash`), mas não avalia mais o comando —
+sempre devolve `allow`. Fica registrado só para permitir reativar a checagem
+de execução no futuro sem recompilar do zero. A mudança é no **template**
+gerado por `compiler.py`, então vale para todo projeto que compila o
+harness-creator, não só este repositório.
+
+Nada muda no gate de escrita: editar um arquivo que casa `test_glob` continua
+exigindo aprovação humana explícita, em qualquer modo de política.
+
+**Efeito prático: zero prompts de aprovação para rodar a suíte, em qualquer
+fase do ciclo TDD.**
+
 ## v0.28.0 — o portão de auditoria volta a reprovar só o que está errado
 
 Uma correção entregue e uma descartada, as duas da mesma família: mecanismo de
