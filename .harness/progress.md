@@ -2,6 +2,8 @@
 
 Contrato: `onda-2-contexto-veridico`
 
+_Demanda ENCERRADA por `harness finish`._
+
 ## Features
 
 | id | desc | status |
@@ -13,14 +15,5 @@ Contrato: `onda-2-contexto-veridico`
 | T-05 | Reverificar a mesma feature não duplica nota no progresso, e trocar de contrato não carrega nota de evidência que não existe mais | done |
 
 ## Última atualização
-
-<!-- harness:auto -->
-- 2026-07-30T12:28:39.493518+00:00 — T-01 verificado (exit_code 0) — .harness/evidence/onda-2-contexto-veridico/T-01.json
-- 2026-07-30T12:29:58.786037+00:00 — T-02 verificado (exit_code 0) — .harness/evidence/onda-2-contexto-veridico/T-02.json
-- 2026-07-30T12:33:25.233480+00:00 — T-04 verificado (exit_code 0) — .harness/evidence/onda-2-contexto-veridico/T-04.json
-- 2026-07-30T12:37:20.631299+00:00 — T-05 verificado (exit_code 0) — .harness/evidence/onda-2-contexto-veridico/T-05.json
-- 2026-07-30T12:41:08.879379+00:00 — T-03 verificado (exit_code 0) — .harness/evidence/onda-2-contexto-veridico/T-03.json
-<!-- /harness:auto -->
-
 
 _(vazio — demanda encerrada; o próximo `compile-session` regenera este arquivo a partir do contrato novo. A prova do que foi entregue está em `.harness/evidence/`.)_
