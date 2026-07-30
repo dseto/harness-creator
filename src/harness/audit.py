@@ -9,7 +9,6 @@ para a skill /harness-creator:audit apresentar e oferecer correção.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -24,35 +23,9 @@ from harness.compiler import (
     HOOKS_DIR,
     render,
 )
+from harness.findings import Finding, Report as AuditReport, finish as _finish
 from harness.patterns import _glob_to_regex
 from harness.settings_paths import MANAGED_SETTINGS_FILE, managed_settings_path
-
-
-@dataclass
-class Finding:
-    severity: str          # "critical" | "warning" | "info"
-    code: str              # slug estável p/ máquina
-    message: str           # frase p/ humano
-    fix: str               # como corrigir
-
-    def to_dict(self) -> dict[str, str]:
-        return {"severity": self.severity, "code": self.code,
-                "message": self.message, "fix": self.fix}
-
-
-@dataclass
-class AuditReport:
-    score: int
-    findings: list[Finding] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {"score": self.score, "findings": [f.to_dict() for f in self.findings]}
-
-    def to_json(self) -> str:
-        return json.dumps(self.to_dict(), indent=2, ensure_ascii=False)
-
-
-_PENALTY = {"critical": 40, "warning": 15, "info": 5}
 
 # Diretórios de build/vendor ignorados ao procurar arquivos de teste.
 _SKIP_DIRS = {".harness", ".git", "__pycache__", ".venv", "node_modules",
@@ -200,10 +173,3 @@ def audit_project(target_dir: Path) -> AuditReport:
                                 "Remova as seções de execução do harness.yaml se não usar."))
 
     return _finish(findings)
-
-
-def _finish(findings: list[Finding]) -> AuditReport:
-    score = 100
-    for f in findings:
-        score -= _PENALTY.get(f.severity, 0)
-    return AuditReport(score=max(0, score), findings=findings)

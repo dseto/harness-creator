@@ -21,6 +21,21 @@ from harness.boundary_guard import (
 )
 
 
+# ---------------------------------------------------------------------------
+# Docstring de módulo — deve ser contrato de comportamento, não histórico
+# ---------------------------------------------------------------------------
+
+def test_module_docstring_is_concise() -> None:
+    import harness.boundary_guard as bg
+
+    lines = (bg.__doc__ or "").splitlines()
+    assert len(lines) <= 40, (
+        f"docstring de módulo com {len(lines)} linhas — o hook compilado "
+        "nunca carrega esse texto (render_boundary_guard gera um cabeçalho "
+        "próprio), então histórico de decisão aqui só custa leitura"
+    )
+
+
 def _run_hook(script: Path, payload: dict, cwd: Path | None = None) -> dict:
     proc = subprocess.run(
         [sys.executable, str(script)],
@@ -2849,6 +2864,32 @@ def test_render_boundary_guard_does_not_bake_extra_allowed_commands() -> None:
     from harness.boundary_guard import render_boundary_guard
 
     assert "EXTRA_ALLOWED_COMMANDS" not in render_boundary_guard()
+
+
+def test_render_boundary_guard_is_deterministic_across_calls() -> None:
+    """`render_boundary_guard` embute vários `set(...)!r` no código-fonte
+    gerado — a ordem de iteração de um `set` real varia ENTRE processos
+    Python (hash de string randomizado por padrão, fixo dentro de um mesmo
+    processo), então comparar duas chamadas no mesmo processo pytest não
+    pega o bug: o hash seed é o mesmo nas duas. O teste precisa de dois
+    processos Python DISTINTOS, com seed potencialmente diferente, para
+    provar que o texto gerado não depende do hash seed. Sem isso, nenhum
+    check de drift por comparação/hash do hook compilado é possível."""
+    code = (
+        "from harness.boundary_guard import render_boundary_guard\n"
+        "import sys\n"
+        "sys.stdout.write(render_boundary_guard(['main', 'develop']))\n"
+    )
+    runs = []
+    for seed in ("111", "222"):
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True, text=True, timeout=30, encoding="utf-8",
+            env={**os.environ, "PYTHONHASHSEED": seed, "PYTHONIOENCODING": "utf-8"},
+        )
+        assert proc.returncode == 0, proc.stderr
+        runs.append(proc.stdout)
+    assert runs[0] == runs[1]
 
 
 def test_extra_allowed_commands_grammar_problem(tmp_path: Path) -> None:

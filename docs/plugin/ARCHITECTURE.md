@@ -360,10 +360,9 @@ compilado: o `compile` registrava o hook e, no mesmo comando, o
 correção: ensinar o `audit` a conhecer o `boundary_guard`, ou tirar a entrada
 do `render()`. A primeira criaria exatamente a segunda definição de "certo"
 que este parágrafo existe para impedir. A correção foi na fonte, e o `audit`
-não ganhou uma linha. O `guard_tests.py` continua **gerado** em disco (e
-auditado quanto a drift), mas não é registrado: quem entrega o gate de edição
-de teste é o `boundary_guard`, por decisão por-tarefa em vez de `ask`
-estático.
+não ganhou uma linha. (Atualização T-04/onda-1: o `guard_tests.py` deixou de
+ser gerado — o script sem consumidor era peso morto puro; quem entrega o
+gate de edição de teste é o `boundary_guard`, por decisão por-tarefa.)
 
 `audit`, `audit-runtime` e `audit-team` saem com código **1** se houver qualquer
 finding `critical`, ou se o score cair abaixo de 60. A regra de exit ficou

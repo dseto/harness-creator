@@ -34,9 +34,10 @@ Outcomes verificados (extraídos da seção "Fase 2" do ROADMAP.md, linhas
        de ação quando dentro do raio (incl. lint do profile e git local).
     4. Proteção contra enfraquecimento de teste: arquivo que casa `test_glob`
        só é editável se declarado em `files[]` de alguma tarefa do contrato.
-    5. `compile-session` remove o hook legado `guard_tests.py` (mecanismo
-       `harness compile` antigo) sem tocar outros hooks legados
-       (`guard_test_runner.py` permanece) — evita duplo-gate/`ask` residual.
+    5. `guard_tests.py` (mecanismo `harness compile` antigo) não é gerado nem
+       registrado (T-04/onda-1) — o `boundary_guard.py` cobre a mesma
+       proteção por-tarefa desde a Fase 2. `compile-session` preserva outros
+       hooks legados (`guard_test_runner.py` permanece).
     6. Lifecycle de 17 passos compilado como bloco gerenciado idempotente no
        `AGENTS.md` (delimitadores próprios), coexistindo com o bloco do
        `compiler.py` e com texto humano, com progressive disclosure para
@@ -200,8 +201,9 @@ EXPECTED_ALLOW = [
 # enforce_tdd LIGADO: o compile registra guard_test_runner.py (Bash) — cenário
 # mais forte que o de test_boundary_flow.py (que usa enforce_tdd: false):
 # compile-session tem que remover a entrada LEGADA do guard_tests.py (a que um
-# settings herdado de <=v0.27 carrega; o render atual não a emite mais, issue
-# #61) e PRESERVAR o guard_test_runner.py.
+# settings herdado de <=v0.27 carrega) e PRESERVAR o guard_test_runner.py.
+# guard_tests.py deixou de ser GERADO desde T-04/onda-1 — antes disso já não
+# era registrado (issue #61), agora nem o arquivo nasce mais.
 LEGACY_HARNESS_YAML_TDD = """
 governance:
   approval_policy: balanced
@@ -221,7 +223,7 @@ _OUTCOME_TITLES = {
     2: "runtime floor (git push/rede/segredos) NUNCA vira allow — com contrato hostil, sem contrato, ou contrato abandonado",
     3: "boundary_guard nega fora da superfície com razão legível e permite dentro do raio",
     4: "arquivo que casa test_glob só é editável se declarado em files[] do contrato",
-    5: "compile-session remove o hook legado guard_tests.py sem tocar outros hooks",
+    5: "guard_tests.py não é gerado nem registrado; compile-session preserva outros hooks",
     6: "lifecycle de 17 passos como bloco gerenciado idempotente no AGENTS.md + .harness/LIFECYCLE.md",
     7: "templates do contrato/profile: .harness/progress.md nunca sobrescrito; init.* regenerados",
     8: "hook SessionStart injeta contexto real e não quebra sem git/sem contrato",
@@ -767,41 +769,35 @@ def test_outcome4_test_weakening_protection_is_per_task(tmp_path: Path) -> None:
 # Outcome 5 — remoção do hook legado guard_tests.py (sem tocar os demais)
 # ---------------------------------------------------------------------------
 
-def test_outcome5_legacy_guard_tests_removed_others_preserved(tmp_path: Path) -> None:
+def test_outcome5_legacy_guard_tests_never_generated_others_preserved(tmp_path: Path) -> None:
     proof: list[str] = []
     achieved = False
     try:
         project = _setup_project(tmp_path / "demo")
 
-        # enforce_tdd LIGADO: o compiler GERA guard_tests.py e
-        # guard_test_runner.py em disco, e registra só o segundo — desde a
-        # issue #61 o render não emite a entrada do guard_tests.py. Antes
-        # dela, o registro era criado por `compile_project` e removido pelo
-        # `install_boundary_guard` no MESMO comando, o que fazia `harness
-        # audit` acusar um `critical` falso em todo repositório compilado.
-        # A remoção da entrada legada (settings herdado de <=v0.27) continua
-        # coberta abaixo: é o caminho de upgrade, e ele importa.
+        # enforce_tdd LIGADO: o compiler gera guard_test_runner.py em disco
+        # e o registra; guard_tests.py NÃO é gerado (T-04/onda-1) — o
+        # boundary_guard.py cobre a mesma proteção por-tarefa desde a Fase 2.
         (project / ".harness" / "harness.yaml").write_text(
             LEGACY_HARNESS_YAML_TDD, encoding="utf-8"
         )
         proc = _run_cli(["compile", "--dir", str(project)], cwd=project)
         assert proc.returncode == 0, proc.stderr
-        assert (project / ".harness" / "hooks" / "guard_tests.py").exists(), (
-            "cenário legado não gerou o script guard_tests.py"
+        assert not (project / ".harness" / "hooks" / "guard_tests.py").exists(), (
+            "guard_tests.py voltou a ser gerado — mecanismo aposentado em T-04/onda-1"
         )
         pre = json.dumps(_load_settings(project)["hooks"]["PreToolUse"])
         assert "guard_tests.py" not in pre, (
-            "`harness compile` deixou o guard_tests.py legado registrado ao lado "
-            "do boundary_guard — duplo-gate sobre Edit de teste"
+            "`harness compile` registrou guard_tests.py — mecanismo aposentado"
         )
         assert "guard_test_runner.py" in pre, "cenário legado não instalou guard_test_runner.py"
         assert "boundary_guard.py" in pre, "compile não registrou o boundary_guard"
         proof.append(
             "Mecanismo antigo (`harness compile`, enforce_tdd: true): o script "
-            "`guard_tests.py` é gerado em `.harness/hooks/`, mas NÃO fica "
-            "registrado em hooks.PreToolUse — o `boundary_guard.py` instalado "
-            "pelo próprio `compile` já o substitui. `guard_test_runner.py` "
-            "(Bash) permanece intacto."
+            "`guard_tests.py` não é gerado nem registrado em hooks.PreToolUse — "
+            "o `boundary_guard.py` instalado pelo próprio `compile` cobre a "
+            "mesma proteção por-tarefa. `guard_test_runner.py` (Bash) permanece "
+            "intacto."
         )
 
         proc = _run_cli(["compile-session", "--dir", str(project)], cwd=project)
@@ -822,8 +818,8 @@ def test_outcome5_legacy_guard_tests_removed_others_preserved(tmp_path: Path) ->
         # "Edit|Write|Bash".
         assert matchers == ["*", "Bash"], matchers
         proof.append(
-            "Após `compile-session`: `guard_tests.py` continua FORA de hooks.PreToolUse "
-            "(a proteção de teste agora é por-tarefa no boundary_guard), "
+            "Após `compile-session`: `guard_tests.py` continua ausente de hooks.PreToolUse "
+            "(nunca chega a ser gerado; a proteção de teste é por-tarefa no boundary_guard), "
             "`guard_test_runner.py` PRESERVADO intacto, `boundary_guard.py` "
             f"registrado. Matchers finais: {matchers}."
         )

@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-02",
+  "contract": "onda-1-flags-e-facas",
+  "desc": "O código-fonte de boundary_guard.py explica seu contrato de comportamento em poucas linhas, sem carregar um histórico de decisões que o hook instalado nunca lê",
+  "files": [
+    "src/harness/boundary_guard.py",
+    "tests/test_boundary_guard.py"
+  ],
+  "verify_cmd": "python -m pytest tests/test_boundary_guard.py -k docstring -q",
+  "recorded_at": "2026-07-30T11:17:00.657535+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:a2c48cbfd1409d2685129f92f65bb89c2f2851e7ccc73132009d69656159fc02"
+}

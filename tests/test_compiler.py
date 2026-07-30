@@ -65,7 +65,9 @@ def test_enforce_tdd_false_drops_runner_hook(tmp_path: Path) -> None:
     config = HarnessConfig.model_validate({"verification": {"enforce_tdd": False}})
     artifacts = render(config, tmp_path)
     assert "guard_test_runner.py" not in artifacts.hook_files
-    assert "guard_tests.py" in artifacts.hook_files  # edit_test sempre protegido
+    # guard_tests.py não é mais gerado (T-04/onda-1): a proteção de edição de
+    # teste é do boundary_guard, por-tarefa, independente de enforce_tdd.
+    assert "guard_tests.py" not in artifacts.hook_files
 
 
 def test_ignored_sections_generate_warning(tmp_path: Path) -> None:
@@ -84,14 +86,14 @@ def test_compile_writes_all_artifacts(tmp_path: Path) -> None:
     assert "Bash" in settings["permissions"]["ask"]
     hook_cmds = json.dumps(settings["hooks"]["PreToolUse"])
     assert "guard_test_runner.py" in hook_cmds
-    # O `guard_tests.py` é gerado em disco mas NÃO registrado — issue #61. Este
-    # assert afirmava o contrário e era a única fonte de verdade a favor do
-    # registro, contra dois e2e que travam a ausência depois de
-    # `install_boundary_guard`. Quem entrega o gate de edição de teste hoje é o
-    # boundary_guard, por decisão por-tarefa.
+    # `guard_tests.py` não é gerado nem registrado (T-04/onda-1) — o mecanismo
+    # estático (sempre-`ask`) foi substituído pela decisão por-tarefa do
+    # boundary_guard desde a Fase 2; gerar o script sem nunca registrá-lo
+    # (issue #61) era peso morto puro. Ver
+    # docs/project/HISTORICO-boundary_guard-2026-07-30.md.
     assert "guard_tests.py" not in hook_cmds
+    assert not (tmp_path / ".harness" / "hooks" / "guard_tests.py").exists()
 
-    assert (tmp_path / ".harness" / "hooks" / "guard_tests.py").is_file()
     agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
     assert AGENTS_BEGIN in agents and AGENTS_END in agents
 
@@ -179,9 +181,9 @@ def test_merge_preserves_user_settings_and_is_idempotent(tmp_path: Path) -> None
     user_hooks = [e for e in settings["hooks"]["PreToolUse"]
                   if "meu-hook.sh" in json.dumps(e)]
     assert len(user_hooks) == 1                                         # hook do usuário intacto
-    # A idempotência é a regra sob teste; o sujeito mudou porque o
-    # `guard_tests.py` deixou de ser registrado (issue #61). O guard que o
-    # compilador registra hoje é o de execução de teste.
+    # A idempotência é a regra sob teste; o sujeito é o guard de execução de
+    # teste — o único que compiler.py registra hoje (guard_tests.py nem
+    # gera mais, T-04/onda-1).
     guard_entries = [e for e in settings["hooks"]["PreToolUse"]
                      if "guard_test_runner.py" in json.dumps(e)]
     assert len(guard_entries) == 1                                      # sem duplicar o nosso
@@ -229,44 +231,10 @@ def _run_hook(script: Path, payload: dict) -> dict:
     return json.loads(proc.stdout)["hookSpecificOutput"]
 
 
-def test_guard_tests_hook_asks_for_test_and_allows_source(tmp_path: Path) -> None:
-    _write_yaml(tmp_path, BASIC_YAML)
-    compile_project(tmp_path)
-    script = tmp_path / ".harness" / "hooks" / "guard_tests.py"
-
-    asks = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "tests/test_x.py"}})
-    assert asks["permissionDecision"] == "ask"
-
-    allows = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
-                                "tool_input": {"file_path": "src/main.py"}})
-    assert allows["permissionDecision"] == "allow"
-
-    # Path absoluto (forma que o Claude Code envia) também é reconhecido.
-    abs_asks = _run_hook(script, {"tool_name": "Write", "cwd": str(tmp_path),
-                                  "tool_input": {"file_path": str(tmp_path / "tests" / "test_y.py")}})
-    assert abs_asks["permissionDecision"] == "ask"
-
-
-def test_guard_tests_recursive_glob_does_not_overblock(tmp_path: Path) -> None:
-    """Regressão do bug is_test_path: '**/test_*.py' não pode marcar todo .py."""
-    _write_yaml(tmp_path, BASIC_YAML.replace("tests/**/*.py", "**/test_*.py"))
-    compile_project(tmp_path)
-    script = tmp_path / ".harness" / "hooks" / "guard_tests.py"
-
-    allows = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
-                                "tool_input": {"file_path": "src/orchestrator.py"}})
-    assert allows["permissionDecision"] == "allow"
-
-    asks = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
-                              "tool_input": {"file_path": "pkg/test_core.py"}})
-    assert asks["permissionDecision"] == "ask"
-
-
 def test_guard_test_runner_always_allows(tmp_path: Path) -> None:
-    """Execução da suíte não gateia mais — só a ESCRITA do teste
-    (guard_tests.py) exige aprovação. Rodar `pytest` repetidas vezes na
-    mesma tarefa não deve pedir aprovação de novo."""
+    """Execução da suíte não gateia mais — só a ESCRITA do teste exige
+    aprovação (decisão por-tarefa do boundary_guard). Rodar `pytest`
+    repetidas vezes na mesma tarefa não deve pedir aprovação de novo."""
     _write_yaml(tmp_path, BASIC_YAML)
     compile_project(tmp_path)
     script = tmp_path / ".harness" / "hooks" / "guard_test_runner.py"
@@ -277,124 +245,7 @@ def test_guard_test_runner_always_allows(tmp_path: Path) -> None:
         assert out["permissionDecision"] == "allow", cmd
 
 
-def test_guard_tests_reason_names_the_file_path(tmp_path: Path) -> None:
-    """US-1: a razão do prompt cita o path do arquivo de teste editado."""
-    _write_yaml(tmp_path, BASIC_YAML)
-    compile_project(tmp_path)
-    script = tmp_path / ".harness" / "hooks" / "guard_tests.py"
-
-    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
-                             "tool_input": {"file_path": "tests/test_widget.py"}})
-    assert out["permissionDecision"] == "ask"
-    assert "tests/test_widget.py" in out["permissionDecisionReason"], (
-        out["permissionDecisionReason"]
-    )
-
-
-# ---------------- razão do gate cita o contrato, não só o payload (#41) ----------------
-
-def _write_feature_list(target: Path, features: list[dict]) -> None:
-    path = target / ".harness" / "feature_list.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps({"contract": "demo", "features": features}, ensure_ascii=False),
-        encoding="utf-8",
-    )
-
-
-def test_guard_tests_reason_carries_the_functional_description(tmp_path: Path) -> None:
-    """#41: o humano aprova a edição do teste vendo o COMPORTAMENTO coberto
-    (desc da tarefa que declara o arquivo), não só o path."""
-    _write_yaml(tmp_path, BASIC_YAML)
-    compile_project(tmp_path)
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "Alternar tema persiste entre recarregamentos",
-         "files": ["tests/test_theme.py"], "verify_cmd": "pytest tests/test_theme.py",
-         "passes": False},
-        {"id": "T-02", "desc": "Rodapé some no modo compacto",
-         "files": ["tests/test_footer.py"], "verify_cmd": "pytest tests/test_footer.py",
-         "passes": False},
-    ])
-    script = tmp_path / ".harness" / "hooks" / "guard_tests.py"
-
-    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
-                             "tool_input": {"file_path": "tests/test_theme.py"}})
-    reason = out["permissionDecisionReason"]
-    assert out["permissionDecision"] == "ask"
-    assert "Alternar tema persiste entre recarregamentos" in reason, reason
-    assert "T-01" in reason and "Rodapé" not in reason, reason
-
-
-def test_guard_tests_flags_a_test_file_no_task_declares(tmp_path: Path) -> None:
-    """Contrato ativo mas arquivo não declarado: a razão avisa que é trabalho
-    fora do contrato — em vez de mostrar descrição de outra tarefa."""
-    _write_yaml(tmp_path, BASIC_YAML)
-    compile_project(tmp_path)
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "Alternar tema persiste", "files": ["tests/test_theme.py"],
-         "verify_cmd": "pytest", "passes": False},
-    ])
-    script = tmp_path / ".harness" / "hooks" / "guard_tests.py"
-
-    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
-                             "tool_input": {"file_path": "tests/test_outro.py"}})
-    reason = out["permissionDecisionReason"]
-    assert out["permissionDecision"] == "ask"
-    assert "nenhuma tarefa do contrato" in reason, reason
-    assert "Alternar tema persiste" not in reason, reason
-
-
-def test_guards_fall_back_to_payload_reason_without_contract(tmp_path: Path) -> None:
-    """Sem `feature_list.json` (init sem compile-contract) nada quebra: o
-    guard de escrita continua pedindo aprovação com a razão antiga; o de
-    execução continua sempre allow."""
-    _write_yaml(tmp_path, BASIC_YAML)
-    compile_project(tmp_path)
-    assert not (tmp_path / ".harness" / "feature_list.json").exists()
-
-    tests_hook = tmp_path / ".harness" / "hooks" / "guard_tests.py"
-    out = _run_hook(tests_hook, {"tool_name": "Edit", "cwd": str(tmp_path),
-                                 "tool_input": {"file_path": "tests/test_x.py"}})
-    assert out["permissionDecision"] == "ask"
-    assert out["permissionDecisionReason"].startswith("Arquivo de teste protegido")
-
-    runner_hook = tmp_path / ".harness" / "hooks" / "guard_test_runner.py"
-    out = _run_hook(runner_hook, {"tool_name": "Bash", "tool_input": {"command": "pytest -x"}})
-    assert out["permissionDecision"] == "allow"
-
-
-def test_guards_survive_a_corrupt_feature_list(tmp_path: Path) -> None:
-    """JSON ilegível é fail-safe: razão sem contrato, decisão intacta — o gate
-    nunca vira allow nem estoura o hook por causa do enriquecimento."""
-    _write_yaml(tmp_path, BASIC_YAML)
-    compile_project(tmp_path)
-    (tmp_path / ".harness" / "feature_list.json").write_text("{lixo", encoding="utf-8")
-
-    out = _run_hook(tmp_path / ".harness" / "hooks" / "guard_tests.py",
-                    {"tool_name": "Edit", "cwd": str(tmp_path),
-                     "tool_input": {"file_path": "tests/test_x.py"}})
-    assert out["permissionDecision"] == "ask"
-    assert out["permissionDecisionReason"].startswith("Arquivo de teste protegido")
-
-
-# ---------------- kill-switch: guard_tests / guard_test_runner no-op ----------------
-
-def test_guard_tests_hook_noop_when_sentinel_present(tmp_path: Path) -> None:
-    """Com o sentinel presente, guard_tests faz no-op -> allow, mesmo para um
-    arquivo de teste que normalmente exigiria aprovação (ask)."""
-    _write_yaml(tmp_path, BASIC_YAML)
-    compile_project(tmp_path)
-    script = tmp_path / ".harness" / "hooks" / "guard_tests.py"
-
-    ask = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
-                             "tool_input": {"file_path": "tests/test_x.py"}})
-    assert ask["permissionDecision"] == "ask"
-
-    (tmp_path / ".harness" / "harness.disabled").write_text("{}", encoding="utf-8")
-    out = _run_hook(script, {"tool_name": "Edit", "cwd": str(tmp_path),
-                             "tool_input": {"file_path": "tests/test_x.py"}})
-    assert out["permissionDecision"] == "allow"
-
+# ---------------- kill-switch: guard_test_runner no-op ----------------
 
 def test_guard_test_runner_hook_noop_when_sentinel_present(tmp_path: Path) -> None:
     """guard_test_runner é allow com ou sem o sentinel — só a razão muda."""

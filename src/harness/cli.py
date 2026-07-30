@@ -18,6 +18,23 @@ from typing import Any
 #: issue): um `--dir` errado não é um achado sobre o projeto.
 USAGE_ERROR_EXIT = 2
 
+#: Teto de linhas por stream (stdout/stderr) impresso quando um `verify_cmd`
+#: falha — uma suíte verbosa (centenas/milhares de linhas) não deve entrar
+#: inteira no contexto do agente; o FIM é o que importa (onde a asserção
+#: quebrou), não o começo.
+_MAX_FAILURE_OUTPUT_LINES = 40
+
+
+def _truncate_output(text: str, max_lines: int = _MAX_FAILURE_OUTPUT_LINES) -> str:
+    """Mantém só as últimas `max_lines` linhas de `text`, com aviso explícito
+    de quantas foram omitidas — nunca um corte silencioso."""
+    lines = text.splitlines()
+    if len(lines) <= max_lines:
+        return text
+    omitted = len(lines) - max_lines
+    kept = "\n".join(lines[-max_lines:])
+    return f"... ({omitted} linhas omitidas, mostrando as últimas {max_lines}) ...\n{kept}"
+
 
 def _validated_target_dir(raw: str) -> Path:
     """`--dir` só pode apontar para um diretório que JÁ existe.
@@ -539,8 +556,8 @@ def main() -> None:
                 stream=args.stream,
             )
         except VerifyFailedError as exc:
-            print(exc.stdout, file=sys.stderr)
-            print(exc.stderr, file=sys.stderr)
+            print(_truncate_output(exc.stdout), file=sys.stderr)
+            print(_truncate_output(exc.stderr), file=sys.stderr)
             if exc.file_lock_hint:
                 print(f"aviso: {exc.file_lock_hint}", file=sys.stderr)
             sys.exit(exc.exit_code)

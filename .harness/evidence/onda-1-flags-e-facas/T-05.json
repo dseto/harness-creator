@@ -1,0 +1,16 @@
+{
+  "feature_id": "T-05",
+  "contract": "onda-1-flags-e-facas",
+  "desc": "Os três comandos de auditoria (audit, audit-runtime, audit-team) compartilham a mesma definição de achado e relatório, então uma correção de formato vale para os três de uma vez",
+  "files": [
+    "src/harness/findings.py",
+    "src/harness/audit.py",
+    "src/harness/runtime_audit.py",
+    "src/harness/team_audit.py",
+    "tests/test_findings.py"
+  ],
+  "verify_cmd": "python -m pytest tests/test_findings.py tests/test_audit.py tests/test_runtime_audit.py tests/test_team_audit.py -q",
+  "recorded_at": "2026-07-30T11:43:43.368157+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:10dba64fa4745198387c71a241082a0dff83e22b86d21de2b51e7c5ee7cd6427"
+}

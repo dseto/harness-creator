@@ -65,10 +65,9 @@ gerado:
 - `.harness/hooks/guard_test_runner.py` — registrado como hook `PreToolUse`,
   mas sempre `allow`: existe só para permitir reativar a checagem de execução
   no futuro sem recompilar do zero (a disciplina TDD gateia a escrita do
-  teste, não a execução repetida da suíte)
-- `.harness/hooks/guard_tests.py` — gerado em disco, mas **não registrado**:
-  quem entrega o gate de edição de teste é o `boundary_guard`, por decisão
-  por-tarefa em vez de `ask` estático (issue #61)
+  teste, não a execução repetida da suíte, via `boundary_guard`, por decisão
+  por-tarefa — o mecanismo antigo `guard_tests.py`, sempre-`ask`, não é mais
+  gerado)
 - bloco gerenciado em `AGENTS.md`
 
 O que de tudo isso entra no git segue uma regra única — *especificação,
@@ -593,8 +592,7 @@ harness enable  --dir <alvo>
 
 O estado é o arquivo-sentinela `.harness/harness.disabled` (machine-local,
 gitignored). Presente, cada hook gerado — `boundary_guard`, `session_start`,
-`stop_hook`, `guard_tests`, `guard_test_runner` — faz no-op no topo do
-`main()`.
+`stop_hook`, `guard_test_runner` — faz no-op no topo do `main()`.
 
 **O agente não pode se auto-desativar.** Enquanto o harness está ativo, o
 `boundary_guard` nega por regra de *floor* tanto criar o sentinel quanto rodar

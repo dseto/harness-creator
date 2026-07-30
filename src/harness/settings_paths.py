@@ -179,9 +179,49 @@ def prepare_managed_settings(target_dir: Path | str) -> tuple[Path, dict[str, An
     return path, settings
 
 
+#: Tools cuja forma NUA ("Bash", não "Bash(...)") já cobre qualquer padrão
+#: mais específico da mesma tool — qualquer entrada `Tool(...)` sobrevivente
+#: ao lado da forma nua é redundância pura, nunca uma regra com efeito
+#: próprio (Claude Code casa por "qualquer regra da lista permite").
+_PRUNABLE_BARE_TOOLS = ("Bash", "Edit", "Write", "Read", "Grep", "Glob")
+
+
+def _allow_rule_tool_name(rule: str) -> str:
+    paren = rule.find("(")
+    return rule[:paren] if paren != -1 else rule
+
+
+def prune_shadowed_allow_rules(allow: list[str]) -> list[str]:
+    """Remove de `allow` toda entrada `Tool(...)` estritamente sombreada por
+    uma regra NUA (`Tool`) já presente na MESMA lista.
+
+    Duas rotinas de merge independentes (`compiler.compile_project` e
+    `session_permissions.compile_session_permissions`) escrevem `allow` sem
+    se enxergarem — cada uma só reconhece como "gerenciada" a entrada que
+    ELA mesma adicionou, então uma regra específica sombreada pela regra nua
+    da OUTRA nunca era podada. Estritamente conservador: só remove quando a
+    regra nua exata já está na lista — uma entrada manual sem a nua
+    correspondente nunca é tocada, e `ask`/`deny` não passam por aqui (não
+    têm o mesmo conceito de "regra nua cobre tudo")."""
+    bare_present = {rule for rule in allow if rule in _PRUNABLE_BARE_TOOLS}
+    if not bare_present:
+        return allow
+    return [
+        rule for rule in allow
+        if rule in bare_present or _allow_rule_tool_name(rule) not in bare_present
+    ]
+
+
 def write_managed_settings(path: Path, settings: dict[str, Any]) -> None:
     """Grava o settings gerenciado no formato único (indent 2, UTF-8, `\\n`
-    final) que os cinco escritores usavam duplicado."""
+    final) que os cinco escritores usavam duplicado.
+
+    Ponto único por onde TODO `allow` passa antes de tocar disco — a poda de
+    `prune_shadowed_allow_rules` vale para os dois merges independentes sem
+    que nenhum precise conhecer o outro."""
+    permissions = settings.get("permissions")
+    if isinstance(permissions, dict) and permissions.get("allow"):
+        permissions["allow"] = prune_shadowed_allow_rules(permissions["allow"])
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"

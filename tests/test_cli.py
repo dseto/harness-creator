@@ -561,6 +561,59 @@ def test_verify_subcommand_normal_failure_does_not_print_aviso_hint(
     assert "aviso:" not in err
 
 
+def test_verify_subcommand_failure_truncates_verbose_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """T-06/onda-1: uma suíte verbosa que falha não pode despejar centenas de
+    linhas no contexto do agente — só o fim relevante (últimas ~40 linhas),
+    com aviso de quantas foram omitidas."""
+    script = tmp_path / "fake_verbose_runner.py"
+    _write(
+        script,
+        "import sys\n"
+        "for i in range(200):\n"
+        "    print(f'linha de stdout {i}')\n"
+        "for i in range(200):\n"
+        "    print(f'linha de stderr {i}', file=sys.stderr)\n"
+        "sys.exit(1)\n",
+    )
+    verify_cmd = f'"{sys.executable}" "{script}"'
+    _write_feature_list(tmp_path, verify_cmd)
+
+    monkeypatch.setattr(sys, "argv", ["harness", "verify", "T-01", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    err = capsys.readouterr().err
+    assert "linha de stdout 199" in err  # o FIM da saída sobrevive
+    assert "linha de stdout 0" not in err  # o começo foi cortado
+    assert "linha de stderr 199" in err
+    assert "linha de stderr 0" not in err
+    assert "omitida" in err  # aviso explícito de truncamento, não corte silencioso
+    # a saída inteira nunca entra no contexto: bem menos que as 400 linhas originais
+    assert err.count("\n") < 120
+
+
+def test_verify_subcommand_failure_does_not_truncate_short_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Sem falso-positivo: saída curta passa inteira, sem aviso de corte."""
+    script = tmp_path / "fake_short_runner.py"
+    _write(script, "print('so uma linha')\nimport sys\nsys.exit(1)\n")
+    verify_cmd = f'"{sys.executable}" "{script}"'
+    _write_feature_list(tmp_path, verify_cmd)
+
+    monkeypatch.setattr(sys, "argv", ["harness", "verify", "T-01", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    err = capsys.readouterr().err
+    assert "so uma linha" in err
+    assert "omitida" not in err
+
+
 def test_verify_subcommand_missing_feature_exits_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
