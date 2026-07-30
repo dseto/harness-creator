@@ -14,11 +14,11 @@
 ## Regras Inegociáveis
 
 1. **TDD obrigatório**: nenhuma implementação antes de um teste falho (fase RED
-   validada pelo harness). Não edite arquivos de teste durante GREEN/REFACTOR —
-   o `TDDGuard` bloqueia essa edição e bloqueia rodar a suíte via
-   `run_terminal` diretamente. Precisa editar um teste protegido? Chame
-   `tdd_request_test_edit` primeiro (sempre exige aprovação humana explícita,
-   em qualquer modo de política).
+   validada pelo harness). O gate humano é só na ESCRITA do arquivo de teste —
+   editar um teste protegido sempre exige aprovação humana explícita, em
+   qualquer modo de política. Rodar a suíte (RED ou GREEN, quantas vezes for
+   preciso) não pede aprovação: é fricção sem sinal, o humano já aprovou o
+   teste quando ele foi escrito.
 2. **Sandbox only**: todo comando roda no contêiner isolado, sem rede. Não
    tente contornar (`curl`, `pip install` de rede, etc. falharão por design).
 3. **Escopo mínimo**: modifique apenas arquivos diretamente relacionados à

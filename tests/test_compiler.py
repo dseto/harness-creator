@@ -263,56 +263,18 @@ def test_guard_tests_recursive_glob_does_not_overblock(tmp_path: Path) -> None:
     assert asks["permissionDecision"] == "ask"
 
 
-def test_guard_test_runner_hook_catches_metachar_bypass(tmp_path: Path) -> None:
+def test_guard_test_runner_always_allows(tmp_path: Path) -> None:
+    """Execução da suíte não gateia mais — só a ESCRITA do teste
+    (guard_tests.py) exige aprovação. Rodar `pytest` repetidas vezes na
+    mesma tarefa não deve pedir aprovação de novo."""
     _write_yaml(tmp_path, BASIC_YAML)
     compile_project(tmp_path)
     script = tmp_path / ".harness" / "hooks" / "guard_test_runner.py"
 
-    for cmd in ("pytest -x", "pytest&&true", "(pytest)", "true|pytest"):
-        out = _run_hook(script, {"tool_name": "Bash", "tool_input": {"command": cmd}})
-        assert out["permissionDecision"] == "ask", cmd
-
-    out = _run_hook(script, {"tool_name": "Bash", "tool_input": {"command": "git status"}})
-    assert out["permissionDecision"] == "allow"
-
-
-def test_guard_test_runner_multiword_command_does_not_overblock(tmp_path: Path) -> None:
-    """Regressão: test_command 'dotnet test' não pode marcar todo 'dotnet'."""
-    _write_yaml(tmp_path, BASIC_YAML.replace("pytest -x --tb=short", "dotnet test"))
-    compile_project(tmp_path)
-    script = tmp_path / ".harness" / "hooks" / "guard_test_runner.py"
-
-    for cmd in ("dotnet test", "dotnet test --filter Foo", "cd api && dotnet test",
-                "dotnet build && dotnet test"):
-        out = _run_hook(script, {"tool_name": "Bash", "tool_input": {"command": cmd}})
-        assert out["permissionDecision"] == "ask", cmd
-
-    for cmd in ("dotnet build", "dotnet run", "dotnet restore", "git status"):
+    for cmd in ("pytest -x", "pytest&&true", "(pytest)", "true|pytest",
+                "dotnet test", "git status"):
         out = _run_hook(script, {"tool_name": "Bash", "tool_input": {"command": cmd}})
         assert out["permissionDecision"] == "allow", cmd
-
-
-def test_guard_test_runner_strips_flags_from_test_command(tmp_path: Path) -> None:
-    """test_command com flags ('pytest -x --tb=short') casa 'pytest' pelado."""
-    _write_yaml(tmp_path, BASIC_YAML)  # test_command: "pytest -x --tb=short"
-    compile_project(tmp_path)
-    script = tmp_path / ".harness" / "hooks" / "guard_test_runner.py"
-
-    out = _run_hook(script, {"tool_name": "Bash", "tool_input": {"command": "pytest"}})
-    assert out["permissionDecision"] == "ask"
-
-
-def test_guard_test_runner_reason_names_the_command(tmp_path: Path) -> None:
-    """US-1: a razão do prompt cita o comando real, não texto genérico fixo —
-    humano aprova sabendo o que roda."""
-    _write_yaml(tmp_path, BASIC_YAML)
-    compile_project(tmp_path)
-    script = tmp_path / ".harness" / "hooks" / "guard_test_runner.py"
-
-    cmd = "pytest tests/test_verify.py -q"
-    out = _run_hook(script, {"tool_name": "Bash", "tool_input": {"command": cmd}})
-    assert out["permissionDecision"] == "ask"
-    assert cmd in out["permissionDecisionReason"], out["permissionDecisionReason"]
 
 
 def test_guard_tests_reason_names_the_file_path(tmp_path: Path) -> None:
@@ -382,35 +344,10 @@ def test_guard_tests_flags_a_test_file_no_task_declares(tmp_path: Path) -> None:
     assert "Alternar tema persiste" not in reason, reason
 
 
-def test_guard_test_runner_reason_carries_the_functional_description(tmp_path: Path) -> None:
-    """#41: rodar a suíte na fase red mostra a descrição da tarefa pendente
-    ligada ao comando — tarefa já verificada (passes) não polui a razão."""
-    _write_yaml(tmp_path, BASIC_YAML)
-    compile_project(tmp_path)
-    _write_feature_list(tmp_path, [
-        {"id": "T-01", "desc": "Login rejeita senha vazia", "files": ["tests/test_login.py"],
-         "verify_cmd": "pytest tests/test_login.py", "passes": True},
-        {"id": "T-02", "desc": "Alternar tema persiste entre recarregamentos",
-         "files": ["tests/test_theme.py"], "verify_cmd": "pytest tests/test_theme.py",
-         "passes": False},
-        {"id": "T-03", "desc": "Rodapé some no modo compacto", "files": ["tests/test_footer.py"],
-         "verify_cmd": "pytest tests/test_footer.py", "passes": False},
-    ])
-    script = tmp_path / ".harness" / "hooks" / "guard_test_runner.py"
-
-    cmd = "pytest tests/test_theme.py -v"
-    out = _run_hook(script, {"tool_name": "Bash", "tool_input": {"command": cmd}})
-    reason = out["permissionDecisionReason"]
-    assert out["permissionDecision"] == "ask"
-    assert "Alternar tema persiste entre recarregamentos" in reason, reason
-    assert cmd in reason, reason                       # o comando continua na razão
-    assert "Login rejeita senha vazia" not in reason   # já passou, não é o que se aprova
-    assert "Rodapé" not in reason                      # pendente, mas não é deste comando
-
-
 def test_guards_fall_back_to_payload_reason_without_contract(tmp_path: Path) -> None:
-    """Sem `feature_list.json` (init sem compile-contract) nada quebra: os dois
-    guards continuam pedindo aprovação com a razão antiga."""
+    """Sem `feature_list.json` (init sem compile-contract) nada quebra: o
+    guard de escrita continua pedindo aprovação com a razão antiga; o de
+    execução continua sempre allow."""
     _write_yaml(tmp_path, BASIC_YAML)
     compile_project(tmp_path)
     assert not (tmp_path / ".harness" / "feature_list.json").exists()
@@ -423,8 +360,7 @@ def test_guards_fall_back_to_payload_reason_without_contract(tmp_path: Path) -> 
 
     runner_hook = tmp_path / ".harness" / "hooks" / "guard_test_runner.py"
     out = _run_hook(runner_hook, {"tool_name": "Bash", "tool_input": {"command": "pytest -x"}})
-    assert out["permissionDecision"] == "ask"
-    assert out["permissionDecisionReason"].startswith("Comando roda a suíte")
+    assert out["permissionDecision"] == "allow"
 
 
 def test_guards_survive_a_corrupt_feature_list(tmp_path: Path) -> None:
@@ -461,18 +397,18 @@ def test_guard_tests_hook_noop_when_sentinel_present(tmp_path: Path) -> None:
 
 
 def test_guard_test_runner_hook_noop_when_sentinel_present(tmp_path: Path) -> None:
-    """Com o sentinel presente, guard_test_runner faz no-op -> allow, mesmo
-    para um comando que normalmente exigiria aprovação (ask)."""
+    """guard_test_runner é allow com ou sem o sentinel — só a razão muda."""
     _write_yaml(tmp_path, BASIC_YAML)
     compile_project(tmp_path)
     script = tmp_path / ".harness" / "hooks" / "guard_test_runner.py"
 
-    ask = _run_hook(script, {"tool_name": "Bash", "tool_input": {"command": "pytest -x"}})
-    assert ask["permissionDecision"] == "ask"
+    before = _run_hook(script, {"tool_name": "Bash", "tool_input": {"command": "pytest -x"}})
+    assert before["permissionDecision"] == "allow"
 
     (tmp_path / ".harness" / "harness.disabled").write_text("{}", encoding="utf-8")
-    out = _run_hook(script, {"tool_name": "Bash", "tool_input": {"command": "pytest -x"}})
-    assert out["permissionDecision"] == "allow"
+    after = _run_hook(script, {"tool_name": "Bash", "tool_input": {"command": "pytest -x"}})
+    assert after["permissionDecision"] == "allow"
+    assert after["permissionDecisionReason"] != before["permissionDecisionReason"]
 
 
 # ---------------------------------------------------------------------------
