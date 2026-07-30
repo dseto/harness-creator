@@ -7,7 +7,7 @@
     "tests/test_boundary_guard.py"
   ],
   "verify_cmd": "python -m pytest tests/test_boundary_guard.py -k docstring -q",
-  "recorded_at": "2026-07-30T11:17:00.657535+00:00",
+  "recorded_at": "2026-07-30T12:10:27.973610+00:00",
   "exit_code": 0,
-  "files_hash": "sha256:a2c48cbfd1409d2685129f92f65bb89c2f2851e7ccc73132009d69656159fc02"
+  "files_hash": "sha256:ff770c644b7d954eccdab2b8fed715e52d16362d887a35b6c520bdc490f1fc92"
 }

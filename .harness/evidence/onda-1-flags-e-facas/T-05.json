@@ -10,7 +10,7 @@
     "tests/test_findings.py"
   ],
   "verify_cmd": "python -m pytest tests/test_findings.py tests/test_audit.py tests/test_runtime_audit.py tests/test_team_audit.py -q",
-  "recorded_at": "2026-07-30T11:43:43.368157+00:00",
+  "recorded_at": "2026-07-30T12:10:32.852008+00:00",
   "exit_code": 0,
-  "files_hash": "sha256:10dba64fa4745198387c71a241082a0dff83e22b86d21de2b51e7c5ee7cd6427"
+  "files_hash": "sha256:7e544fae4f8bdef0c4e11185fb9022d5e09b8d32316723ae577a63a8240c9bff"
 }
