@@ -1,6 +1,6 @@
 # Claude Progress
 
-Contrato: `onda-4-prompts-e-docs`
+Contrato: `finish-antes-do-merge`
 
 _Demanda ENCERRADA por `harness finish`._
 
@@ -8,9 +8,8 @@ _Demanda ENCERRADA por `harness finish`._
 
 | id | desc | status |
 | --- | --- | --- |
-| T-01 | Instrução de PYTHONPATH deixa de se repetir em 5 skills — vira 1 linha por skill mais uma explicação única no GUIDE | done |
-| T-02 | Assess delega a coleta mecânica a um subagente Haiku, mantendo o julgamento das dimensões no modelo forte | done |
-| T-03 | Anedota do kill-switch contada uma única vez, com TUTORIAL e ARCHITECTURE apontando para o GUIDE | done |
+| T-01 | `skills/plan/SKILL.md` ganha um passo explícito para rodar `harness finish` na branch do contrato, antes do commit final | done |
+| T-02 | `docs/plugin/GUIDE.md` § 10 documenta a ordem recomendada (branch do contrato, antes do PR) | done |
 
 ## Última atualização
 

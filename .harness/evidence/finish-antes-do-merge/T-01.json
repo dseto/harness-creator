@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-01",
+  "contract": "finish-antes-do-merge",
+  "desc": "`skills/plan/SKILL.md` ganha um passo explícito para rodar `harness finish` na branch do contrato, antes do commit final",
+  "files": [
+    "skills/plan/SKILL.md",
+    "tests/test_finish_lifecycle_docs.py"
+  ],
+  "verify_cmd": "pytest tests/test_finish_lifecycle_docs.py -k plan_skill -q",
+  "recorded_at": "2026-07-30T16:01:39.444487+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:dfb027fbdf800f972922b64d34cf5751fee3aec861b9374031b9efc4f51049cd"
+}
