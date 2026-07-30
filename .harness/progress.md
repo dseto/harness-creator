@@ -1,20 +1,30 @@
 # Claude Progress
 
-Contrato: `atritos-do-ciclo`
-
-_Demanda ENCERRADA por `harness finish`._
+Contrato: `verificacao-honesta`
 
 ## Features
 
 | id | desc | status |
 | --- | --- | --- |
-| T-01 | O agente consegue ler o relógio para carimbar a hora da aprovação, mas continua sem poder ajustar o relógio da máquina | done |
-| T-02 | O comando de teste declarado no perfil do projeto pode ser rodado durante a demanda, e não só o teste exato da tarefa em curso | done |
-| T-03 | Descobrir em que branch a sessão está deixa de ser bloqueado, sem liberar apagar branch | done |
-| T-04 | A suíte de ponta a ponta passa em qualquer console, sem depender da codificação configurada na máquina | done |
-| T-05 | Ao barrar um commit na branch protegida, a recusa passa a dizer que chore de doc/versão é decisão do humano e vai no terminal dele, sem sugerir que o agente contorne o PR | done |
-| T-06 | Depois de encerrar uma demanda, o resumo de progresso do contrato seguinte é regenerado — a sessão nova não herda mais o estado da demanda anterior | done |
+| T-01 | O comando de auditoria deixa de reprovar repositório saudável | done |
+| T-02 | A auditoria continua acusando hook que realmente não está registrado | done |
+| T-03 | Tarefa cujo comando de teste terminou sem rodar teste nenhum não é dada por pronta | done |
+| T-04 | Prova marcada como verde-vazio não destrava a tarefa nem em segunda mão | done |
+| T-05 | A documentação para de prometer um portão de proteção que não roda | done |
 
 ## Última atualização
+
+<!-- harness:auto -->
+- 2026-07-30T00:26:39.602890+00:00 — T-01 verificado (exit_code 0) — .harness/evidence/verificacao-honesta/T-01.json
+- 2026-07-30T00:26:47.037042+00:00 — T-02 verificado (exit_code 0) — .harness/evidence/verificacao-honesta/T-02.json
+- 2026-07-30T00:32:30.514880+00:00 — T-05 verificado (exit_code 0) — .harness/evidence/verificacao-honesta/T-05.json
+- 2026-07-30T00:47:59.449250+00:00 — T-03 verificado (exit_code 0) — .harness/evidence/verificacao-honesta/T-03.json
+- 2026-07-30T00:51:39.455669+00:00 — T-04 verificado (exit_code 0) — .harness/evidence/verificacao-honesta/T-04.json
+- 2026-07-30T00:57:10.519248+00:00 — T-01 verificado (exit_code 0) — .harness/evidence/verificacao-honesta/T-01.json
+- 2026-07-30T01:19:33.315603+00:00 — T-03 verificado (exit_code 0) — .harness/evidence/verificacao-honesta/T-03.json
+- 2026-07-30T01:19:34.664057+00:00 — T-05 verificado (exit_code 0) — .harness/evidence/verificacao-honesta/T-05.json
+- 2026-07-30T01:42:51.910486+00:00 — T-05 verificado (exit_code 0) — .harness/evidence/verificacao-honesta/T-05.json
+<!-- /harness:auto -->
+
 
 _(vazio — demanda encerrada; o próximo `compile-session` regenera este arquivo a partir do contrato novo. A prova do que foi entregue está em `.harness/evidence/`.)_

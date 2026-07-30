@@ -1,0 +1,12 @@
+{
+  "feature_id": "T-02",
+  "contract": "verificacao-honesta",
+  "desc": "A auditoria continua acusando hook que realmente não está registrado",
+  "files": [
+    "tests/test_audit.py"
+  ],
+  "verify_cmd": "python -m pytest tests/test_audit.py -q",
+  "recorded_at": "2026-07-30T00:26:47.037042+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:8761900574e864d4a8d03cb09fc1063c54ab20cfeff22ed7170af8c65dacf6e1"
+}

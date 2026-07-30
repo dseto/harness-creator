@@ -1,0 +1,19 @@
+{
+  "feature_id": "T-05",
+  "contract": "verificacao-honesta",
+  "desc": "A documentação para de prometer um portão de proteção que não roda",
+  "files": [
+    "docs/plugin/GUIDE.md",
+    "docs/plugin/ARCHITECTURE.md",
+    "docs/plugin/TUTORIAL.md",
+    "docs/plugin/arquitetura-visual.html",
+    "tests/test_docs_enforcement_claims.py",
+    "skills/plan/references/contract-templates.md",
+    "tests/e2e/test_boundary_flow.py",
+    "tests/e2e/test_fase2_outcomes.py"
+  ],
+  "verify_cmd": "python -m pytest tests/test_docs_enforcement_claims.py -q",
+  "recorded_at": "2026-07-30T01:42:51.910486+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:a5460f1b38bd46977e4b4a2d40e1f9cc9170356caacda16f32d6f54c74d3030f"
+}

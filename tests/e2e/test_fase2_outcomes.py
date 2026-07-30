@@ -197,10 +197,11 @@ EXPECTED_ALLOW = [
     *_HARNESS_CLI_ALLOW,
 ]
 
-# Mecanismo legado (compiler.py) com enforce_tdd LIGADO: instala guard_tests.py
-# (Write|Edit) E guard_test_runner.py (Bash) — cenário mais forte que o de
-# test_boundary_flow.py (que usa enforce_tdd: false): compile-session tem que
-# remover só o guard_tests.py e PRESERVAR o guard_test_runner.py.
+# enforce_tdd LIGADO: o compile registra guard_test_runner.py (Bash) — cenário
+# mais forte que o de test_boundary_flow.py (que usa enforce_tdd: false):
+# compile-session tem que remover a entrada LEGADA do guard_tests.py (a que um
+# settings herdado de <=v0.27 carrega; o render atual não a emite mais, issue
+# #61) e PRESERVAR o guard_test_runner.py.
 LEGACY_HARNESS_YAML_TDD = """
 governance:
   approval_policy: balanced
@@ -772,12 +773,14 @@ def test_outcome5_legacy_guard_tests_removed_others_preserved(tmp_path: Path) ->
     try:
         project = _setup_project(tmp_path / "demo")
 
-        # Mecanismo antigo com enforce_tdd LIGADO: o compiler ainda GERA
-        # guard_tests.py (Write|Edit) e guard_test_runner.py (Bash), mas desde
-        # v0.22.0 o próprio `harness compile` instala o boundary_guard logo em
-        # seguida — e a instalação já remove a entrada legada do guard_tests.
-        # A remoção portanto acontece um passo antes do que acontecia até
-        # v0.21 (era só no `compile-session`); o estado final é o mesmo.
+        # enforce_tdd LIGADO: o compiler GERA guard_tests.py e
+        # guard_test_runner.py em disco, e registra só o segundo — desde a
+        # issue #61 o render não emite a entrada do guard_tests.py. Antes
+        # dela, o registro era criado por `compile_project` e removido pelo
+        # `install_boundary_guard` no MESMO comando, o que fazia `harness
+        # audit` acusar um `critical` falso em todo repositório compilado.
+        # A remoção da entrada legada (settings herdado de <=v0.27) continua
+        # coberta abaixo: é o caminho de upgrade, e ele importa.
         (project / ".harness" / "harness.yaml").write_text(
             LEGACY_HARNESS_YAML_TDD, encoding="utf-8"
         )

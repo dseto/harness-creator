@@ -60,7 +60,7 @@ contagem de tokens a hooks.
 | **1a · Skills** | `skills/` (7) | Conduz a conversa com o humano | Não escreve nada direto — toda escrita passa pela CLI |
 | **1b · CLI** | `cli.py` | Dispatch dos 19 subcomandos, validação de `--dir` | Não decide `allow`/`deny` em runtime |
 | **2 · Compiladores** | `compiler`, `contract`, `analyzer`, `session_permissions`, `lifecycle`, `templates`, `branching`, `profile_edit`, `install_command` | Transformam entrada humana em artefato. Determinísticos, zero LLM, zero rede | Não rodam no caminho da tool call |
-| **3 · Enforcement** | `boundary_guard`, `guard_tests`, `guard_test_runner`, `session_start`, `stop_hook` | Decidem `allow`/`ask`/`deny` a cada tool call | Não importam a biblioteca — stdlib puro |
+| **3 · Enforcement** | `boundary_guard`, `guard_test_runner`, `session_start`, `stop_hook` | Decidem `allow`/`ask`/`deny` a cada tool call | Não importam a biblioteca — stdlib puro |
 | **4 · Prova e controle** | `verify`, `review`, `supervisor`, `teams`, `finish` | Produzem e consomem evidência; ordenam o trabalho | Nenhum chama git de escrita |
 | **5 · Diagnóstico** | `preflight`, `audit`, `runtime_audit`, `team_audit`, `doctor`, `metrics` | Emitem laudo + o comando exato de correção | Nunca corrigem sozinhos |
 | **Base** | `config`, `governance/approval`, `patterns`, `settings_paths`, `hook_launcher`, `killswitch` | Cada um é fonte **única** de uma verdade | — |
@@ -319,7 +319,7 @@ repositório ──preflight──► READY? ──► analyze ──► repo-pr
 harness.yaml ──compile──► permissions                                │                              │
              │            guard_tests                                │                              ▼
              │            AGENTS.md                                  │                     boundary_guard.py
-             │                                                       │                     guard_tests.py
+             │                                                       │                     guard_test_runner.py
 demanda ──assess──► laudo ──► spec + Plans ──compile-contract──► feature_list.json ───────┤ session_start.py
    (4 fontes)   FORA_DE_ESCOPO      ▲                                │                     stop_hook.py
                      barra          │                                │                              │
@@ -352,6 +352,18 @@ resto ou segue, ou para no gate humano do contrato.
 O `audit` não reimplementa as regras do compilador — ele **é** o compilador,
 rodado em memória. Regra nova no `compiler.render()` passa a ser auditada de
 graça, e nunca há duas definições de "certo".
+
+Esse princípio já se pagou. A issue #61 era um `critical` falso —
+`hook_not_registered` para o `guard_tests.py` — em **todo** repositório
+compilado: o `compile` registrava o hook e, no mesmo comando, o
+`install_boundary_guard` removia o registro, por design. Havia duas rotas de
+correção: ensinar o `audit` a conhecer o `boundary_guard`, ou tirar a entrada
+do `render()`. A primeira criaria exatamente a segunda definição de "certo"
+que este parágrafo existe para impedir. A correção foi na fonte, e o `audit`
+não ganhou uma linha. O `guard_tests.py` continua **gerado** em disco (e
+auditado quanto a drift), mas não é registrado: quem entrega o gate de edição
+de teste é o `boundary_guard`, por decisão por-tarefa em vez de `ask`
+estático.
 
 `audit`, `audit-runtime` e `audit-team` saem com código **1** se houver qualquer
 finding `critical`, ou se o score cair abaixo de 60. A regra de exit ficou

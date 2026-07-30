@@ -172,9 +172,19 @@ def render(config: HarnessConfig, target_dir: Path, raw_keys: set[str] | None = 
         )
 
     hooks_abs = (target_dir / HOOKS_DIR).resolve()
-    hook_entries = [
-        _hook_entry("Write|Edit", hooks_abs / "guard_tests.py"),
-    ]
+    # O `guard_tests.py` é GERADO (acima) mas deliberadamente NÃO registrado —
+    # issue #61. `cli.py` chama `install_boundary_guard()` no mesmo comando que
+    # `compile_project()`, e o instalador remove qualquer registro dele
+    # (`_is_legacy_guard_tests`): o boundary_guard substitui o guard estático
+    # sempre-`ask` por decisão por-tarefa, e essa parte está correta. O defeito
+    # era esta lista continuar prometendo um registro que nenhuma instalação
+    # conserva — dois testes e2e travam a ausência
+    # (`test_boundary_flow.py`, `test_fase2_outcomes.py`) —, e como o `audit`
+    # dogfooda exatamente este render, todo repositório compilado colhia um
+    # `critical hook_not_registered` cuja correção sugerida reproduzia o
+    # achado. Corrigido AQUI, na fonte, e não no `audit`: ele não reimplementa
+    # as regras do compilador, ele É o compilador (`ARCHITECTURE.md`).
+    hook_entries: list[dict[str, Any]] = []
     if config.verification.enforce_tdd:
         hook_entries.append(_hook_entry("Bash", hooks_abs / "guard_test_runner.py"))
 
@@ -195,7 +205,7 @@ def _hook_entry(matcher: str, script: Path) -> dict[str, Any]:
     #
     # `hook_command()` é o MESMO ponto único dos três hooks de sessão
     # (`boundary_guard`, `session_start`, `stop_hook`): interpretador absoluto
-    # + sufixo `|| exit 2`. Estes dois aqui ficaram para trás quando o Item 1/1b
+    # + sufixo `|| exit 2`. Este aqui ficou para trás quando o Item 1/1b
     # entrou, e o achado F8 do dogfood venv-Windows mostrou o custo: um
     # repo que rodou só `harness compile` — estado por onde TODA instalação
     # passa, antes de existir contrato — ficava com os guards de TDD lançados

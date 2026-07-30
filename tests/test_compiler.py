@@ -83,7 +83,13 @@ def test_compile_writes_all_artifacts(tmp_path: Path) -> None:
     settings = json.loads(result.settings_path.read_text(encoding="utf-8"))
     assert "Bash" in settings["permissions"]["ask"]
     hook_cmds = json.dumps(settings["hooks"]["PreToolUse"])
-    assert "guard_tests.py" in hook_cmds and "guard_test_runner.py" in hook_cmds
+    assert "guard_test_runner.py" in hook_cmds
+    # O `guard_tests.py` é gerado em disco mas NÃO registrado — issue #61. Este
+    # assert afirmava o contrário e era a única fonte de verdade a favor do
+    # registro, contra dois e2e que travam a ausência depois de
+    # `install_boundary_guard`. Quem entrega o gate de edição de teste hoje é o
+    # boundary_guard, por decisão por-tarefa.
+    assert "guard_tests.py" not in hook_cmds
 
     assert (tmp_path / ".harness" / "hooks" / "guard_tests.py").is_file()
     agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
@@ -173,8 +179,11 @@ def test_merge_preserves_user_settings_and_is_idempotent(tmp_path: Path) -> None
     user_hooks = [e for e in settings["hooks"]["PreToolUse"]
                   if "meu-hook.sh" in json.dumps(e)]
     assert len(user_hooks) == 1                                         # hook do usuário intacto
+    # A idempotência é a regra sob teste; o sujeito mudou porque o
+    # `guard_tests.py` deixou de ser registrado (issue #61). O guard que o
+    # compilador registra hoje é o de execução de teste.
     guard_entries = [e for e in settings["hooks"]["PreToolUse"]
-                     if "guard_tests.py" in json.dumps(e)]
+                     if "guard_test_runner.py" in json.dumps(e)]
     assert len(guard_entries) == 1                                      # sem duplicar o nosso
 
 

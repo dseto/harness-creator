@@ -60,7 +60,10 @@ gerado:
   Machine-local: leva o path absoluto desta máquina no comando do hook, por
   isso nasce ignorado (`.claude/.gitignore`) e um clone precisa rodar
   `harness compile` antes da primeira sessão
-- `.harness/hooks/guard_tests.py` e `guard_test_runner.py`
+- `.harness/hooks/guard_test_runner.py` — registrado como hook `PreToolUse`
+- `.harness/hooks/guard_tests.py` — gerado em disco, mas **não registrado**:
+  quem entrega o gate de edição de teste é o `boundary_guard`, por decisão
+  por-tarefa em vez de `ask` estático (issue #61)
 - bloco gerenciado em `AGENTS.md`
 
 O que de tudo isso entra no git segue uma regra única — *especificação,
@@ -87,19 +90,32 @@ claude    # sessão normal, SEM --plugin-dir — governança já está no projet
 
 Peça a alteração como sempre: *"corrige o bug de paginação em `list.py`"*.
 
+> **Antes de qualquer coisa, um contrato.** Desde a v0.22.0 a escrita é
+> **default-deny sem contrato ativo**: recém-compilado e sem
+> `.harness/feature_list.json`, o `boundary_guard` nega toda edição e libera
+> só uma superfície mínima de comando — `git status`/`log`/`diff`/`add`/
+> `commit`/`branch --show-current`, os subcomandos do próprio `harness`, e
+> utilitários read-only (`cat`, `ls`, `grep`, …). É de propósito: o raio de
+> impacto é definido pelo contrato, e sem contrato não há raio. A tabela
+> abaixo descreve o dia a dia **com** um contrato ativo (seção 5).
+
 O que muda na prática:
 
 | Você pede | O que acontece | Por quê |
 |---|---|---|
 | Ler/buscar código (Read/Grep/Glob) | Roda direto, sem prompt | `balanced` libera leitura |
-| Editar arquivo-fonte (`list.py`) | Prompt de aprovação (`ask`) | toda edição pede confirmação em `balanced` |
-| Editar arquivo de teste (`tests/test_list.py`) | Prompt de aprovação **com motivo específico**: "edição de teste exige aprovação humana — regra TDD do harness" | hook `guard_tests.py` — impede alterar o teste pra fazer ele passar |
-| Rodar a suíte inteira (`pytest`) direto | Prompt de aprovação com motivo TDD | hook `guard_test_runner.py` — incentiva ciclo red-green-refactor supervisionado |
-| Rodar outro comando (`git status`, `ls`) | Prompt de aprovação (`ask`, política de execução) | `balanced` gateia todo `Bash` |
-| Acessar rede (`curl`, `WebFetch`) | Prompt de aprovação **sempre**, em qualquer política incl. `auto` | classe network é sempre gateada, de propósito |
+| Editar arquivo declarado em `files[]` da tarefa | Passa (`allow`) | está dentro do raio de impacto aprovado |
+| Editar arquivo **fora** de `files[]` | **Bloqueado** (`deny`), com o comando de escape na mensagem (`harness task add-file`) | o raio de impacto é o contrato, não a boa intenção da sessão |
+| Editar arquivo de teste (`tests/test_list.py`) | **Bloqueado** (`deny`) enquanto nenhuma tarefa declarar esse arquivo; declarado, passa | hook `boundary_guard.py` — impede alterar o teste pra fazer ele passar, e a autorização é por-tarefa, não um prompt genérico |
+| Rodar a suíte inteira (`pytest`) direto | Prompt de aprovação (`ask`) com o `desc` da tarefa na frente do motivo | hook `guard_test_runner.py` (só com `enforce_tdd`) — incentiva ciclo red-green-refactor supervisionado |
+| Rodar comando de leitura (`git status`, `ls`) | Passa direto | superfície read-only fixa, vale com ou sem contrato |
+| Rodar comando não declarado no contrato | **Bloqueado** (`deny`), com as três rotas de escape na mensagem | a superfície de execução também é enumerada do contrato |
+| Acessar rede (`curl`, `WebFetch`), tocar segredo, `git push` fora da branch do contrato | **Bloqueado sempre**, em qualquer política incl. `auto` | runtime floor — não é política, é piso |
 
-Você aprova ou nega cada prompt como qualquer prompt nativo do Claude Code —
-não tem UI própria do harness, é o mecanismo padrão de permissions.
+O `boundary_guard` decide `allow`/`deny`, nunca `ask`: a decisão é por-tarefa e
+sai da leitura do contrato, então não há o que perguntar. O `ask` que você vê
+vem das `permissions` compiladas e do `guard_test_runner` — e você aprova ou
+nega como qualquer prompt nativo do Claude Code, sem UI própria do harness.
 
 ### Política `auto`
 
