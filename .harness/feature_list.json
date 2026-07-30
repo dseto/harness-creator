@@ -1,28 +1,29 @@
 {
-  "contract": "atritos-do-ciclo",
-  "compiled_at": "2026-07-28T23:42:05.275099+00:00",
-  "compiled_with_version": "0.25.0",
+  "contract": "verificacao-honesta",
+  "compiled_at": "2026-07-30T01:40:16.938349+00:00",
+  "compiled_with_version": "0.27.0",
   "features": [
     {
       "id": "T-01",
-      "desc": "O agente consegue ler o relógio para carimbar a hora da aprovação, mas continua sem poder ajustar o relógio da máquina",
+      "desc": "O comando de auditoria deixa de reprovar repositório saudável",
       "files": [
-        "src/harness/boundary_guard.py",
-        "tests/test_boundary_guard.py"
+        "src/harness/compiler.py",
+        "tests/test_compiler.py",
+        "tests/test_audit.py",
+        "tests/test_hook_launcher.py"
       ],
-      "verify_cmd": "python -m pytest tests/test_boundary_guard.py -k date -q",
+      "verify_cmd": "python -m pytest tests/test_compiler.py tests/test_audit.py -q",
       "depends": [],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-02",
-      "desc": "O comando de teste declarado no perfil do projeto pode ser rodado durante a demanda, e não só o teste exato da tarefa em curso",
+      "desc": "A auditoria continua acusando hook que realmente não está registrado",
       "files": [
-        "src/harness/boundary_guard.py",
-        "tests/test_boundary_guard.py"
+        "tests/test_audit.py"
       ],
-      "verify_cmd": "python -m pytest tests/test_boundary_guard.py -k profile_test_command -q",
+      "verify_cmd": "python -m pytest tests/test_audit.py -q",
       "depends": [
         "T-01"
       ],
@@ -30,54 +31,22 @@
       "passes": true
     },
     {
-      "id": "T-03",
-      "desc": "Descobrir em que branch a sessão está deixa de ser bloqueado, sem liberar apagar branch",
-      "files": [
-        "src/harness/boundary_guard.py",
-        "tests/test_boundary_guard.py"
-      ],
-      "verify_cmd": "python -m pytest tests/test_boundary_guard.py -k show_current -q",
-      "depends": [
-        "T-02"
-      ],
-      "cwd": null,
-      "passes": true
-    },
-    {
-      "id": "T-04",
-      "desc": "A suíte de ponta a ponta passa em qualquer console, sem depender da codificação configurada na máquina",
-      "files": [
-        "tests/e2e/test_contract_flow.py",
-        "src/harness/cli.py"
-      ],
-      "verify_cmd": "python -m pytest tests/e2e/test_contract_flow.py -q",
-      "depends": [],
-      "cwd": null,
-      "passes": true
-    },
-    {
       "id": "T-05",
-      "desc": "Ao barrar um commit na branch protegida, a recusa passa a dizer que chore de doc/versão é decisão do humano e vai no terminal dele, sem sugerir que o agente contorne o PR",
+      "desc": "A documentação para de prometer um portão de proteção que não roda",
       "files": [
-        "src/harness/boundary_guard.py",
-        "tests/test_boundary_guard.py"
+        "docs/plugin/GUIDE.md",
+        "docs/plugin/ARCHITECTURE.md",
+        "docs/plugin/TUTORIAL.md",
+        "docs/plugin/arquitetura-visual.html",
+        "tests/test_docs_enforcement_claims.py",
+        "skills/plan/references/contract-templates.md",
+        "tests/e2e/test_boundary_flow.py",
+        "tests/e2e/test_fase2_outcomes.py"
       ],
-      "verify_cmd": "python -m pytest tests/test_boundary_guard.py -k chore -q",
+      "verify_cmd": "python -m pytest tests/test_docs_enforcement_claims.py -q",
       "depends": [
-        "T-03"
+        "T-01"
       ],
-      "cwd": null,
-      "passes": true
-    },
-    {
-      "id": "T-06",
-      "desc": "Depois de encerrar uma demanda, o resumo de progresso do contrato seguinte é regenerado — a sessão nova não herda mais o estado da demanda anterior",
-      "files": [
-        "src/harness/finish.py",
-        "tests/test_finish.py"
-      ],
-      "verify_cmd": "python -m pytest tests/test_finish.py -k regenera -q",
-      "depends": [],
       "cwd": null,
       "passes": true
     }

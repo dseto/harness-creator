@@ -10,10 +10,12 @@ Cobre:
     1. `analyze --dir` -> `.harness/repo-profile.json`.
     2. `spec.md` já aprovado + `Plans.md` com 1 tarefa -> `compile-contract`
        -> `.harness/feature_list.json` com 1 feature.
-    3. Colisão com o mecanismo antigo: `compile --dir` (harness.yaml com
-       `enforce_tdd: false`) registra o hook `guard_tests.py`; a recompilação
-       via `compile-session --dir` remove essa entrada (o `boundary_guard.py`
-       já cobre a proteção de teste por-tarefa) e sobra só a entrada nova.
+    3. Mecanismo antigo já desativado na fonte: `compile --dir` (harness.yaml
+       com `enforce_tdd: false`) GERA o script `guard_tests.py` mas não o
+       registra — desde a issue #61 o `compiler.render()` não emite essa
+       entrada, porque o `boundary_guard.py` já cobre a proteção de teste
+       por-tarefa. A limpeza da entrada LEGADA (settings herdado de <=v0.27)
+       continua coberta em `test_fase2_outcomes.py`.
     4. `compile-session --dir` -> `.claude/settings.local.json` com a superfície
        `allow` derivada do contrato (nunca `git push`) e `boundary_guard.py`
        registrado em `hooks.PreToolUse`.
@@ -66,10 +68,11 @@ PLANS_ONE_TASK = """## [T-01] Implementar endpoint de health check
 - verify: `pytest tests/test_app.py -q`
 """
 
-# Mecanismo antigo (compiler.py): enforce_tdd False -> só guard_tests.py
-# (Write|Edit) entra em hooks.PreToolUse, sem guard_test_runner.py (Bash) —
-# assim a comparação "só sobra a do boundary_guard.py" após compile-session
-# fica exata (uma única entrada Bash/Edit/Write remanescente).
+# enforce_tdd False -> o compile não registra hook nenhum: nem
+# guard_test_runner.py (que depende de enforce_tdd), nem guard_tests.py (que
+# desde a issue #61 é gerado sem ser registrado). Assim a comparação "só sobra
+# a do boundary_guard.py" após compile-session fica exata (uma única entrada
+# remanescente).
 LEGACY_HARNESS_YAML = """
 governance:
   approval_policy: balanced

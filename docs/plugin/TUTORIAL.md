@@ -116,7 +116,7 @@ fonte canônica: quando esta tabela e aquela seção divergirem, a seção vence
 | 1 | `.harness/` | Container de tudo que é do harness | qualquer comando | n/a |
 | 2 | `.harness/harness.yaml` | A spec de governança, escrita na entrevista do `init` | nunca — é a **entrada** de `compile` | **sim** |
 | 3 | `.harness/hooks/` | Container dos guards | `compile` / `compile-session` | não |
-| 4 | `.harness/hooks/guard_tests.py` | Guard PreToolUse: disciplina de teste | `harness compile` | não |
+| 4 | `.harness/hooks/guard_tests.py` | Guard legado de disciplina de teste — **gerado, mas não registrado**: o `boundary_guard` o substituiu por decisão por-tarefa (issue #61) | `harness compile` | não |
 | 5 | `.harness/hooks/guard_test_runner.py` | Guard do runner de teste (só com `enforce_tdd`) | `harness compile` | não |
 | 6 | `.harness/hooks/boundary_guard.py` | Guard do raio de impacto + runtime floor | `harness compile-session` | não |
 | 7 | `.harness/hooks/session_start.py` | Hook que injeta o estado da sessão anterior | `harness compile-session` | não |
@@ -321,8 +321,9 @@ verification:
 
 - **`.claude/settings.local.json`** — regras `allow`/`ask` de permissions
   (machine-local, ignorado pelo git: leva o path absoluto desta máquina).
-- **`.harness/hooks/guard_tests.py`** e **`guard_test_runner.py`** — hooks
-  PreToolUse da disciplina TDD.
+- **`.harness/hooks/guard_test_runner.py`** — hook `PreToolUse` da disciplina
+  TDD. O **`guard_tests.py`** também é escrito aqui, mas não é registrado: o
+  `boundary_guard` o substituiu (issue #61).
 - **`AGENTS.md`** — bloco gerenciado com as instruções operacionais.
 
 ## A.5 Reabrir a sessão (obrigatório)

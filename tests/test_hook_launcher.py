@@ -329,7 +329,12 @@ def test_compile_hooks_carry_the_absolute_interpreter_and_fail_closed_suffix(
 ) -> None:
     commands = _compile_commands(tmp_path)
 
-    assert len(commands) == 2, commands  # guard_tests + guard_test_runner
+    # Só o guard_test_runner: o `guard_tests.py` é gerado em disco mas não
+    # registrado desde a issue #61 (ver `compiler.render`). O invariante sob
+    # teste aqui é o do launcher — interpretador absoluto e sufixo fail-closed
+    # —, não a quantidade de hooks; o número acompanha quem de fato é
+    # registrado.
+    assert len(commands) == 1, commands
     for command in commands:
         assert command.endswith(FAIL_CLOSED_SUFFIX), command
         assert not command.startswith("python "), command
@@ -354,16 +359,20 @@ def test_compile_hook_blocks_when_the_script_is_broken(tmp_path: Path) -> None:
 
 
 def test_doctor_now_sees_the_compile_hooks(tmp_path: Path) -> None:
-    """O laudo do alvo real devolvia `"hooks": []` com os dois hooks
+    """O laudo do alvo real devolvia `"hooks": []` com os hooks de `compile`
     instalados e vulneráveis — `MANAGED_HOOK_FILENAMES` listava só os de
     sessão, então o `doctor` dava verde falso sobre exatamente o estado que o
-    check existe para pegar."""
+    check existe para pegar.
+
+    Eram dois hooks quando este teste foi escrito; hoje é um, porque o
+    `guard_tests.py` deixou de ser registrado (issue #61). O que o teste
+    protege é o `doctor` VER o que está registrado, não o número."""
     from harness.doctor import run_doctor
 
     _compile_commands(tmp_path)
     report = run_doctor(tmp_path)
 
-    assert len(report.hooks) == 2, report.hooks
+    assert len(report.hooks) == 1, report.hooks
     commands = " ".join(h["command"] for h in report.hooks)
-    assert "guard_tests.py" in commands and "guard_test_runner.py" in commands
+    assert "guard_test_runner.py" in commands
     assert all(h["ok"] is True for h in report.hooks), report.hooks

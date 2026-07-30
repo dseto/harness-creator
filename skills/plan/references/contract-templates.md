@@ -57,11 +57,12 @@ de que esta tarefa depende; ausente = lista vazia):
 ```
 
 **A descrição do cabeçalho não é rótulo interno — é o texto que o humano lê
-no diálogo de aprovação.** Os hooks de TDD gerados (`guard_tests.py`,
-`guard_test_runner.py`) leem o `desc` da tarefa em `feature_list.json` e o
-colocam na frente da razão do prompt de permissão. Escreva-a portanto em
-**linguagem de product owner**: o comportamento observável que passa a valer,
-não o passo de implementação.
+no gate de aprovação do contrato e no prompt de permissão.** O
+`guard_test_runner.py` gerado lê o `desc` da tarefa em `feature_list.json` e o
+coloca na frente da razão do prompt ("O QUE ESTE TESTE COBRE: ..."), e o
+`.harness/progress.md` o usa como a coluna que a sessão seguinte lê. Escreva-a
+portanto em **linguagem de product owner**: o comportamento observável que
+passa a valer, não o passo de implementação.
 
 - Ruim: `## [T-03] Ajustar hook e regex do toggle` — o humano aprova sem
   saber o que muda.

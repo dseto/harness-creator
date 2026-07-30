@@ -1,0 +1,15 @@
+{
+  "feature_id": "T-01",
+  "contract": "verificacao-honesta",
+  "desc": "O comando de auditoria deixa de reprovar repositório saudável",
+  "files": [
+    "src/harness/compiler.py",
+    "tests/test_compiler.py",
+    "tests/test_audit.py",
+    "tests/test_hook_launcher.py"
+  ],
+  "verify_cmd": "python -m pytest tests/test_compiler.py tests/test_audit.py -q",
+  "recorded_at": "2026-07-30T00:57:10.519248+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:b708c24bdb32a08af4446b128fbd6a09394176b4fb6b3fc137cf7a7b6cdc1e82"
+}
