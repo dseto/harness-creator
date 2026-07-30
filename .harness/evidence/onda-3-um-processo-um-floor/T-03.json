@@ -10,7 +10,7 @@
     "src/harness/boundary_guard.py"
   ],
   "verify_cmd": "pytest tests/test_audit.py tests/test_session_start.py -q",
-  "recorded_at": "2026-07-30T14:03:45.080305+00:00",
+  "recorded_at": "2026-07-30T14:48:34.935816+00:00",
   "exit_code": 0,
-  "files_hash": "sha256:14ac8aa9574a7967c8f94060f332928769ebdcb3e5c1c7f1fef93f102feb82d9"
+  "files_hash": "sha256:dc8370cc2595ef822a28fa2163524603c8ee19478360105736ea6f2d988bdceb"
 }

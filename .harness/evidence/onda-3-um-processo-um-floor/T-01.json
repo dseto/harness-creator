@@ -19,7 +19,7 @@
     "docs/plugin/arquitetura-visual.html"
   ],
   "verify_cmd": "pytest tests/test_compiler.py tests/test_hook_launcher.py tests/test_boundary_guard.py tests/test_audit.py tests/test_docs_enforcement_claims.py -q",
-  "recorded_at": "2026-07-30T13:49:07.626168+00:00",
+  "recorded_at": "2026-07-30T14:47:20.266178+00:00",
   "exit_code": 0,
-  "files_hash": "sha256:c71b664306190c4dabf3147d6ef8f41dea4e59ae3d36a54febc89676b014db1d"
+  "files_hash": "sha256:f936c57871b4a4701a04f198ea7cfb6928a36b163ec477aadb43568641f09a06"
 }
