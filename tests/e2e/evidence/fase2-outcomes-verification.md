@@ -122,7 +122,7 @@ Profile mudado (npm -> pnpm) e recompilado: `init.sh` regenerado com `pnpm insta
 
 Veredito: **ATINGIDO**
 
-`compile-session` instalou `.harness/hooks/session_start.py` e registrou UMA entrada em hooks.SessionStart (matcher `*`).
+`compile-session` instalou `.harness/hooks/session_start.py` e registrou UMA entrada em hooks.SessionStart (matcher `startup|resume|clear` — Onda 2/T-03: não reinjeta em `compact`).
 Hook invocado com payload real: `additionalContext` contém a feature pendente (`Feature ativa/pendente: T-01`), o tail do .harness/progress.md e o `git log` real (commit 'estado inicial da cobaia fase2') — a sessão nasce sabendo onde parou.
 Segunda rodada de `compile-session`: continua UMA entrada em hooks.SessionStart (idempotente).
 Hook apontado (via payload cwd) para diretório sem git e sem `.harness/`: exit 0, JSON válido, contexto degrada com elegância ('Nenhum contrato ativo') — não quebra a sessão.

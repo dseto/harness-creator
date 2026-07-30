@@ -17,10 +17,12 @@ assumido a partir do formato de `PreToolUse`:
   texto puro no stdout como via mais simples, mas o formato JSON dá controle
   explícito e evita ambiguidade de parsing pelo host, então é o usado aqui).
   `hookEventName` deve ser `"SessionStart"`, não `"PreToolUse"`.
-- O registro em settings usa `matcher` para filtrar a origem da
-  sessão (`startup`/`resume`/`clear`/`compact`); `"*"` casa qualquer origem —
-  usado aqui porque o objetivo (saber onde parou) vale para todo início de
-  sessão, não só `startup`.
+- O registro em settings usa `matcher` para filtrar a origem da sessão
+  (`startup`/`resume`/`clear`/`compact`): `"startup|resume|clear"` — cobre
+  todo início real de sessão, mas NÃO `compact` (Onda 2/T-03: com `"*"`, o
+  mesmo contexto reinjetava a cada compactação da conversa, não só no
+  início — 3 compacts repetiam ~600 tokens cada, achado #5 do laudo de
+  simplificação 2026-07-30).
 
 Merge com `.claude/settings.local.json` (machine-local: o comando registrado
 leva path absoluto — ver `harness.settings_paths`): registra em
@@ -156,6 +158,33 @@ def build_context(cwd: Path) -> str:
     return "\\n\\n".join(parts)
 
 
+def _read_disabled_info(cwd: Path) -> dict:
+    path = cwd / ".harness" / "harness.disabled"
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def build_disabled_context(cwd: Path) -> str:
+    """US-1: aviso visivel de kill-switch desligado -- antes disso o hook
+    retornava sem imprimir nada, e ninguem percebia ate rodar `harness
+    status` de proposito (issue #52, 4 dias de no-op silencioso)."""
+    info = _read_disabled_info(cwd)
+    disabled_at = info.get("disabled_at") or "data desconhecida"
+    note = info.get("note") or ""
+    note_line = "\\nMotivo registrado: " + note if note else ""
+    return (
+        "## AVISO: harness desativado (kill-switch)\\n\\n"
+        "O harness esta desativado desde " + disabled_at + "." + note_line + "\\n"
+        "Enquanto desativado, os hooks de protecao (PreToolUse) fazem no-op "
+        "-- nenhuma edicao esta sendo bloqueada.\\n\\n"
+        "Para reativar: `harness enable --dir .`\\n\\n"
+        "`harness status` continua sendo a fonte de verdade estruturada "
+        "deste estado."
+    )
+
+
 def main() -> None:
     try:
         payload = json.load(sys.stdin)
@@ -163,6 +192,12 @@ def main() -> None:
         payload = {}
     cwd = Path(payload.get("cwd") or ".")
     if _harness_disabled():
+        print(json.dumps({
+            "hookSpecificOutput": {
+                "hookEventName": "SessionStart",
+                "additionalContext": build_disabled_context(cwd),
+            }
+        }))
         return
     context = build_context(cwd)
 
@@ -231,7 +266,7 @@ def install_session_start(target_dir: Path) -> Path:
 
     kept_entries = [e for e in entries if not _is_managed(e)]
     kept_entries.append({
-        "matcher": "*",
+        "matcher": "startup|resume|clear",
         "hooks": [{"type": "command", "command": command}],
     })
     hooks["SessionStart"] = kept_entries

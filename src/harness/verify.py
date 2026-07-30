@@ -493,6 +493,7 @@ def run_verify(
         target_dir,
         f"{evidence['recorded_at']} — {feature_id} verificado (exit_code 0) — "
         f"{path.relative_to(target_dir).as_posix()}",
+        feature_id=feature_id,
     )
 
     return path

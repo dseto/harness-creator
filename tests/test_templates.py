@@ -16,6 +16,7 @@ from harness.templates import (
     is_managed_init_script,
     manual_init_scripts,
     render_init_scripts,
+    render_last_update_note,
     render_progress_template,
     update_progress_status,
 )
@@ -175,6 +176,39 @@ def test_append_progress_note_keeps_only_the_most_recent_entries(tmp_path: Path)
     assert "t02 —" not in after
     assert "t03 —" in after
     assert "t12 —" in after
+
+
+def test_append_progress_note_dedupes_same_feature_id(tmp_path: Path) -> None:
+    """Onda 2/T-05: reverificar a MESMA feature (ex.: corrigir evidência
+    stale) somava outra linha em vez de substituir — 44% do teto de 10
+    entradas era repetição da mesma feature (achado #6 do laudo de
+    simplificação). Passando `feature_id`, a entrada antiga dela é
+    substituída; outras features não são tocadas."""
+    _write(tmp_path / PROGRESS_FILE, render_progress_template(_FEATURE_LIST))
+
+    append_progress_note(tmp_path, "t1 — T-01 verificado", feature_id="T-01")
+    append_progress_note(tmp_path, "t2 — T-02 verificado", feature_id="T-02")
+    append_progress_note(tmp_path, "t3 — T-01 verificado de novo", feature_id="T-01")
+
+    after = (tmp_path / PROGRESS_FILE).read_text(encoding="utf-8")
+    assert "t1 —" not in after
+    assert "- t3 — T-01 verificado de novo" in after
+    assert "- t2 — T-02 verificado" in after
+    auto_block = after[after.index("<!-- harness:auto -->"):after.index("<!-- /harness:auto -->")]
+    assert auto_block.count("T-01") == 1
+
+
+def test_append_progress_note_without_feature_id_keeps_old_behavior(tmp_path: Path) -> None:
+    """Sem `feature_id` (chamador antigo, se algum sobrar), acumula como
+    antes — o parâmetro é aditivo, não muda comportamento por padrão."""
+    _write(tmp_path / PROGRESS_FILE, render_progress_template(_FEATURE_LIST))
+
+    append_progress_note(tmp_path, "t1 — T-01 verificado")
+    append_progress_note(tmp_path, "t2 — T-01 verificado de novo")
+
+    after = (tmp_path / PROGRESS_FILE).read_text(encoding="utf-8")
+    assert "- t1 — T-01 verificado" in after
+    assert "- t2 — T-01 verificado de novo" in after
 
 
 def test_append_progress_note_noop_when_file_or_heading_absent(tmp_path: Path) -> None:
@@ -353,6 +387,44 @@ def test_install_templates_regenerates_progress_when_contract_diverges(
     assert "T-01" in new_content
     assert "compilar-x" not in new_content
     assert "OLD-01" not in new_content
+
+
+def test_install_templates_regenerate_drops_auto_notes_whose_evidence_is_gone(
+    tmp_path: Path,
+) -> None:
+    """Onda 2/T-05: na troca de contrato, `install_templates` copiava a seção
+    'Última atualização' inteira para o `progress.md` novo — incluindo notas
+    automáticas que citam evidência de um contrato que NÃO É MAIS o ativo
+    (achado #6: '3 paths de evidência inexistentes e 2 features fantasma
+    injetados'). Uma nota só sobrevive à troca se o arquivo de evidência que
+    ela cita ainda existir em disco; o resto da seção (prosa humana) nunca é
+    tocado."""
+    old_feature_list = {"contract": "compilar-x", "features": []}
+    progress_path = tmp_path / PROGRESS_FILE
+    old_content = render_progress_template(old_feature_list)
+    old_content = render_last_update_note(
+        old_content,
+        "t1 — OLD-01 verificado (exit_code 0) — .harness/evidence/compilar-x/OLD-01.json",
+        feature_id="OLD-01",
+    )
+    old_content = render_last_update_note(
+        old_content,
+        "t2 — OLD-02 verificado (exit_code 0) — .harness/evidence/compilar-x/OLD-02.json",
+        feature_id="OLD-02",
+    )
+    _write(progress_path, old_content)
+
+    # só a evidência de OLD-02 sobrevive no disco — OLD-01 é a fantasma.
+    evidence_dir = tmp_path / ".harness" / "evidence" / "compilar-x"
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    (evidence_dir / "OLD-02.json").write_text("{}", encoding="utf-8")
+
+    profile = {"package_manager": None, "test_command": None}
+    install_templates(tmp_path, _FEATURE_LIST, profile)
+
+    new_content = progress_path.read_text(encoding="utf-8")
+    assert "OLD-01" not in new_content
+    assert "OLD-02" in new_content
 
 
 def test_install_templates_regenerate_preserves_ultima_atualizacao_notes(

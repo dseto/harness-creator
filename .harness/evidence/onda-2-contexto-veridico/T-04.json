@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-04",
+  "contract": "onda-2-contexto-veridico",
+  "desc": "Sessão nascendo com o kill-switch desligado mostra isso na primeira mensagem, sem precisar perguntar",
+  "files": [
+    "src/harness/session_start.py",
+    "tests/test_session_start.py"
+  ],
+  "verify_cmd": "pytest tests/test_session_start.py -q",
+  "recorded_at": "2026-07-30T12:33:25.233480+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:112e41accbfee65e3c04d630604fe5fe1f24b3f94fab9608408cc0caf3897b9e"
+}

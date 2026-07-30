@@ -86,6 +86,30 @@ _FORBIDDEN_CLAIMS: tuple[tuple[str, str, str], ...] = (
         "O\n`boundary_guard.py` e o `guard_test_runner.py` leem o `desc`",
         "atribuía ao boundary_guard a leitura do desc, que ele não faz",
     ),
+    # Onda 2/T-01: AGENTS.md descrevia uma arquitetura de sandbox/container
+    # e um ContextManager que nunca existiram no Claude Code — era prosa da
+    # "era congelada" citada em docs/project/AUDIT-harness-engineering-
+    # 2026-07-30.md, sobrevivendo como texto injetado toda sessão.
+    (
+        "AGENTS.md",
+        "Este arquivo é lido pelo `ContextManager` do harness",
+        "atribuía a leitura deste arquivo a um ContextManager que não existe no Claude Code",
+    ),
+    (
+        "AGENTS.md",
+        "Sandbox only",
+        "prometia um contêiner isolado sem rede que não existe no host Windows",
+    ),
+    (
+        "AGENTS.md",
+        "Prefira `read_file`/`write_file` a `run_terminal`",
+        "citava ferramentas read_file/write_file/run_terminal que não são nativas do Claude Code",
+    ),
+    (
+        "AGENTS.md",
+        "`tools/`, `verification/`, `context/`, `governance/`, `telemetry/`, `routing/`",
+        "listava pacotes que não existem em src/harness/ (hoje módulos soltos + governance/ e teams/)",
+    ),
 )
 
 

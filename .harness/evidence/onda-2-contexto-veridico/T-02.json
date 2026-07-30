@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-02",
+  "contract": "onda-2-contexto-veridico",
+  "desc": "O bloco gerado do AGENTS.md para de repetir, em texto fixo, regras que já vivem na parte manual",
+  "files": [
+    "src/harness/compiler.py",
+    "tests/test_compiler.py"
+  ],
+  "verify_cmd": "pytest tests/test_compiler.py -q",
+  "recorded_at": "2026-07-30T12:29:58.786037+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:e2e95c932e79be73abcf4c01fcf919340388262381ca507ccaad95ad8584d5ea"
+}

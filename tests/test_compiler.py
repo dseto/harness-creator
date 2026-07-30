@@ -215,6 +215,27 @@ def test_agents_block_regenerates_without_destroying_manual_text(tmp_path: Path)
     assert text.count(AGENTS_BEGIN) == 1
 
 
+def test_agents_block_does_not_repeat_fixed_text_already_in_the_manual_section(
+    tmp_path: Path,
+) -> None:
+    """Onda 2/T-02: 'Escopo mínimo' e 'Sem segredos' eram texto FIXO no bloco
+    gerado (sem interpolar `harness.yaml`) que já vive, com as mesmas
+    palavras, na parte manual do AGENTS.md (ver AGENTS.md, Regras
+    Inegociáveis 3-4) — a mesma regra declarada duas vezes no mesmo arquivo
+    por dois mecanismos diferentes. O bloco gerado passa a carregar só o que
+    de fato deriva do YAML: TDD/política de aprovação, orçamento, scratch."""
+    _write_yaml(tmp_path, BASIC_YAML)
+    compile_project(tmp_path)
+
+    agents = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+    block = agents[agents.index(AGENTS_BEGIN):agents.index(AGENTS_END) + len(AGENTS_END)]
+    assert "Escopo mínimo" not in block
+    assert "Sem segredos" not in block
+    # o que É derivado do YAML continua no bloco gerado
+    assert "Política de aprovação" in block
+    assert "Orçamento" in block
+
+
 def test_compile_without_yaml_raises_clear_error(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="harness-creator:init"):
         compile_project(tmp_path)

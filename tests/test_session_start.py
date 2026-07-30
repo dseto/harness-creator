@@ -126,24 +126,63 @@ def test_git_log_appears_when_repo_has_commits(tmp_path: Path) -> None:
     assert "commit inicial unico" in _context(payload)
 
 
-def test_disabled_sentinel_makes_session_start_noop(tmp_path: Path) -> None:
-    """Kill-switch: com o sentinel presente, o SessionStart hook faz no-op
-    (não injeta contexto) mesmo com contrato ativo."""
+def test_disabled_sentinel_shows_visible_banner_instead_of_normal_context(
+    tmp_path: Path,
+) -> None:
+    """US-1 (Onda 2/T-04): com o sentinel presente, a saída do SessionStart
+    deixava de existir por completo (`main()` retornava sem imprimir nada) —
+    o único jeito de perceber era rodar `harness status` de propósito, o que
+    já causou 4 dias de kill-switch ligado sem ninguém notar (issue #52).
+    Agora a primeira mensagem da sessão avisa sozinha: desativado, desde
+    quando, e o comando pra reativar. Não substitui o resto do contexto
+    (feature/progress/git log) — o kill-switch é o aviso prioritário."""
     feature_list_path = tmp_path / ".harness" / "feature_list.json"
     feature_list_path.parent.mkdir(parents=True, exist_ok=True)
     feature_list_path.write_text(json.dumps(FEATURE_LIST_PENDING), encoding="utf-8")
+    (tmp_path / ".harness" / "harness.disabled").write_text(
+        json.dumps({"disabled_at": "2026-07-25T10:00:00+00:00", "note": "pausa de teste"}),
+        encoding="utf-8",
+    )
+
+    script_path = _write_hook_script(tmp_path)
+    payload = _run_hook(script_path, tmp_path)
+    context = _context(payload)
+
+    assert "desativado" in context.lower()
+    assert "2026-07-25T10:00:00+00:00" in context
+    assert "harness enable" in context
+    # o texto do kill-switch não pode ficar enterrado sem destaque nenhum
+    assert context.startswith("## ")
+
+
+def test_disabled_sentinel_without_metadata_still_shows_banner(tmp_path: Path) -> None:
+    """Sentinel `{}` (sem disabled_at/note, ex.: criado manualmente): o aviso
+    ainda aparece, sem quebrar por causa de campo ausente."""
+    (tmp_path / ".harness").mkdir(parents=True, exist_ok=True)
     (tmp_path / ".harness" / "harness.disabled").write_text("{}", encoding="utf-8")
 
     script_path = _write_hook_script(tmp_path)
-    proc = subprocess.run(
-        [sys.executable, str(script_path)],
-        input=json.dumps({"cwd": str(tmp_path)}),
-        capture_output=True,
-        text=True,
-        timeout=15,
-    )
-    assert proc.returncode == 0, proc.stderr
-    assert proc.stdout.strip() == ""
+    payload = _run_hook(script_path, tmp_path)
+    context = _context(payload)
+
+    assert "desativado" in context.lower()
+    assert "harness enable" in context
+
+
+def test_without_sentinel_context_is_unchanged(tmp_path: Path) -> None:
+    """Não-regressão: sem `.harness/harness.disabled`, a saída continua sendo
+    o contexto normal (feature/progress/git log) — este item é só sobre
+    visibilidade do kill-switch, não muda o caminho comum."""
+    feature_list_path = tmp_path / ".harness" / "feature_list.json"
+    feature_list_path.parent.mkdir(parents=True, exist_ok=True)
+    feature_list_path.write_text(json.dumps(FEATURE_LIST_PENDING), encoding="utf-8")
+
+    script_path = _write_hook_script(tmp_path)
+    payload = _run_hook(script_path, tmp_path)
+    context = _context(payload)
+
+    assert "desativado" not in context.lower()
+    assert "T-02" in context
 
 
 # ---------------- install_session_start ----------------
@@ -164,6 +203,19 @@ def test_install_registers_hook_under_session_start_event(tmp_path: Path) -> Non
     assert "PreToolUse" not in settings["hooks"]
     entry = settings["hooks"]["SessionStart"][0]
     assert "session_start.py" in entry["hooks"][0]["command"]
+
+
+def test_install_registers_matcher_scoped_to_real_session_starts(tmp_path: Path) -> None:
+    """Onda 2/T-03: `matcher: "*"` reinjetava o contexto a cada `compact` da
+    sessão (não só no início real) — 3 compacts = 2.400 tokens duplicados
+    (achado #5 do laudo de simplificação). `startup|resume|clear` cobre todo
+    início de sessão sem casar `compact`."""
+    install_session_start(tmp_path)
+    settings = json.loads(
+        (tmp_path / ".claude" / "settings.local.json").read_text(encoding="utf-8")
+    )
+    entry = settings["hooks"]["SessionStart"][0]
+    assert entry["matcher"] == "startup|resume|clear"
 
 
 def test_install_is_idempotent_no_duplicate_entries(tmp_path: Path) -> None:

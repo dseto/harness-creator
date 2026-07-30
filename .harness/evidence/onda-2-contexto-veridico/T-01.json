@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-01",
+  "contract": "onda-2-contexto-veridico",
+  "desc": "AGENTS.md para de prometer sandbox/container e ferramentas que não existem no Claude Code",
+  "files": [
+    "AGENTS.md",
+    "tests/test_docs_enforcement_claims.py"
+  ],
+  "verify_cmd": "pytest tests/test_docs_enforcement_claims.py -q",
+  "recorded_at": "2026-07-30T12:28:39.493518+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:f73c685d6b2d5df2ca0a1f2493122d44be32d8be47117da79c4ef0dfc5047618"
+}

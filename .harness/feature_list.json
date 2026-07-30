@@ -1,99 +1,68 @@
 {
-  "contract": "onda-1-flags-e-facas",
-  "compiled_at": "2026-07-30T11:48:31.872438+00:00",
+  "contract": "onda-2-contexto-veridico",
+  "compiled_at": "2026-07-30T12:39:55.655073+00:00",
   "compiled_with_version": "0.29.0",
   "features": [
     {
       "id": "T-01",
-      "desc": "Hooks de PreToolUse iniciam sem herdar site-packages de outros projetos da máquina, então uma tool call comum roda mais rápido",
+      "desc": "AGENTS.md para de prometer sandbox/container e ferramentas que não existem no Claude Code",
       "files": [
-        "src/harness/hook_launcher.py",
-        "tests/test_hook_launcher.py"
+        "AGENTS.md",
+        "tests/test_docs_enforcement_claims.py"
       ],
-      "verify_cmd": "python -m pytest tests/test_hook_launcher.py -k flags -q",
+      "verify_cmd": "pytest tests/test_docs_enforcement_claims.py -q",
       "depends": [],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-02",
-      "desc": "O código-fonte de boundary_guard.py explica seu contrato de comportamento em poucas linhas, sem carregar um histórico de decisões que o hook instalado nunca lê",
+      "desc": "O bloco gerado do AGENTS.md para de repetir, em texto fixo, regras que já vivem na parte manual",
       "files": [
-        "src/harness/boundary_guard.py",
-        "tests/test_boundary_guard.py"
+        "src/harness/compiler.py",
+        "tests/test_compiler.py"
       ],
-      "verify_cmd": "python -m pytest tests/test_boundary_guard.py -k docstring -q",
+      "verify_cmd": "pytest tests/test_compiler.py -q",
       "depends": [],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-03",
-      "desc": "O hook de proteção compila para o mesmo conteúdo toda vez, então dá para detectar se alguém o alterou por fora do processo normal",
+      "desc": "O hook SessionStart deixa de reinjetar contexto a cada compact, só no início real da sessão",
       "files": [
-        "src/harness/boundary_guard.py",
-        "tests/test_boundary_guard.py"
+        "src/harness/session_start.py",
+        "tests/test_session_start.py",
+        "tests/e2e/test_fase2_outcomes.py"
       ],
-      "verify_cmd": "python -m pytest tests/test_boundary_guard.py -k deterministic -q",
+      "verify_cmd": "pytest tests/test_session_start.py -q",
       "depends": [],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-04",
-      "desc": "O hook legado de proteção de arquivo de teste deixa de ser gerado, já que o boundary_guard cobre a mesma proteção por tarefa desde a Fase 2 — nenhum arquivo novo nasce prometendo um registro que nunca acontece",
+      "desc": "Sessão nascendo com o kill-switch desligado mostra isso na primeira mensagem, sem precisar perguntar",
       "files": [
-        "src/harness/compiler.py",
-        "tests/test_compiler.py",
-        "tests/e2e/test_boundary_flow.py",
-        "tests/e2e/test_fase2_outcomes.py",
-        "tests/e2e/evidence/fase2-outcomes-verification.md",
-        "docs/plugin/TUTORIAL.md",
-        "docs/plugin/GUIDE.md",
-        "docs/plugin/ARCHITECTURE.md",
-        "tests/test_docs_enforcement_claims.py",
-        "tests/test_audit.py"
+        "src/harness/session_start.py",
+        "tests/test_session_start.py"
       ],
-      "verify_cmd": "python -m pytest tests/test_compiler.py tests/e2e/test_boundary_flow.py tests/e2e/test_fase2_outcomes.py -q",
-      "depends": [],
+      "verify_cmd": "pytest tests/test_session_start.py -q",
+      "depends": [
+        "T-03"
+      ],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-05",
-      "desc": "Os três comandos de auditoria (audit, audit-runtime, audit-team) compartilham a mesma definição de achado e relatório, então uma correção de formato vale para os três de uma vez",
+      "desc": "Reverificar a mesma feature não duplica nota no progresso, e trocar de contrato não carrega nota de evidência que não existe mais",
       "files": [
-        "src/harness/findings.py",
-        "src/harness/audit.py",
-        "src/harness/runtime_audit.py",
-        "src/harness/team_audit.py",
-        "tests/test_findings.py"
+        "src/harness/templates.py",
+        "tests/test_templates.py",
+        "src/harness/verify.py"
       ],
-      "verify_cmd": "python -m pytest tests/test_findings.py tests/test_audit.py tests/test_runtime_audit.py tests/test_team_audit.py -q",
-      "depends": [],
-      "cwd": null,
-      "passes": true
-    },
-    {
-      "id": "T-06",
-      "desc": "Quando harness verify falha, o agente vê o fim relevante da saída do runner de teste em vez da suíte inteira despejada no contexto",
-      "files": [
-        "src/harness/cli.py",
-        "tests/test_cli.py"
-      ],
-      "verify_cmd": "python -m pytest tests/test_cli.py -k truncat -q",
-      "depends": [],
-      "cwd": null,
-      "passes": true
-    },
-    {
-      "id": "T-07",
-      "desc": "Uma regra de permissão específica deixa de sobreviver no arquivo gerado quando uma regra mais ampla do mesmo tipo já cobre o mesmo comando — o arquivo de permissões fica do tamanho do que está de fato em vigor",
-      "files": [
-        "src/harness/settings_paths.py",
-        "tests/test_settings_paths.py"
-      ],
-      "verify_cmd": "python -m pytest tests/test_settings_paths.py -q",
+      "verify_cmd": "pytest tests/test_templates.py -q",
       "depends": [],
       "cwd": null,
       "passes": true
