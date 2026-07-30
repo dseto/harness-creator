@@ -388,10 +388,9 @@ enquanto o harness está **ativo**.
 guard — e é a mesma razão de `harness finish` nunca chamar git: um subcomando na
 allowlist do agente que faça ação irreversível vira bypass do floor.
 
-**O risco que sobra é operacional.** Um kill-switch ligado é invisível na
-sessão; o guard já ficou em no-op por quatro dias sem sinal. Só `harness status`
-conta a verdade, e `harness finish` trata `killswitch_active` como bloqueador de
-fecho.
+**O risco que sobra é operacional**, não arquitetural — comandos de uso e o
+aviso completo sobre esquecer o kill-switch ligado estão em
+[GUIDE.md § 11](GUIDE.md) (`harness disable`/`harness status`/`harness enable`).
 
 ---
 

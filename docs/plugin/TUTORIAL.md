@@ -834,22 +834,9 @@ Presente, cada hook gerado faz no-op logo no topo.
 `harness disable`. Você, no seu terminal, não passa por hook nenhum — o hook só
 existe dentro da sessão do Claude Code.
 
-> **O cuidado que custou caro aqui.** Um kill-switch ligado é **invisível** na
-> sessão: nada avisa, nada muda de aparência. Neste repositório o guard ficou
-> em no-op por quatro dias sem ninguém notar, e tudo que passou nesse período
-> rodou sem governança nenhuma.
->
-> ```powershell
-> harness status --dir .    # a ÚNICA fonte de verdade
-> ```
->
-> Rode isso antes de tratar qualquer sessão como evidência de que a governança
-> estava valendo. É por isso que `harness finish` trata `killswitch_active`
-> como bloqueador de fecho.
-
-`harness status` também mostra a contagem de ciclos `disable`/`enable` desta
-máquina — o número que diz se o produto ainda precisa de mais alguma porta de
-escape ou se as que existem bastam.
+> **O aviso completo sobre o risco de esquecer o kill-switch ligado** — e por
+> que `harness status` é a única fonte de verdade antes de tratar qualquer
+> sessão como evidência — está em [GUIDE.md § 11](GUIDE.md).
 
 ## B.8 O ciclo completo da demanda, resumido
 

@@ -18,10 +18,8 @@ python -m harness.cli audit --dir <alvo>
 
 Saída: JSON com `score` (0-100) e `findings` (severity/code/message/fix).
 Exit code 1 = estrutura comprometida (algum finding crítico). Se der
-`ModuleNotFoundError`, falta `PYTHONPATH`: rode
-`$env:PYTHONPATH = "${CLAUDE_PLUGIN_ROOT}\src"` e repita — só faça essa
-checagem quando o comando falhar, não antes (evita um `Bash` extra pedindo
-aprovação sem necessidade).
+`ModuleNotFoundError`: `$env:PYTHONPATH = "${CLAUDE_PLUGIN_ROOT}\src"` e
+repita o comando (motivo em [GUIDE.md](../../docs/plugin/GUIDE.md), seção 1).
 
 ## Passo 2 — Apresentar
 

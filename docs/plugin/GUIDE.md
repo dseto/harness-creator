@@ -32,6 +32,13 @@ Ambas abrem uma sessão do Claude Code com as 7 skills disponíveis:
 > trabalhar com harness — não é uma instalação permanente do Claude Code em
 > si, é um flag de sessão. (Se preferir permanente, ver seção 12.)
 
+> **Se um comando `python -m harness.cli ...` (chamado por alguma skill) der
+> `ModuleNotFoundError`**: falta `PYTHONPATH` apontando pro plugin. Rode
+> `$env:PYTHONPATH = "${CLAUDE_PLUGIN_ROOT}\src"` (PowerShell) e repita o
+> mesmo comando — não vale a pena rodar essa checagem à parte antes: o
+> comando real já falha com o mesmo sinal, e uma checagem separada custaria
+> um `Bash` a mais pedindo aprovação sem necessidade.
+
 ## 2. Criar o harness no projeto-alvo (uma vez, por repositório)
 
 Abra a sessão **dentro do repositório que você quer governar**:
