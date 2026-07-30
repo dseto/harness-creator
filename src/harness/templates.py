@@ -44,6 +44,7 @@ nunca quando ela existe com valor `None`.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -89,6 +90,20 @@ _AUTO_NOTE_END = "<!-- /harness:auto -->"
 #: próxima sessão retomar o contexto, não manter um log completo — a
 #: evidência em `.harness/evidence/` é que é o registro permanente.
 _AUTO_NOTE_MAX_ENTRIES = 10
+
+#: Casa o caminho de evidência citado numa entrada automática (formato fixo
+#: de `verify.py`: "... — <feature_id> verificado (exit_code 0) — <path>").
+#: Usado só para VALIDAR se a evidência ainda existe (Onda 2/T-05) — uma
+#: linha sem esse formato (nota manual, prosa livre) nunca é filtrada por
+#: falta de correspondência.
+_EVIDENCE_PATH_RE = re.compile(r"(\.harness/evidence/\S+\.json)")
+
+
+def _auto_entry_evidence_exists(line: str, target_dir: Path) -> bool:
+    match = _EVIDENCE_PATH_RE.search(line)
+    if match is None:
+        return True
+    return (target_dir / match.group(1)).is_file()
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +221,30 @@ def _extract_last_update_section(text: str) -> str | None:
     return text[idx:]
 
 
+def _drop_stale_auto_entries(section: str, target_dir: Path) -> str:
+    """Filtra, dentro do bloco `harness:auto` de `section`, as entradas cujo
+    caminho de evidência citado não existe mais em disco (Onda 2/T-05).
+
+    Chamado só na troca de contrato (`install_templates`): a seção inteira
+    de `## Última atualização` é copiada para o `progress.md` novo, e sem
+    esse filtro uma nota automática de um contrato que não é mais o ativo
+    sobrevive como se fosse atual — o que o achado #6 do laudo de
+    simplificação observou como "paths de evidência inexistentes e features
+    fantasma injetados". Prosa humana fora do bloco `harness:auto` nunca é
+    tocada aqui."""
+    begin = section.find(_AUTO_NOTE_BEGIN)
+    end = section.find(_AUTO_NOTE_END)
+    if begin == -1 or end == -1 or end <= begin:
+        return section
+
+    kept = [
+        line for line in section[begin + len(_AUTO_NOTE_BEGIN):end].splitlines()
+        if line.strip().startswith("- ") and _auto_entry_evidence_exists(line, target_dir)
+    ]
+    block = _AUTO_NOTE_BEGIN + "\n" + ("\n".join(kept) + "\n" if kept else "")
+    return section[:begin] + block + section[end:]
+
+
 def is_managed_init_script(path: Path) -> bool:
     """True se `path` é um `init.*` GERADO por este módulo (carrega
     `MANAGED_MARKER`). Arquivo ausente conta como gerenciado — não há nada do
@@ -275,6 +314,7 @@ def install_templates(
             new_content = render_progress_template(feature_list)
             last_update = _extract_last_update_section(existing)
             if last_update is not None:
+                last_update = _drop_stale_auto_entries(last_update, target_dir)
                 heading_idx = new_content.find(_LAST_UPDATE_HEADING)
                 new_content = new_content[:heading_idx] + last_update
             progress_path.write_text(new_content, encoding="utf-8")
@@ -344,7 +384,9 @@ def update_progress_status(target_dir: Path, feature_id: str, status: str) -> bo
     return changed
 
 
-def render_last_update_note(text: str, note: str) -> str | None:
+def render_last_update_note(
+    text: str, note: str, feature_id: str | None = None
+) -> str | None:
     """`text` do `progress.md` com `note` acrescentada ao bloco automático da
     seção `## Última atualização`. `None` se o heading não existir.
 
@@ -353,6 +395,12 @@ def render_last_update_note(text: str, note: str) -> str | None:
 
     - Bloco já presente: acrescenta a entrada e trunca em
       `_AUTO_NOTE_MAX_ENTRIES`, mantendo as mais recentes.
+    - `feature_id` (Onda 2/T-05): se passado, qualquer entrada anterior que
+      cite esse mesmo id é removida antes de acrescentar a nova — reverificar
+      a MESMA feature substitui a nota antiga em vez de somar outra
+      (44% do teto de 10 entradas era repetição da mesma feature, achado #6
+      do laudo de simplificação 2026-07-30). `None` (default) preserva o
+      comportamento antigo de puro acúmulo.
     - Bloco ausente: insere logo abaixo do heading, ANTES do texto que já
       estiver lá. O placeholder `_(vazio — ...)_` e qualquer prosa do agente
       seguem intactos embaixo — este bloco nunca reescreve o que não é dele.
@@ -371,6 +419,7 @@ def render_last_update_note(text: str, note: str) -> str | None:
         previous = [
             line for line in text[begin + len(_AUTO_NOTE_BEGIN):end].splitlines()
             if line.strip().startswith("- ")
+            and not (feature_id and f" {feature_id} " in line)
         ]
         entries = (previous + [entry])[-_AUTO_NOTE_MAX_ENTRIES:]
         block = _AUTO_NOTE_BEGIN + "\n" + "\n".join(entries) + "\n"
@@ -381,21 +430,24 @@ def render_last_update_note(text: str, note: str) -> str | None:
     return text[:insert_at] + block + text[insert_at:]
 
 
-def append_progress_note(target_dir: Path, note: str) -> bool:
+def append_progress_note(
+    target_dir: Path, note: str, feature_id: str | None = None
+) -> bool:
     """Acrescenta `note` ao bloco automático de `## Última atualização` do
     `.harness/progress.md` de `target_dir`. `True` se o arquivo foi reescrito.
 
-    Chamada por `harness.verify.run_verify` a cada prova gravada. NO-OP
-    silencioso (retorna `False`, nunca levanta) quando o arquivo não existe ou
-    não tem o heading — mesma regra de `update_progress_status`: sincronizar o
-    rastro legível jamais pode ser motivo de uma verificação falhar.
+    Chamada por `harness.verify.run_verify` a cada prova gravada, passando
+    `feature_id` para dedupe (ver `render_last_update_note`). NO-OP silencioso
+    (retorna `False`, nunca levanta) quando o arquivo não existe ou não tem o
+    heading — mesma regra de `update_progress_status`: sincronizar o rastro
+    legível jamais pode ser motivo de uma verificação falhar.
     """
     progress_path = Path(target_dir) / PROGRESS_FILE
     if not progress_path.is_file():
         return False
 
     text = progress_path.read_text(encoding="utf-8")
-    updated = render_last_update_note(text, note)
+    updated = render_last_update_note(text, note, feature_id)
     if updated is None or updated == text:
         return False
 

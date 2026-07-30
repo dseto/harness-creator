@@ -1,14 +1,15 @@
 # AGENTS.md — Diretrizes de Governança para Agentes
 
-> Este arquivo é lido pelo `ContextManager` do harness e injetado como
-> contexto imutável em **toda** sessão de agente. Edite-o para governar o
-> comportamento dos agentes neste repositório.
+> Este arquivo é injetado como contexto no início de toda sessão de agente
+> Claude Code neste repositório. Edite-o para governar o comportamento dos
+> agentes.
 
 ## Arquitetura
 
 - Linguagem: Python 3.11+, tipagem estrita.
-- Estrutura: `src/harness/` com uma camada operacional por pacote
-  (`tools/`, `verification/`, `context/`, `governance/`, `telemetry/`, `routing/`).
+- Estrutura: `src/harness/` — módulos Python soltos por responsabilidade
+  (`compiler.py`, `verify.py`, `boundary_guard.py`, `session_start.py`,
+  etc.), mais os pacotes `governance/` e `teams/`.
 - Configuração vive em `.harness/harness.yaml` — nunca hard-code política em código.
 
 ## Regras Inegociáveis
@@ -19,18 +20,16 @@
    qualquer modo de política. Rodar a suíte (RED ou GREEN, quantas vezes for
    preciso) não pede aprovação: é fricção sem sinal, o humano já aprovou o
    teste quando ele foi escrito.
-2. **Sandbox only**: todo comando roda no contêiner isolado, sem rede. Não
-   tente contornar (`curl`, `pip install` de rede, etc. falharão por design).
+2. **Floor de segurança**: o hook `boundary_guard.py` (`PreToolUse`) bloqueia
+   incondicionalmente rede não planejada (`curl`, `wget`, `pip install`/
+   `npm publish` de rede etc.), segredos (`.env`, `.pem`, `id_rsa`,
+   `*credentials*`) e escrita em branch protegida — com ou sem contrato
+   ativo. Não tente contornar.
 3. **Escopo mínimo**: modifique apenas arquivos diretamente relacionados à
    tarefa. Refactors oportunistas exigem tarefa própria.
 4. **Sem segredos**: nunca escreva credenciais, tokens ou chaves em código,
    logs ou commits.
 5. **Commits atômicos** com mensagem convencional (`feat:`, `fix:`, `test:`...).
-6. **Prefira `read_file`/`write_file` a `run_terminal`** para operações
-   simples de arquivo — são ferramentas discretas com `risk_class` correto
-   (leitura nunca gateada, escrita gateada conforme a política ativa) e
-   bloqueiam escapes do workspace. Use `run_terminal` para o que exige shell
-   de verdade (build, lint, git).
 
 ## Convenções
 

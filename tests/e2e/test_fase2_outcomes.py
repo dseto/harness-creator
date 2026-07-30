@@ -1017,10 +1017,11 @@ def test_outcome8_session_start_injects_state_and_survives_no_git(tmp_path: Path
         assert hook_path.is_file()
         settings = _load_settings(project)
         entries = settings["hooks"]["SessionStart"]
-        assert len(entries) == 1 and entries[0]["matcher"] == "*", entries
+        assert len(entries) == 1 and entries[0]["matcher"] == "startup|resume|clear", entries
         proof.append(
             "`compile-session` instalou `.harness/hooks/session_start.py` e "
-            "registrou UMA entrada em hooks.SessionStart (matcher `*`)."
+            "registrou UMA entrada em hooks.SessionStart (matcher "
+            "`startup|resume|clear` — Onda 2/T-03: não reinjeta em `compact`)."
         )
 
         out = _run_hook(hook_path, {"cwd": str(project)})

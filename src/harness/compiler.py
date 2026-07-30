@@ -215,14 +215,11 @@ def _render_agents_block(config: HarnessConfig) -> str:
 Política de aprovação: **{g.approval_policy}**. Rede (WebFetch/WebSearch/curl)
 sempre exige aprovação humana.
 
-{tdd}2. **Escopo mínimo**: modifique apenas arquivos diretamente ligados à
-   tarefa; refactors oportunistas exigem tarefa própria.
-3. **Sem segredos** em código, logs ou commits.
-4. **Orçamento (orientação)**: alvo de ~{g.budget.max_tokens_per_task:,} tokens
+{tdd}2. **Orçamento (orientação)**: alvo de ~{g.budget.max_tokens_per_task:,} tokens
    por tarefa e {g.budget.max_tool_calls_per_task} tool calls. O Claude Code não
    expõe contagem de tokens a hooks — este teto é disciplina, não enforcement;
    se a tarefa estourar muito, pare e replaneje com o humano.
-5. **Artefatos temporários de verificação** (screenshots, dumps de rede,
+3. **Artefatos temporários de verificação** (screenshots, dumps de rede,
    HTML de debug, JSON de resposta de API): salve SEMPRE em
    `.harness/scratch/` — única área liberada para arquivos que não pertencem
    a nenhuma tarefa do contrato. A pasta é auto-ignorada pelo git e apagável

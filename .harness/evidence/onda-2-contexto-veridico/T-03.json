@@ -1,0 +1,14 @@
+{
+  "feature_id": "T-03",
+  "contract": "onda-2-contexto-veridico",
+  "desc": "O hook SessionStart deixa de reinjetar contexto a cada compact, só no início real da sessão",
+  "files": [
+    "src/harness/session_start.py",
+    "tests/test_session_start.py",
+    "tests/e2e/test_fase2_outcomes.py"
+  ],
+  "verify_cmd": "pytest tests/test_session_start.py -q",
+  "recorded_at": "2026-07-30T12:41:08.879379+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:acabdcccffe42fa59f9b21455856a86140d61d6e8d133877c142c06487ac70b9"
+}

@@ -1,0 +1,14 @@
+{
+  "feature_id": "T-05",
+  "contract": "onda-2-contexto-veridico",
+  "desc": "Reverificar a mesma feature não duplica nota no progresso, e trocar de contrato não carrega nota de evidência que não existe mais",
+  "files": [
+    "src/harness/templates.py",
+    "tests/test_templates.py",
+    "src/harness/verify.py"
+  ],
+  "verify_cmd": "pytest tests/test_templates.py -q",
+  "recorded_at": "2026-07-30T12:37:20.631299+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:603defca102be4720443b09e9c208f70c17874853a75f1cacf76e4d7d6a30266"
+}
