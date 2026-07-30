@@ -52,7 +52,9 @@ A skill pergunta (com defaults sugeridos a partir do seu projeto):
 - comando de teste (`pytest`, `npm test`, `go test`...)
 - glob dos arquivos de teste (`tests/**/*.py`, `**/*.test.ts`,
   `**/*.spec.ts`...)
-- se quer disciplina TDD (bloquear edição de teste / execução direta da suíte)
+- se quer disciplina TDD (bloquear edição de teste — a execução da suíte
+  nunca é gateada, rodar `pytest` quantas vezes for preciso não pede
+  aprovação)
 
 Ao final ela escreve `.harness/harness.yaml`, compila, e mostra o que foi
 gerado:
@@ -60,7 +62,10 @@ gerado:
   Machine-local: leva o path absoluto desta máquina no comando do hook, por
   isso nasce ignorado (`.claude/.gitignore`) e um clone precisa rodar
   `harness compile` antes da primeira sessão
-- `.harness/hooks/guard_test_runner.py` — registrado como hook `PreToolUse`
+- `.harness/hooks/guard_test_runner.py` — registrado como hook `PreToolUse`,
+  mas sempre `allow`: existe só para permitir reativar a checagem de execução
+  no futuro sem recompilar do zero (a disciplina TDD gateia a escrita do
+  teste, não a execução repetida da suíte)
 - `.harness/hooks/guard_tests.py` — gerado em disco, mas **não registrado**:
   quem entrega o gate de edição de teste é o `boundary_guard`, por decisão
   por-tarefa em vez de `ask` estático (issue #61)
@@ -107,15 +112,16 @@ O que muda na prática:
 | Editar arquivo declarado em `files[]` da tarefa | Passa (`allow`) | está dentro do raio de impacto aprovado |
 | Editar arquivo **fora** de `files[]` | **Bloqueado** (`deny`), com o comando de escape na mensagem (`harness task add-file`) | o raio de impacto é o contrato, não a boa intenção da sessão |
 | Editar arquivo de teste (`tests/test_list.py`) | **Bloqueado** (`deny`) enquanto nenhuma tarefa declarar esse arquivo; declarado, passa | hook `boundary_guard.py` — impede alterar o teste pra fazer ele passar, e a autorização é por-tarefa, não um prompt genérico |
-| Rodar a suíte inteira (`pytest`) direto | Prompt de aprovação (`ask`) com o `desc` da tarefa na frente do motivo | hook `guard_test_runner.py` (só com `enforce_tdd`) — incentiva ciclo red-green-refactor supervisionado |
+| Rodar a suíte inteira (`pytest`) direto | Passa (`allow`), sem prompt — em RED, GREEN, quantas vezes for | hook `guard_test_runner.py`: a disciplina TDD gateia a escrita do teste, não sua execução repetida — pedir aprovação a cada `pytest` é fricção sem sinal depois que o teste já foi aprovado na escrita |
 | Rodar comando de leitura (`git status`, `ls`) | Passa direto | superfície read-only fixa, vale com ou sem contrato |
 | Rodar comando não declarado no contrato | **Bloqueado** (`deny`), com as três rotas de escape na mensagem | a superfície de execução também é enumerada do contrato |
 | Acessar rede (`curl`, `WebFetch`), tocar segredo, `git push` fora da branch do contrato | **Bloqueado sempre**, em qualquer política incl. `auto` | runtime floor — não é política, é piso |
 
 O `boundary_guard` decide `allow`/`deny`, nunca `ask`: a decisão é por-tarefa e
 sai da leitura do contrato, então não há o que perguntar. O `ask` que você vê
-vem das `permissions` compiladas e do `guard_test_runner` — e você aprova ou
-nega como qualquer prompt nativo do Claude Code, sem UI própria do harness.
+vem das `permissions` compiladas e do `guard_tests` (escrita de teste) — e
+você aprova ou nega como qualquer prompt nativo do Claude Code, sem UI própria
+do harness. O `guard_test_runner` (execução) nunca pergunta.
 
 ### Política `auto`
 

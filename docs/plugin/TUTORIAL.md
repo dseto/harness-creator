@@ -117,7 +117,7 @@ fonte canônica: quando esta tabela e aquela seção divergirem, a seção vence
 | 2 | `.harness/harness.yaml` | A spec de governança, escrita na entrevista do `init` | nunca — é a **entrada** de `compile` | **sim** |
 | 3 | `.harness/hooks/` | Container dos guards | `compile` / `compile-session` | não |
 | 4 | `.harness/hooks/guard_tests.py` | Guard legado de disciplina de teste — **gerado, mas não registrado**: o `boundary_guard` o substituiu por decisão por-tarefa (issue #61) | `harness compile` | não |
-| 5 | `.harness/hooks/guard_test_runner.py` | Guard do runner de teste (só com `enforce_tdd`) | `harness compile` | não |
+| 5 | `.harness/hooks/guard_test_runner.py` | Registrado no matcher `Bash` (só com `enforce_tdd`), mas sempre `allow` — gateia a escrita do teste, não a execução repetida da suíte | `harness compile` | não |
 | 6 | `.harness/hooks/boundary_guard.py` | Guard do raio de impacto + runtime floor | `harness compile-session` | não |
 | 7 | `.harness/hooks/session_start.py` | Hook que injeta o estado da sessão anterior | `harness compile-session` | não |
 | 8 | `.harness/hooks/stop_hook.py` | Hook de fim de sessão | `harness compile-session` | não |
@@ -302,7 +302,8 @@ detectados. Para o nosso exemplo FastAPI, uma entrevista típica:
 3. Glob dos arquivos de teste?
    → tests/**/*.py
 
-4. Disciplina TDD? (bloquear edição de teste / execução direta da suíte sem aprovação)
+4. Disciplina TDD? (bloquear edição de teste — a execução da suíte nunca é
+   gateada)
    → sim
 ```
 
@@ -321,8 +322,10 @@ verification:
 
 - **`.claude/settings.local.json`** — regras `allow`/`ask` de permissions
   (machine-local, ignorado pelo git: leva o path absoluto desta máquina).
-- **`.harness/hooks/guard_test_runner.py`** — hook `PreToolUse` da disciplina
-  TDD. O **`guard_tests.py`** também é escrito aqui, mas não é registrado: o
+- **`.harness/hooks/guard_test_runner.py`** — hook `PreToolUse` registrado,
+  mas sempre `allow`: gateia a ESCRITA do teste, não a execução repetida da
+  suíte (rodar `pytest` em RED e GREEN não pede aprovação duas vezes). O
+  **`guard_tests.py`** também é escrito aqui, mas não é registrado: o
   `boundary_guard` o substituiu (issue #61).
 - **`AGENTS.md`** — bloco gerenciado com as instruções operacionais.
 

@@ -296,89 +296,43 @@ if __name__ == "__main__":
 
 
 def _render_guard_test_runner(test_command: str) -> str:
-    # Tokens do runner (sem flags): "dotnet test -v q" -> ["dotnet", "test"].
-    # Matching por SEQUÊNCIA consecutiva, não por primeiro token — senão
-    # test_command "dotnet test" marcaria todo "dotnet build"/"dotnet run".
-    runner_tokens = [t for t in test_command.split() if not t.startswith("-")]
+    # A disciplina TDD gateia a ESCRITA de teste (guard_tests.py / edit_test),
+    # não a execução — pedir aprovação a cada `pytest` rodado é fricção pura
+    # depois que o teste já foi aprovado na escrita (issue: dezenas de asks
+    # repetidos para o mesmo comando dentro de uma única tarefa). Este hook
+    # fica registrado (matcher Bash) só para permitir reativar a checagem no
+    # futuro sem recompilar do zero; hoje sempre allow.
     return f'''"""Hook PreToolUse gerado pelo harness-creator — NÃO editar à mão.
 
-Rodar a suíte de teste direto exige atenção humana (disciplina TDD do
-harness). Gerado de test_command={test_command!r}; para mudar, edite
-.harness/harness.yaml e rode `harness compile`.
+Rodar a suíte de teste NÃO exige aprovação humana — a disciplina TDD do
+harness gateia a ESCRITA do arquivo de teste (guard_tests.py), não a sua
+execução repetida. Gerado de test_command={test_command!r}; para mudar,
+edite .harness/harness.yaml e rode `harness compile`.
 """
 import json
-import re
 import sys
 
 
 {DISABLED_CHECK_SRC}
 
 
-{CONTRACT_LOOKUP_SRC}
-
-
-def _relevant_to_command(feature: dict, command: str) -> bool:
-    """A tarefa fala do comando que está sendo rodado? Casa pelo `verify_cmd`
-    literal ou por qualquer arquivo declarado (path completo ou basename) que
-    apareça na linha de comando — é o que separa `pytest tests/test_a.py` da
-    tarefa certa quando o contrato tem várias pendentes."""
-    verify = (feature.get("verify_cmd") or "").strip()
-    lowered = _norm_path(command)
-    if verify and _norm_path(verify) in lowered:
-        return True
-    for raw in (feature.get("files") or []):
-        norm = _norm_path(raw)
-        if norm and (norm in lowered or norm.rsplit("/", 1)[-1] in lowered):
-            return True
-    return False
-
-
-RUNNER_TOKENS = {runner_tokens!r}
-# Metacaracteres de shell contam como separador — "pytest&&true" não escapa.
-SHELL_SPLIT = re.compile(r"[\\s;&|()<>`$\\"']+")
-
-
-def _has_runner_sequence(tokens: list) -> bool:
-    n = len(RUNNER_TOKENS)
-    return n > 0 and any(
-        tokens[i:i + n] == RUNNER_TOKENS for i in range(len(tokens) - n + 1)
-    )
-
-
 def main() -> None:
     if _harness_disabled():
-        print(json.dumps({{
-            "hookSpecificOutput": {{
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "allow",
-                "permissionDecisionReason": (
-                    "harness desativado pelo usuario (.harness/harness.disabled) - "
-                    "kill-switch externo ativo"
-                ),
-            }}
-        }}))
-        return
-    data = json.load(sys.stdin)
-    command = (data.get("tool_input") or {{}}).get("command") or ""
-
-    tokens = [t for t in SHELL_SPLIT.split(command) if t]
-    hit = _has_runner_sequence(tokens)
-    if hit:
-        pending = [f for f in _contract_features() if not f.get("passes")]
-        focused = [f for f in pending if _relevant_to_command(f, command)] or pending
-        decision, reason = "ask", (
-            _contract_note(focused)
-            + "Comando roda a suíte de teste (`" + command + "`) — disciplina "
-            "TDD do harness pede confirmação humana (escreva o teste falho "
-            "antes da implementação)."
+        reason = (
+            "harness desativado pelo usuario (.harness/harness.disabled) - "
+            "kill-switch externo ativo"
         )
     else:
-        decision, reason = "allow", "comando não colide com o test runner"
+        json.load(sys.stdin)
+        reason = (
+            "execução da suíte de teste não exige aprovação — a disciplina "
+            "TDD gateia a escrita do teste, não sua execução repetida"
+        )
 
     print(json.dumps({{
         "hookSpecificOutput": {{
             "hookEventName": "PreToolUse",
-            "permissionDecision": decision,
+            "permissionDecision": "allow",
             "permissionDecisionReason": reason,
         }}
     }}))
