@@ -1,0 +1,17 @@
+## [T-01] `harness compile-session` avisa quando `.harness/harness.yaml` não existe
+- files: `src/harness/session_permissions.py`, `src/harness/cli.py`, `tests/test_session_permissions.py`, `tests/test_cli.py`
+- verify: `python -m pytest tests/test_session_permissions.py tests/test_cli.py -q -k "compile_session or harness_yaml"`
+
+## [T-02] `harness status` e `harness doctor` reportam governança parcial quando falta `harness.yaml` mas há sessão compilada
+- files: `src/harness/killswitch.py`, `src/harness/doctor.py`, `src/harness/cli.py`, `tests/test_killswitch.py`, `tests/test_doctor.py`
+- verify: `python -m pytest tests/test_killswitch.py tests/test_doctor.py -q`
+- depends: T-01
+
+## [T-03] Bloco colável de `extra_allowed_commands` inclui a chave `governance:` quando ela ainda não existe no `harness.yaml`
+- files: `src/harness/boundary_guard.py`, `tests/test_boundary_guard.py`, `tests/e2e/evidence/fase2-outcomes-verification.md`
+- verify: `python -m pytest tests/test_boundary_guard.py -q -k "allowlist_yaml_hint or escape_hint"`
+
+## [T-04] Teste de integração com cópia real de C:\Projetos\MinimumAPI prova a correção sem regressão no fluxo já governado
+- files: `tests/test_integration_minimumapi.py`
+- verify: `python -m pytest tests/test_integration_minimumapi.py -q`
+- depends: T-01, T-02, T-03

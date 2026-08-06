@@ -2851,12 +2851,16 @@ def test_suggested_allowlist_entry_is_canonical_and_keeps_the_mode() -> None:
     assert sugerir("git checkout") == "git checkout"
 
 
-def test_deny_reason_carries_a_paste_ready_yaml_block(tmp_path: Path) -> None:
-    """A instrução mais óbvia seria a que quebra: todo `harness.yaml` já tem
-    `governance:`, e colar a chave de novo produz duplicata — que o parser
+def test_escape_hint_omits_governance_key_when_harness_yaml_already_has_it(tmp_path: Path) -> None:
+    """A instrução mais óbvia seria a que quebra: quando `harness.yaml` já tem
+    `governance:`, colar a chave de novo produz duplicata — que o parser
     mínimo do hook trata degradando a lista INTEIRA para vazia. Por isso o bloco
-    sugerido começa em `extra_allowed_commands`, não em `governance`."""
+    sugerido começa em `extra_allowed_commands`, não em `governance`, quando a
+    chave já existe."""
     _contract_with_verify(tmp_path)
+    (tmp_path / ".harness" / "harness.yaml").write_text(
+        "governance:\n  approval_policy: default\n", encoding="utf-8"
+    )
     _expect(
         _script(tmp_path),
         bash("alembic upgrade head", "deny",
@@ -2866,6 +2870,65 @@ def test_deny_reason_carries_a_paste_ready_yaml_block(tmp_path: Path) -> None:
         pwsh("alembic upgrade head", "deny", reason="- alembic upgrade",
              why="a superficie PowerShell carrega o mesmo bloco"),
     )
+
+
+def test_escape_hint_includes_governance_key_when_harness_yaml_is_missing(tmp_path: Path) -> None:
+    """Issue #72: repo que rodou `/harness-creator:plan` direto, sem
+    `/harness-creator:init` antes, chega ao bootstrap SEM `.harness/harness.yaml`.
+    O bloco antigo sempre omitia `governance:`, assumindo que a chave já
+    existia — apontava para dentro de um bloco que não existe, em arquivo que
+    não existe. Com a correção, o bloco colável inclui o cabeçalho."""
+    _contract_with_verify(tmp_path)
+    assert not (tmp_path / ".harness" / "harness.yaml").exists()
+    _expect(
+        _script(tmp_path),
+        bash("alembic upgrade head", "deny", reason="governance:\n  extra_allowed_commands:"),
+        bash("alembic upgrade head", "deny", reason="/harness-creator:init"),
+        pwsh("alembic upgrade head", "deny", reason="governance:\n  extra_allowed_commands:",
+             why="a superficie PowerShell carrega o mesmo bloco"),
+    )
+
+
+def test_allowlist_yaml_hint_includes_governance_key_when_yaml_missing(tmp_path: Path) -> None:
+    from harness.boundary_guard import allowlist_yaml_hint
+
+    hint = allowlist_yaml_hint("alembic upgrade head", repo_root=tmp_path)
+    assert "governance:\n  extra_allowed_commands:" in hint
+    assert "- alembic upgrade" in hint
+
+
+def test_allowlist_yaml_hint_omits_governance_key_when_already_present(tmp_path: Path) -> None:
+    from harness.boundary_guard import allowlist_yaml_hint
+
+    yaml_path = tmp_path / ".harness" / "harness.yaml"
+    yaml_path.parent.mkdir(parents=True, exist_ok=True)
+    yaml_path.write_text("governance:\n  approval_policy: default\n", encoding="utf-8")
+
+    hint = allowlist_yaml_hint("alembic upgrade head", repo_root=tmp_path)
+    assert "\ngovernance:" not in hint  # não repete o cabeçalho — já está lá
+    assert "extra_allowed_commands:" in hint
+
+
+def test_allowlist_yaml_hint_includes_governance_key_when_yaml_lacks_the_key(tmp_path: Path) -> None:
+    """`harness.yaml` pode existir sem a chave `governance:` (arquivo escrito à
+    mão, só com outras chaves) — mesmo tratamento do arquivo ausente."""
+    from harness.boundary_guard import allowlist_yaml_hint
+
+    yaml_path = tmp_path / ".harness" / "harness.yaml"
+    yaml_path.parent.mkdir(parents=True, exist_ok=True)
+    yaml_path.write_text("outra_chave:\n  x: 1\n", encoding="utf-8")
+
+    hint = allowlist_yaml_hint("alembic upgrade head", repo_root=tmp_path)
+    assert "governance:\n  extra_allowed_commands:" in hint
+
+
+def test_allowlist_yaml_hint_default_repo_root_does_not_raise() -> None:
+    """Sem `repo_root` (compatibilidade com chamadas antigas): não lança,
+    trata como YAML ausente."""
+    from harness.boundary_guard import allowlist_yaml_hint
+
+    hint = allowlist_yaml_hint("pip install x")
+    assert isinstance(hint, str)
 
 
 def test_the_suggested_entry_actually_unblocks_the_command(tmp_path: Path) -> None:

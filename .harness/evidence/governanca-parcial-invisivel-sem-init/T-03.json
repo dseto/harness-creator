@@ -1,0 +1,14 @@
+{
+  "feature_id": "T-03",
+  "contract": "governanca-parcial-invisivel-sem-init",
+  "desc": "Bloco colável de `extra_allowed_commands` inclui a chave `governance:` quando ela ainda não existe no `harness.yaml`",
+  "files": [
+    "src/harness/boundary_guard.py",
+    "tests/test_boundary_guard.py",
+    "tests/e2e/evidence/fase2-outcomes-verification.md"
+  ],
+  "verify_cmd": "python -m pytest tests/test_boundary_guard.py -q -k \"allowlist_yaml_hint or escape_hint\"",
+  "recorded_at": "2026-08-06T19:01:12.117538+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:948d74bd844518c0501338780997e9204e9922f8d4bb3bb389942e441fd75d20"
+}
