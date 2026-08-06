@@ -1,5 +1,41 @@
 # Changelog
 
+## v0.30.0 — governança parcial sem `harness init` deixa de ser invisível (issue #72, PR #73)
+
+Era possível rodar o ciclo inteiro do harness (`plan` → `compile-contract` →
+`compile-session` → boundary_guard instalado → trabalho) num repositório
+**sem `.harness/harness.yaml`** — ou seja, sem nunca ter rodado
+`/harness-creator:init`. O guard rodava, os denies funcionavam, `harness
+status` dizia ativo — mas metade da governança (hook TDD, política de
+aprovação) nunca foi instalada, e nada avisava.
+
+### `compile-session` avisa quando falta `harness.yaml`
+
+`missing_harness_yaml_warning` (`session_permissions.py`) verifica
+`.harness/harness.yaml` e, se ausente, imprime aviso em stderr — o comando
+continua funcionando de propósito (a degradação para defaults é fail-safe
+correta; o defeito era ela ser silenciosa).
+
+### `status` e `doctor` reportam o mesmo estado
+
+Quando há sessão compilada (`feature_list.json`) mas falta `harness.yaml`,
+`harness status` ganha o campo `partial_governance_warning` e `harness
+doctor` ganha uma nota (não um issue — `doctor` continua `ok`).
+
+### Bug corrigido: o único escape de comando sem contrato apontava para o vazio
+
+`allowlist_yaml_hint` sempre omitia o cabeçalho `governance:` do bloco
+colável, assumindo que a chave já existia (`init` a escreve, `compile` recusa
+o arquivo sem ela). Sem `init`, o arquivo não existe — o deny instruía o
+usuário a colar duas linhas "dentro do bloco `governance:` que já está lá",
+bloco que não existe, em arquivo que não existe. Agora `allowlist_yaml_hint`
+lê o `harness.yaml` (fail-safe: ausente/ilegível → trata como sem a chave) e
+inclui `governance:` quando necessário.
+
+Fora de escopo, deliberadamente: `load_extra_allowed_commands` e
+`load_protected_branches` continuam non-fatal (degradam para default), e
+`harness.yaml` continua opcional para `compile-session`.
+
 ## v0.29.0 — rodar teste não pede mais aprovação, só escrevê-lo pede (issue #64, PR #65)
 
 `guard_test_runner.py` (hook `PreToolUse`, matcher `Bash`) disparava `ask` a
