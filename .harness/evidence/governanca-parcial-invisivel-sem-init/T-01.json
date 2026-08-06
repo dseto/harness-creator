@@ -1,0 +1,15 @@
+{
+  "feature_id": "T-01",
+  "contract": "governanca-parcial-invisivel-sem-init",
+  "desc": "`harness compile-session` avisa quando `.harness/harness.yaml` não existe",
+  "files": [
+    "src/harness/session_permissions.py",
+    "src/harness/cli.py",
+    "tests/test_session_permissions.py",
+    "tests/test_cli.py"
+  ],
+  "verify_cmd": "python -m pytest tests/test_session_permissions.py tests/test_cli.py -q -k \"compile_session or harness_yaml\"",
+  "recorded_at": "2026-08-06T19:00:56.711058+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:8f9f8f4348f00a88b2da4f29c45ab0393bca6b954b89592d4256b1b2e3c31576"
+}

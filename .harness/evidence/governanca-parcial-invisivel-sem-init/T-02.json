@@ -1,0 +1,16 @@
+{
+  "feature_id": "T-02",
+  "contract": "governanca-parcial-invisivel-sem-init",
+  "desc": "`harness status` e `harness doctor` reportam governança parcial quando falta `harness.yaml` mas há sessão compilada",
+  "files": [
+    "src/harness/killswitch.py",
+    "src/harness/doctor.py",
+    "src/harness/cli.py",
+    "tests/test_killswitch.py",
+    "tests/test_doctor.py"
+  ],
+  "verify_cmd": "python -m pytest tests/test_killswitch.py tests/test_doctor.py -q",
+  "recorded_at": "2026-08-06T18:48:11.811145+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:741153f2ef9d64ffda467dadf2395cb0f0044669251e36a64caba49bdd6477a2"
+}

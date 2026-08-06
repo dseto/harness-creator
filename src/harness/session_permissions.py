@@ -83,6 +83,7 @@ from harness.boundary_guard import (
     is_floor_secret_path,
     load_extra_allowed_commands,
 )
+from harness.compiler import HARNESS_YAML
 from harness.install_command import install_command_for
 from harness.settings_paths import (
     MANAGED_SETTINGS_FILE,
@@ -267,6 +268,20 @@ def render_session_permissions(
 
 def _load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8-sig"))
+
+
+def missing_harness_yaml_warning(target_dir: Path) -> str | None:
+    """Aviso quando `target_dir/.harness/harness.yaml` não existe (issue #72):
+    o repo nunca rodou `/harness-creator:init`, então `compile-session`
+    compila com defaults — hook TDD e política de aprovação NÃO instalados.
+    `None` quando o arquivo existe (nada a avisar)."""
+    if (Path(target_dir) / HARNESS_YAML).is_file():
+        return None
+    return (
+        f"{HARNESS_YAML} não encontrado — rodando com defaults: hook TDD "
+        "(guard_test_runner) e política de aprovação NÃO foram instalados. "
+        "Rode /harness-creator:init para ligar a governança completa."
+    )
 
 
 def compile_session_permissions(target_dir: Path) -> Path:

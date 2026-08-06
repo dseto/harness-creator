@@ -146,3 +146,78 @@ def test_snippet_detects_disabled_by_file_anchor(tmp_path: Path) -> None:
     disable(tmp_path)
     # mesmo com cwd derivado, o sentinel é achado via __file__ do hook
     assert _run(script, tmp_path.parent)["disabled"] is True
+
+
+# ---------------- `harness status` CLI: aviso de governança parcial (issue #72) ----------------
+#
+# A checagem mora em cli.py (não em killswitch.status()) porque este módulo é
+# stdlib-only por design (ver docstring do topo) — não pode importar
+# session_permissions. Testada aqui via main() porque killswitch.py é o dono
+# conceitual do comando `status`.
+
+def test_cli_status_warns_on_feature_list_without_harness_yaml(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import contextlib
+    import io
+    import sys as _sys
+
+    from harness.cli import main
+
+    feature_list_path = tmp_path / ".harness" / "feature_list.json"
+    feature_list_path.parent.mkdir(parents=True, exist_ok=True)
+    feature_list_path.write_text("{}", encoding="utf-8")
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        monkeypatch.setattr(_sys, "argv", ["harness", "status", "--dir", str(tmp_path)])
+        try:
+            main()
+        except SystemExit:
+            pass
+    result = json.loads(buf.getvalue())
+    assert ".harness/harness.yaml" in result["partial_governance_warning"]
+    assert "/harness-creator:init" in result["partial_governance_warning"]
+
+
+def test_cli_status_no_warning_when_harness_yaml_present(tmp_path: Path, monkeypatch) -> None:
+    import contextlib
+    import io
+    import sys as _sys
+
+    from harness.cli import main
+
+    feature_list_path = tmp_path / ".harness" / "feature_list.json"
+    feature_list_path.parent.mkdir(parents=True, exist_ok=True)
+    feature_list_path.write_text("{}", encoding="utf-8")
+    (tmp_path / ".harness" / "harness.yaml").write_text(
+        "governance:\n  approval_policy: default\n", encoding="utf-8"
+    )
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        monkeypatch.setattr(_sys, "argv", ["harness", "status", "--dir", str(tmp_path)])
+        try:
+            main()
+        except SystemExit:
+            pass
+    result = json.loads(buf.getvalue())
+    assert "partial_governance_warning" not in result
+
+
+def test_cli_status_no_warning_when_no_feature_list_at_all(tmp_path: Path, monkeypatch) -> None:
+    import contextlib
+    import io
+    import sys as _sys
+
+    from harness.cli import main
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        monkeypatch.setattr(_sys, "argv", ["harness", "status", "--dir", str(tmp_path)])
+        try:
+            main()
+        except SystemExit:
+            pass
+    result = json.loads(buf.getvalue())
+    assert "partial_governance_warning" not in result

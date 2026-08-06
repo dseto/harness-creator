@@ -1,0 +1,12 @@
+{
+  "feature_id": "T-04",
+  "contract": "governanca-parcial-invisivel-sem-init",
+  "desc": "Teste de integração com cópia real de C:\\Projetos\\MinimumAPI prova a correção sem regressão no fluxo já governado",
+  "files": [
+    "tests/test_integration_minimumapi.py"
+  ],
+  "verify_cmd": "python -m pytest tests/test_integration_minimumapi.py -q",
+  "recorded_at": "2026-08-06T19:04:09.955434+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:7e5fb5ed0930518c6aef09f6421410d9991c315120fecb80e96f35fa214e1e08"
+}

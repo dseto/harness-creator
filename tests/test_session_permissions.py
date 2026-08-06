@@ -9,6 +9,7 @@ import pytest
 
 from harness.session_permissions import (
     compile_session_permissions,
+    missing_harness_yaml_warning,
     render_session_permissions,
 )
 
@@ -313,6 +314,24 @@ def test_compile_is_idempotent_no_duplicates(tmp_path: Path) -> None:
     allow = settings["permissions"]["allow"]
     assert allow.count("Bash(git status)") == 1
     assert allow.count("Edit(src/harness/config.py)") == 1
+
+
+# ---------------- missing_harness_yaml_warning (issue #72) ----------------
+
+def test_missing_harness_yaml_warning_none_when_yaml_present(tmp_path: Path) -> None:
+    yaml_path = tmp_path / ".harness" / "harness.yaml"
+    yaml_path.parent.mkdir(parents=True, exist_ok=True)
+    yaml_path.write_text("governance:\n  approval_policy: default\n", encoding="utf-8")
+
+    assert missing_harness_yaml_warning(tmp_path) is None
+
+
+def test_missing_harness_yaml_warning_fires_when_yaml_absent(tmp_path: Path) -> None:
+    warning = missing_harness_yaml_warning(tmp_path)
+
+    assert warning is not None
+    assert ".harness/harness.yaml" in warning
+    assert "/harness-creator:init" in warning
 
 
 def test_compile_without_profile_is_not_an_error(tmp_path: Path) -> None:

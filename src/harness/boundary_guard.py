@@ -300,7 +300,7 @@ def suggested_allowlist_entry(command: str) -> str | None:
     return tokens[0]
 
 
-def command_escape_hint(command: str) -> str:
+def command_escape_hint(command: str, repo_root=None) -> str:
     """Razão de deny de comando, com o bloco YAML PRONTO PARA COLAR.
 
     Postura C do Item 9 (decisão do dono do repo, 2026-07-27): não existe — e
@@ -317,6 +317,10 @@ def command_escape_hint(command: str) -> str:
     degradando a lista inteira para vazia. Um bloco ditado pelo produto sai
     sempre na forma que o parser entende.
 
+    `repo_root` (issue #72) é repassado a `allowlist_yaml_hint` para decidir
+    se o bloco colável precisa incluir o cabeçalho `governance:` — repo que
+    nunca rodou `/harness-creator:init` não tem essa chave ainda.
+
     O objetivo declarado do harness é barrar o MÍNIMO: ele existe para o agente
     rodar horas sem humano no meio, com segurança. Todo deny que o usuário não
     consegue resolver em dez segundos é fricção que empurra para o kill-switch,
@@ -326,12 +330,37 @@ def command_escape_hint(command: str) -> str:
         "formas EQUIVALENTES do que esta declarado: `python -m <bin>`, "
         "`.venv/Scripts/<bin>`, `.venv/bin/<bin>` e `uv run <bin>` valem tanto "
         "quanto o binario nu — NAO ha grafia a descobrir por tentativa e erro. "
-        "(2) " + allowlist_yaml_hint(command) + " (3) Replaneje via "
+        "(2) " + allowlist_yaml_hint(command, repo_root) + " (3) Replaneje via "
         "/harness-creator:plan so se o ESCOPO da tarefa mudou."
     )
 
 
-def allowlist_yaml_hint(command: str) -> str:
+def _yaml_has_top_level_governance_key(text: str) -> bool:
+    """True se `text` (conteúdo de `harness.yaml`) tem uma chave `governance:`
+    no nível 0 de indentação. Mesmo scanner mínimo de
+    `parse_extra_allowed_commands_text` (Item 3) — reusado aqui para decidir
+    se `allowlist_yaml_hint` precisa incluir o cabeçalho `governance:` no
+    bloco colável (issue #72). Tab ou chave duplicada: indeterminado -> True
+    (assume que a chave existe) — incluir de novo quebraria o parser mínimo
+    do hook (chave duplicada degrada a lista inteira para vazia), enquanto
+    assumir presença e estar errado só deixa de reforçar algo que faltava."""
+    if "\t" in (text or ""):
+        return True
+    found = False
+    for line in (text or "").splitlines():
+        if _yaml_indent(line) != 0:
+            continue
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        if _yaml_strip_inline_comment(stripped).strip() == "governance:":
+            if found:
+                return True
+            found = True
+    return found
+
+
+def allowlist_yaml_hint(command: str, repo_root=None) -> str:
     """O bloco YAML pronto para colar, isolado de `command_escape_hint`.
 
     Extraido porque este e o UNICO escape de comando que funciona sem contrato
@@ -341,23 +370,54 @@ def allowlist_yaml_hint(command: str) -> str:
     reusar `command_escape_hint` inteiro — os outros itens de la apontam
     `harness task add-file` e replanejamento, que nao existem sem contrato.
     Apontar escape inexistente foi o que fez o agente concluir que estava
-    preso; apontar NENHUM escape tem o mesmo efeito."""
+    preso; apontar NENHUM escape tem o mesmo efeito.
+
+    Issue #72: um repo que nunca rodou `/harness-creator:init` chega aqui SEM
+    `.harness/harness.yaml` — o bloco antigo (que sempre omitia `governance:`,
+    assumindo que a chave ja existia) apontava para dentro de um bloco que nao
+    existe, em arquivo que nao existe. `repo_root` deixa a funcao ler o
+    arquivo (fail-safe: ausente/ilegivel -> trata como sem a chave) e decidir
+    se o bloco colavel precisa incluir `governance:` ou nao."""
+    import os
+
     entry = suggested_allowlist_entry(command) or "<comando>"
-    # O bloco NAO repete `governance:`. Todo `.harness/harness.yaml` ja tem essa
-    # chave (o `init` a escreve e o `compile` recusa o arquivo sem ela), entao
-    # colar `governance:` de novo criaria chave DUPLICADA — e o parser minimo do
-    # hook degrada a lista inteira para vazia nesse caso. A instrucao mais
-    # obvia seria a que quebra.
+
+    text = None
+    try:
+        path = os.path.join(str(repo_root or "."), HARNESS_YAML_RELATIVE_PATH)
+        with open(path, "r", encoding="utf-8-sig") as handle:
+            text = handle.read()
+    except (OSError, ValueError):
+        text = None
+    has_governance_key = text is not None and _yaml_has_top_level_governance_key(text)
+
+    if has_governance_key:
+        # O bloco NAO repete `governance:` — colar de novo criaria chave
+        # DUPLICADA, e o parser minimo do hook degrada a lista inteira para
+        # vazia nesse caso.
+        return (
+            "Se o repo precisa deste comando de forma PERMANENTE, peca ao "
+            "usuario para edita-lo no .harness/harness.yaml, no terminal DELE (fora "
+            "do Claude Code). Se `extra_allowed_commands` ainda nao existe, colar "
+            "estas duas linhas DENTRO do bloco `governance:` que ja esta la:\n\n"
+            "  extra_allowed_commands:\n    - " + entry + "\n\n"
+            "Se a chave ja existe, basta acrescentar a linha `    - " + entry + "` "
+            "na lista. Vale na tool call SEGUINTE — o guard le esse arquivo a cada "
+            "chamada, sem recompilar nada. E casa por PREFIXO: essa entrada libera "
+            "o comando com qualquer argumento depois dela."
+        )
+    # Arquivo ausente ou sem a chave `governance:` (nunca rodou
+    # /harness-creator:init) — o bloco colavel PRECISA do cabecalho, senao a
+    # instrucao aponta pra dentro de um bloco que nao existe.
     return (
-        "Se o repo precisa deste comando de forma PERMANENTE, peca ao "
-        "usuario para edita-lo no .harness/harness.yaml, no terminal DELE (fora "
-        "do Claude Code). Se `extra_allowed_commands` ainda nao existe, colar "
-        "estas duas linhas DENTRO do bloco `governance:` que ja esta la:\n\n"
-        "  extra_allowed_commands:\n    - " + entry + "\n\n"
-        "Se a chave ja existe, basta acrescentar a linha `    - " + entry + "` "
-        "na lista. Vale na tool call SEGUINTE — o guard le esse arquivo a cada "
-        "chamada, sem recompilar nada. E casa por PREFIXO: essa entrada libera "
-        "o comando com qualquer argumento depois dela."
+        "Este repositorio ainda nao tem `.harness/harness.yaml` com a chave "
+        "`governance:` (rode /harness-creator:init para a governanca completa). "
+        "Peca ao usuario para criar/editar o arquivo no terminal DELE (fora do "
+        "Claude Code) com este bloco:\n\n"
+        "governance:\n  extra_allowed_commands:\n    - " + entry + "\n\n"
+        "Vale na tool call SEGUINTE — o guard le esse arquivo a cada chamada, "
+        "sem recompilar nada. E casa por PREFIXO: essa entrada libera o comando "
+        "com qualquer argumento depois dela."
     )
 
 
@@ -1963,6 +2023,7 @@ def render_boundary_guard(protected_branches: list[str] | None = None) -> str:
         inspect.getsource(normalize_invocation_tokens),
         f"GIT_MODE_SENSITIVE_SUBCOMMANDS = {_sorted_set_repr(GIT_MODE_SENSITIVE_SUBCOMMANDS)}",
         inspect.getsource(suggested_allowlist_entry),
+        inspect.getsource(_yaml_has_top_level_governance_key),
         inspect.getsource(allowlist_yaml_hint),
         inspect.getsource(command_escape_hint),
         inspect.getsource(_has_sequence_normalized),
@@ -2703,7 +2764,7 @@ def _evaluate_file(path, cwd):
     )
 
 
-def _no_contract_command_deny(command):
+def _no_contract_command_deny(command, repo_root=None):
     """Mensagem de deny do modo bootstrap (sem contrato compilado).
 
     Distinta de `command_escape_hint`, que aponta `harness task add-file` e
@@ -2711,7 +2772,9 @@ def _no_contract_command_deny(command):
     `extra_allowed_commands` (allowlist_yaml_hint) ENTRA: e o unico escape de
     comando que funciona sem contrato, porque o hook le o harness.yaml a cada
     tool call. Omiti-lo deixaria o deny sem saida nenhuma - o mesmo efeito
-    pratico de apontar um escape inexistente."""
+    pratico de apontar um escape inexistente. `repo_root` (issue #72) repassa
+    a `allowlist_yaml_hint` para o bloco colavel incluir `governance:` quando
+    o repo nunca rodou `/harness-creator:init`."""
     return (
         "nenhum contrato ativo no projeto: sem contrato so ficam liberados git "
         "local (status/log/diff/add/commit), subcomandos do proprio harness, "
@@ -2722,7 +2785,7 @@ def _no_contract_command_deny(command):
         "harness compile-session) para compilar um contrato e autorizar a "
         "superficie; artefatos temporarios (screenshot, dump, HTML de debug) "
         "podem ser salvos em .harness/scratch/. (2) "
-        + allowlist_yaml_hint(command)
+        + allowlist_yaml_hint(command, repo_root)
     )
 
 
@@ -2856,20 +2919,20 @@ def _evaluate_bash(command, cwd):
         )
     if failing is not None:
         if bootstrap:
-            return "deny", _no_contract_command_deny(failing)
+            return "deny", _no_contract_command_deny(failing, cwd)
         return "deny", (
             "segmento '" + failing[:80] + "' fora da superficie compilada do "
             "contrato (verify_cmd/lint/typecheck/build/install/git local) e "
             "nao aceito como utilitario read-only (cat/head/tail/wc/grep/rg/"
             "ls/echo/find sem redirecionamento de escrita) nem cd intra-repo. "
-            + command_escape_hint(failing)
+            + command_escape_hint(failing, cwd)
         )
     if bootstrap:
-        return "deny", _no_contract_command_deny(command)
+        return "deny", _no_contract_command_deny(command, cwd)
     return "deny", (
         "comando fora da superficie compilada do contrato "
         "(verify_cmd/lint/typecheck/build/install/git local). "
-        + command_escape_hint(command)
+        + command_escape_hint(command, cwd)
     )
 
 
@@ -3021,7 +3084,7 @@ def _evaluate_powershell(command, cwd):
         )
     if failing is not None:
         if bootstrap:
-            return "deny", _no_contract_command_deny(failing)
+            return "deny", _no_contract_command_deny(failing, cwd)
         return "deny", (
             "segmento '" + failing[:80] + "' fora da superficie compilada do "
             "contrato (PowerShell) e nao aceito como cmdlet read-only - nem de "
@@ -3034,13 +3097,13 @@ def _evaluate_powershell(command, cwd):
             "intra-repo. Atribuicao a $env:* tambem nao entra: para invocar um "
             "binario do venv, use a forma `.venv/Scripts/<bin>` direto, que o "
             "guard reconhece como equivalente ao declarado. "
-            + command_escape_hint(failing)
+            + command_escape_hint(failing, cwd)
         )
     if bootstrap:
-        return "deny", _no_contract_command_deny(command)
+        return "deny", _no_contract_command_deny(command, cwd)
     return "deny", (
         "comando fora da superficie compilada do contrato (PowerShell). "
-        + command_escape_hint(command)
+        + command_escape_hint(command, cwd)
     )
 
 

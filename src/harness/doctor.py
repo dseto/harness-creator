@@ -51,6 +51,7 @@ from pathlib import Path
 from harness import __version__ as _PIP_VERSION
 from harness.boundary_guard import extra_allowed_commands_grammar_problem
 from harness.compiler import HARNESS_YAML, STATE_FILE
+from harness.session_permissions import FEATURE_LIST_FILE, missing_harness_yaml_warning
 from harness.hook_launcher import fail_closed_problem, interpreter_problem
 from harness.settings_paths import MANAGED_SETTINGS_FILE, managed_settings_path
 
@@ -251,6 +252,18 @@ def run_doctor(
     # ruído. Ver Seção 3 do laudo de footprint.
     governed = (target_dir / HARNESS_YAML).is_file()
     settings_path = managed_settings_path(target_dir)
+
+    # Issue #72: repositório com sessão compilada (`feature_list.json`) mas
+    # sem `harness.yaml` nunca rodou `/harness-creator:init` — TDD e política
+    # de aprovação ficaram de fora, e sem este aviso ninguém percebe. Nota
+    # (não issue): `compile-session` funciona de propósito sem o yaml (ver
+    # `session_permissions.missing_harness_yaml_warning`), então isso não é
+    # um erro que bloqueia `doctor`.
+    if not governed and (target_dir / FEATURE_LIST_FILE).is_file():
+        warning = missing_harness_yaml_warning(target_dir)
+        if warning:
+            notes.append(warning)
+
     if governed and not settings_path.is_file():
         issues.append(
             f"`{HARNESS_YAML}` existe mas `{MANAGED_SETTINGS_FILE}` não — o output "

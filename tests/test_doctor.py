@@ -326,3 +326,31 @@ def test_hook_with_both_problems_reports_both(tmp_path: Path) -> None:
     problem = report.hooks[0]["problem"]
     assert "PATH" in problem
     assert "exit 2" in problem
+
+
+# ---------------- issue #72: governança parcial sem harness.yaml ----------------
+
+def test_feature_list_without_harness_yaml_is_a_note_not_an_issue(tmp_path: Path) -> None:
+    """Sessão compilada (`feature_list.json`) sem `harness.yaml` nunca rodou
+    `/harness-creator:init` — TDD e política de aprovação ficaram de fora.
+    É NOTA (doctor continua `ok`), não issue: `compile-session` funciona sem
+    o yaml de propósito."""
+    feature_list_path = tmp_path / ".harness" / "feature_list.json"
+    feature_list_path.parent.mkdir(parents=True, exist_ok=True)
+    feature_list_path.write_text("{}", encoding="utf-8")
+
+    report = run_doctor(tmp_path, plugins_file=tmp_path / "no-such-file.json")
+
+    assert report.ok
+    assert any(".harness/harness.yaml" in n and "/harness-creator:init" in n for n in report.notes)
+
+
+def test_feature_list_with_harness_yaml_present_has_no_partial_governance_note(tmp_path: Path) -> None:
+    feature_list_path = tmp_path / ".harness" / "feature_list.json"
+    feature_list_path.parent.mkdir(parents=True, exist_ok=True)
+    feature_list_path.write_text("{}", encoding="utf-8")
+    (tmp_path / HARNESS_YAML).write_text("governance:\n  approval_policy: default\n", encoding="utf-8")
+
+    report = run_doctor(tmp_path, plugins_file=tmp_path / "no-such-file.json")
+
+    assert not any("/harness-creator:init" in n for n in report.notes)

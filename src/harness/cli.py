@@ -443,6 +443,7 @@ def main() -> None:
             FEATURE_LIST_FILE,
             REPO_PROFILE_FILE,
             compile_session_permissions,
+            missing_harness_yaml_warning,
         )
         from harness.session_start import install_session_start
         from harness.stop_hook import install_stop_hook
@@ -479,6 +480,10 @@ def main() -> None:
         except FileNotFoundError as exc:
             print(f"erro: {exc}", file=sys.stderr)
             sys.exit(1)
+
+        yaml_warning = missing_harness_yaml_warning(target_dir)
+        if yaml_warning:
+            print(f"aviso: {yaml_warning}", file=sys.stderr)
 
         feature_list = json.loads(feature_list_path.read_text(encoding="utf-8-sig"))
         profile_path = resolved_dir / REPO_PROFILE_FILE
@@ -728,12 +733,19 @@ def main() -> None:
     if args.command == "status":
         from harness.killswitch import status
         from harness.metrics import friction_summary
+        from harness.session_permissions import FEATURE_LIST_FILE, missing_harness_yaml_warning
 
         result = status(Path(args.dir))
         # Instrumentação da onda 3: o gate da onda 5 (postura B vs C) precisa
         # do número de ciclos que um dogfood real ainda gasta. `status` é o
         # comando de leitura natural — o número aparece onde já se olha.
         result["friction"] = friction_summary(Path(args.dir))
+        # Issue #72: sessão compilada (feature_list.json) sem harness.yaml —
+        # mesmo aviso que compile-session/doctor já emitem, aqui também.
+        if (Path(args.dir) / FEATURE_LIST_FILE).is_file():
+            warning = missing_harness_yaml_warning(Path(args.dir))
+            if warning:
+                result["partial_governance_warning"] = warning
         print(json.dumps(result, indent=2, ensure_ascii=False))
         sys.exit(0)
 

@@ -1,29 +1,64 @@
 {
-  "contract": "finish-antes-do-merge",
-  "compiled_at": "2026-07-30T16:00:57.059644+00:00",
+  "contract": "governanca-parcial-invisivel-sem-init",
+  "compiled_at": "2026-08-06T19:00:48.918662+00:00",
   "compiled_with_version": "0.29.0",
   "features": [
     {
       "id": "T-01",
-      "desc": "`skills/plan/SKILL.md` ganha um passo explícito para rodar `harness finish` na branch do contrato, antes do commit final",
+      "desc": "`harness compile-session` avisa quando `.harness/harness.yaml` não existe",
       "files": [
-        "skills/plan/SKILL.md",
-        "tests/test_finish_lifecycle_docs.py"
+        "src/harness/session_permissions.py",
+        "src/harness/cli.py",
+        "tests/test_session_permissions.py",
+        "tests/test_cli.py"
       ],
-      "verify_cmd": "pytest tests/test_finish_lifecycle_docs.py -k plan_skill -q",
+      "verify_cmd": "python -m pytest tests/test_session_permissions.py tests/test_cli.py -q -k \"compile_session or harness_yaml\"",
       "depends": [],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-02",
-      "desc": "`docs/plugin/GUIDE.md` § 10 documenta a ordem recomendada (branch do contrato, antes do PR)",
+      "desc": "`harness status` e `harness doctor` reportam governança parcial quando falta `harness.yaml` mas há sessão compilada",
       "files": [
-        "docs/plugin/GUIDE.md",
-        "tests/test_finish_lifecycle_docs.py"
+        "src/harness/killswitch.py",
+        "src/harness/doctor.py",
+        "src/harness/cli.py",
+        "tests/test_killswitch.py",
+        "tests/test_doctor.py"
       ],
-      "verify_cmd": "pytest tests/test_finish_lifecycle_docs.py -k guide_secao_10 -q",
+      "verify_cmd": "python -m pytest tests/test_killswitch.py tests/test_doctor.py -q",
+      "depends": [
+        "T-01"
+      ],
+      "cwd": null,
+      "passes": true
+    },
+    {
+      "id": "T-03",
+      "desc": "Bloco colável de `extra_allowed_commands` inclui a chave `governance:` quando ela ainda não existe no `harness.yaml`",
+      "files": [
+        "src/harness/boundary_guard.py",
+        "tests/test_boundary_guard.py",
+        "tests/e2e/evidence/fase2-outcomes-verification.md"
+      ],
+      "verify_cmd": "python -m pytest tests/test_boundary_guard.py -q -k \"allowlist_yaml_hint or escape_hint\"",
       "depends": [],
+      "cwd": null,
+      "passes": true
+    },
+    {
+      "id": "T-04",
+      "desc": "Teste de integração com cópia real de C:\\Projetos\\MinimumAPI prova a correção sem regressão no fluxo já governado",
+      "files": [
+        "tests/test_integration_minimumapi.py"
+      ],
+      "verify_cmd": "python -m pytest tests/test_integration_minimumapi.py -q",
+      "depends": [
+        "T-01",
+        "T-02",
+        "T-03"
+      ],
       "cwd": null,
       "passes": true
     }

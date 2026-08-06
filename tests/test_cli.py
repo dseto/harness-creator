@@ -381,6 +381,43 @@ def test_compile_session_subcommand_success(
     assert (tmp_path / ".harness" / "hooks" / "stop_hook.py").is_file()
 
 
+def test_compile_session_warns_when_harness_yaml_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Issue #72: repo que nunca rodou `/harness-creator:init` (sem
+    `.harness/harness.yaml`) continua compilando a sessão — mas avisa em
+    stderr que TDD/política de aprovação ficaram de fora."""
+    _init_git_repo(tmp_path)
+    _prepare_compile_session_fixture(tmp_path)
+    assert not (tmp_path / ".harness" / "harness.yaml").exists()
+
+    monkeypatch.setattr(sys, "argv", ["harness", "compile-session", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    err = capsys.readouterr().err
+    assert ".harness/harness.yaml" in err
+    assert "/harness-creator:init" in err
+
+
+def test_compile_session_no_yaml_warning_when_harness_yaml_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _init_git_repo(tmp_path)
+    _prepare_compile_session_fixture(tmp_path)
+    yaml_path = tmp_path / ".harness" / "harness.yaml"
+    yaml_path.write_text("governance:\n  approval_policy: default\n", encoding="utf-8")
+
+    monkeypatch.setattr(sys, "argv", ["harness", "compile-session", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    err = capsys.readouterr().err
+    assert "harness.yaml" not in err
+
+
 def test_compile_session_subcommand_missing_feature_list_exits_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
