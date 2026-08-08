@@ -1,6 +1,6 @@
 # harness-creator
 
-**v0.30.0** · [CHANGELOG](docs/reference/CHANGELOG.md) · [Arquitetura visual (HTML interativo)](docs/plugin/arquitetura-visual.html)
+**v0.31.0** · [CHANGELOG](docs/reference/CHANGELOG.md) · [Arquitetura visual (HTML interativo)](docs/plugin/arquitetura-visual.html)
 
 Plugin do Claude Code que **cria, avalia e compila** estrutura de harness
 (governança de agentes) para projetos.

@@ -1,5 +1,74 @@
 # Changelog
 
+## v0.31.0 — atualização transparente dos artefatos compilados (issue #74, PR #75)
+
+Atualizar o harness passa a ser **um passo**: `pip install --upgrade
+harness-creator`. Os artefatos compilados de cada projeto (`.harness/`) se
+regeneram sozinhos quando ficam atrás do pacote instalado, por dois gatilhos:
+qualquer comando `harness` no repositório (o que inclui as skills, que chamam
+a CLI) e o hook `SessionStart`.
+
+Antes, a camada dos artefatos só era DIAGNOSTICADA pelo `harness doctor`. Quem
+esquecesse de recompilar seguia rodando os hooks e o `settings.local.json` da
+versão antiga, sem sinal nenhum — e o custo se multiplicava por projeto
+governado na máquina.
+
+As camadas 1 (pacote pip) e 3 (cache de plugin do Claude Code) continuam
+manuais e continuam reportadas pelo `doctor`: nenhuma delas pode se
+auto-atualizar de dentro do processo.
+
+### Módulo novo `harness.autoupdate`
+
+Duas metades deliberadamente separadas. A **decisão** (`plan_update`) é pura e
+sem subprocess — é o que roda no caminho feliz, e custa uma leitura de JSON
+mais uma comparação de tuplas. A **execução** (`sync_if_outdated`) é fail-open
+por contrato: qualquer falha vira aviso em stderr, nunca exceção propagada
+para o comando que a disparou.
+
+A comparação é por **tupla semver**, não por `!=` como faz o `doctor`. O
+`doctor` só reporta, então divergir é divergir; uma ação automática precisa da
+ordem, porque `compilado > instalado` é um caso real (máquina B com pip antigo
+abrindo um repositório compilado na máquina A) e regredir ali faria as duas
+máquinas brigarem a cada sessão.
+
+### `harness compile-session --no-branch`
+
+`compile-session` posiciona o repositório em `contract/<slug>` quando
+`branch_per_contract` está ativo. Sem a flag nova, uma recompilação disparada
+no início da sessão moveria quem está em `main` para a branch do contrato sem
+ter pedido nada. A recompilação automática usa `--no-branch` sempre.
+
+### Entrypoint `python -m harness.autoupdate`
+
+O hook `SessionStart` é stdlib-only e roda com `-S`, então não consegue
+importar `harness` para descobrir a versão instalada. Ele delega por
+subprocesso — o que evita duplicar a comparação dentro do script gerado, onde
+ela ficaria fora do alcance da suíte e divergiria na primeira mudança.
+
+O subprocesso NÃO herda `-S`/`-E`: com essas flags o `import harness` dele
+falharia e o gatilho de sessão nunca rodaria, em silêncio. Há teste que quebra
+se alguém as adicionar.
+
+### Limites, todos deliberados
+
+| Situação | Comportamento |
+|---|---|
+| `.harness/` à frente do pacote pip | Só avisa. Nunca regride artefato |
+| Recompilação falha | Aviso em stderr; o comando que a disparou segue normalmente |
+| Kill-switch ligado | Não roda |
+| `doctor`, `status`, `enable`, `disable`, `compile`, `compile-session` | Isentos |
+| `HARNESS_AUTO_UPDATE=0` | Desliga o comportamento (machine-local, por isso variável de ambiente e não chave do `harness.yaml`) |
+
+A recompilação pelo gatilho de sessão aparece no contexto injetado:
+atualização silenciosa é a mesma classe de problema do kill-switch invisível
+(issue #52).
+
+Limitação assumida: a sessão que dispara a recompilação já carregou os hooks
+anteriores; os novos valem a partir da próxima.
+
+Fora de escopo: primeira compilação de um clone que nunca rodou `harness
+compile` nesta máquina — segue como issue do `doctor`, com o comando exato.
+
 ## v0.30.0 — governança parcial sem `harness init` deixa de ser invisível (issue #72, PR #73)
 
 Era possível rodar o ciclo inteiro do harness (`plan` → `compile-contract` →
