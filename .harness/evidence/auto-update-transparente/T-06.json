@@ -1,0 +1,12 @@
+{
+  "feature_id": "T-06",
+  "contract": "auto-update-transparente",
+  "desc": "O ciclo completo funciona num repositório de verdade: estado antigo entra, versão atual sai, branch intacta",
+  "files": [
+    "tests/e2e/test_autoupdate_flow.py"
+  ],
+  "verify_cmd": "pytest tests/e2e/test_autoupdate_flow.py -q",
+  "recorded_at": "2026-08-08T22:45:31.489974+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:8f467dfa37934773ed5448394685af5a2b25b072e04e12b5f12e49cf69bcaaa5"
+}

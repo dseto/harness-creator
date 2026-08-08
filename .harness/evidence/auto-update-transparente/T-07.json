@@ -1,0 +1,14 @@
+{
+  "feature_id": "T-07",
+  "contract": "auto-update-transparente",
+  "desc": "A documentação passa a descrever a atualização como um passo só",
+  "files": [
+    "docs/plugin/TUTORIAL.md",
+    "docs/plugin/GUIDE.md",
+    "README.md"
+  ],
+  "verify_cmd": "pytest tests/test_docs_enforcement_claims.py -q",
+  "recorded_at": "2026-08-08T22:46:39.411924+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:9995bc7a80a6fd9dd4543ee8545b78475a2a6e5566f5d0fc556b725374321f53"
+}

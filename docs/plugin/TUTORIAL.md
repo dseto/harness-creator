@@ -369,6 +369,15 @@ Sai com código 0 quando está tudo consistente e 1 com a lista de issues e o
 comando exato de correção. Vale rodar depois de todo `pip install --upgrade`,
 `claude plugin update` ou `git clone`.
 
+> **Atualizar o harness é um passo só: `pip install --upgrade`.** Os artefatos
+> compilados deste projeto se regeneram sozinhos quando ficam atrás do pacote
+> instalado — basta rodar qualquer comando `harness` aqui, ou abrir uma sessão
+> do Claude Code. Você vê uma linha (`harness: artefatos recompilados 0.29.0 ->
+> 0.30.0`) e nada mais muda: a branch em que você está trabalhando não é
+> tocada. Para desligar, `HARNESS_AUTO_UPDATE=0` no ambiente. O `doctor` é
+> isento de propósito — ele mostra o estado real, não o corrige. Os limites
+> completos estão em [GUIDE.md](GUIDE.md#atualização-transparente-dos-artefatos).
+
 Se você mudar de ideia sobre a política, edite `approval_policy` no
 `.harness/harness.yaml` e rode `/harness-creator:compile` (mostra o diff do
 `settings.local.json`) — e reabra a sessão de novo.

@@ -77,28 +77,34 @@ Ou registre em `~/.claude/settings.json` como marketplace local (path do `pip sh
 ## Atualizando
 
 O harness-creator chega ao usuário por 3 camadas independentes, cada uma
-com ciclo de atualização próprio — atualizar só uma e esquecer as outras é
-a causa mais comum de "atualizei e continua com comportamento antigo":
+com ciclo de atualização próprio. A camada dos artefatos do repo-alvo se
+atualiza sozinha; as outras duas continuam manuais:
 
 ```bash
-# 1. pacote Python (lib + CLI `harness`)
+# 1. pacote Python (lib + CLI `harness`) — o único passo obrigatório
 pip install --upgrade harness-creator            # ou: pip install -e . (checkout local)
 
-# 2. artefatos compilados no repo-alvo (hooks, permissions, AGENTS.md)
-harness compile --dir <repo-alvo>
-
-# 3. plugin instalado no Claude Code (skills, comandos) — reiniciar a sessão depois
+# 2. plugin instalado no Claude Code (skills, comandos) — reiniciar a sessão depois
 claude plugin update harness-creator@<marketplace>
 
-# 4. confirma que as 3 camadas batem — aponta exatamente o que ficou pra trás
+# 3. confirma que as 3 camadas batem — aponta o que ficou pra trás
 harness doctor --dir <repo-alvo>
 ```
+
+**Os artefatos compilados do repo-alvo (hooks, permissions, `AGENTS.md`) não
+precisam de comando.** Quando eles estão atrás do pacote instalado, o próprio
+harness os regenera — ao rodar qualquer comando `harness` naquele repositório,
+ou ao abrir uma sessão do Claude Code nele. A recompilação avisa em uma linha
+no stderr (`harness: artefatos recompilados 0.29.0 -> 0.30.0`) e **nunca cria
+nem troca a branch de contrato**. Detalhes e limites em
+[GUIDE.md](docs/plugin/GUIDE.md#atualização-transparente-dos-artefatos).
 
 `harness doctor` compara a versão do pacote pip instalado, a versão gravada
 no último `harness compile` (`.harness/compiled-state.json`) e a versão no
 cache de plugin do Claude Code (`~/.claude/plugins/installed_plugins.json`);
 exit code 0 se tudo bate, 1 se alguma camada ficou atrasada — com o comando
-exato para corrigir.
+exato para corrigir. É o único comando deliberadamente isento da atualização
+automática: ele existe para mostrar o estado real, não para corrigi-lo.
 
 ## Skills
 

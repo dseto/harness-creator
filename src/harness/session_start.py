@@ -178,8 +178,53 @@ def _boundary_guard_drift_warning(cwd: Path) -> str | None:
     )
 
 
+def _auto_update(cwd: Path) -> str | None:
+    """Sincroniza os artefatos compilados com o pacote instalado e devolve o
+    aviso a injetar, ou None quando nada mudou.
+
+    A DECISAO nao mora aqui: este script e stdlib-only e roda com -S (sem
+    site-packages), entao nao consegue importar `harness` para saber a versao
+    instalada. Ele delega a `python -m harness.autoupdate`, que roda num
+    interpretador NOVO -- sem as flags -S/-E com que este hook foi lancado --
+    e devolve o veredito em JSON. Duplicar a comparacao aqui dentro deixaria
+    a logica fora do alcance da suite.
+
+    Qualquer falha vira None: perder o contexto da sessao anterior e um dano
+    maior do que ficar uma versao atras."""
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "harness.autoupdate", "--dir", str(cwd)],
+            capture_output=True,
+            text=True,
+            timeout=150,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        data = json.loads(proc.stdout)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(data, dict) or not data.get("recompiled"):
+        return None
+    return (
+        "## Artefatos do harness atualizados automaticamente\\n\\n"
+        "O .harness/ deste projeto tinha sido compilado com a versao "
+        + str(data.get("compiled_version")) + " e acabou de ser recompilado para "
+        + str(data.get("installed_version")) + ", a versao instalada nesta maquina.\\n\\n"
+        "ATENCAO: esta sessao ja carregou os hooks e o settings.local.json "
+        "ANTERIORES -- os arquivos novos passam a valer na PROXIMA sessao."
+    )
+
+
 def build_context(cwd: Path) -> str:
     parts = ["## Estado da sessao anterior (injetado pelo harness)"]
+
+    update_notice = _auto_update(cwd)
+    if update_notice:
+        parts.append(update_notice)
+
     parts.append(_read_feature_summary(cwd))
 
     progress = _read_progress(cwd)

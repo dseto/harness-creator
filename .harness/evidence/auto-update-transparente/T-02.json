@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-02",
+  "contract": "auto-update-transparente",
+  "desc": "Recompilar o projeto nunca tira o desenvolvedor da branch em que ele está trabalhando",
+  "files": [
+    "src/harness/cli.py",
+    "tests/test_cli.py"
+  ],
+  "verify_cmd": "pytest tests/test_cli.py -q",
+  "recorded_at": "2026-08-08T22:50:21.287174+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:d21504fb6f7695808fdd311fe35d184c7c5aad82119f4e02d8e65ab3e43c028e"
+}

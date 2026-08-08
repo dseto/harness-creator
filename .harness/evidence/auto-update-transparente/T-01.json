@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-01",
+  "contract": "auto-update-transparente",
+  "desc": "O harness reconhece quando os arquivos de governança do projeto foram gerados por uma versão mais antiga do que a instalada na máquina",
+  "files": [
+    "src/harness/autoupdate.py",
+    "tests/test_autoupdate.py"
+  ],
+  "verify_cmd": "pytest tests/test_autoupdate.py -q",
+  "recorded_at": "2026-08-08T22:50:11.699683+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:e9d48c3a3f64205d12e41b1de3b917f97ce8f2354ea038f32a3da3c558435c6d"
+}

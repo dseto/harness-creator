@@ -1,6 +1,6 @@
 # Claude Progress
 
-Contrato: `governanca-parcial-invisivel-sem-init`
+Contrato: `auto-update-transparente`
 
 _Demanda ENCERRADA por `harness finish`._
 
@@ -8,16 +8,14 @@ _Demanda ENCERRADA por `harness finish`._
 
 | id | desc | status |
 | --- | --- | --- |
-| T-01 | `harness compile-session` avisa quando `.harness/harness.yaml` não existe | done |
-| T-02 | `harness status` e `harness doctor` reportam governança parcial quando falta `harness.yaml` mas há sessão compilada | done |
-| T-03 | Bloco colável de `extra_allowed_commands` inclui a chave `governance:` quando ela ainda não existe no `harness.yaml` | done |
-| T-04 | Teste de integração com cópia real de C:\Projetos\MinimumAPI prova a correção sem regressão no fluxo já governado | done |
+| T-01 | O harness reconhece quando os arquivos de governança do projeto foram gerados por uma versão mais antiga do que a instalada na máquina | done |
+| T-02 | Recompilar o projeto nunca tira o desenvolvedor da branch em que ele está trabalhando | done |
+| T-03 | A atualização automática nunca quebra o comando que a disparou, nunca regride versão e obedece ao kill-switch e ao opt-out | done |
+| T-04 | Rodar qualquer comando do harness já deixa o projeto na versão instalada, sem passo extra | done |
+| T-05 | Abrir uma sessão do Claude Code também atualiza o projeto, sem ninguém rodar comando nenhum | done |
+| T-06 | O ciclo completo funciona num repositório de verdade: estado antigo entra, versão atual sai, branch intacta | done |
+| T-07 | A documentação passa a descrever a atualização como um passo só | done |
 
 ## Última atualização
-
-<!-- harness:auto -->
-- 2026-08-06T19:04:09.955434+00:00 — T-04 verificado (exit_code 0) — .harness/evidence/governanca-parcial-invisivel-sem-init/T-04.json
-<!-- /harness:auto -->
-
 
 _(vazio — demanda encerrada; o próximo `compile-session` regenera este arquivo a partir do contrato novo. A prova do que foi entregue está em `.harness/evidence/`.)_
