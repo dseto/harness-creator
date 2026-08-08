@@ -248,6 +248,122 @@ def test_without_sentinel_context_is_unchanged(tmp_path: Path) -> None:
     assert "T-02" in context
 
 
+# ---------------- T-05: atualização automática disparada pelo hook ----------------
+
+def _write_autoupdate_stub(tmp_path: Path, payload: dict) -> Path:
+    """Pacote `harness` mínimo cujo `-m harness.autoupdate` imprime `payload`.
+
+    Isola o contrato que T-05 possui — disparar, parsear e exibir — do
+    compilador de verdade, que é o que T-06 exercita ponta a ponta. Chega ao
+    subprocesso do hook via `PYTHONPATH`, o que só funciona porque o hook NÃO
+    passa `-E` adiante: se alguém adicionar essa flag, estes testes ficam
+    vermelhos."""
+    stub_root = tmp_path / "stub"
+    package = stub_root / "harness"
+    package.mkdir(parents=True, exist_ok=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "autoupdate.py").write_text(
+        "import json\nprint(json.dumps(" + repr(payload) + "))\n", encoding="utf-8"
+    )
+    return stub_root
+
+
+def _run_hook_with_stub(script_path: Path, cwd: Path, stub_root: Path) -> dict:
+    import os
+
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(stub_root)
+    proc = subprocess.run(
+        [sys.executable, str(script_path)],
+        input=json.dumps({"cwd": str(cwd)}),
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env=env,
+    )
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
+def test_hook_spawns_the_update_without_the_flags_that_hide_site_packages() -> None:
+    """O hook é LANÇADO com `-S -E` (`hook_launcher.hook_command`). Herdar
+    essas flags no subprocesso faria o `import harness` dele falhar, e o
+    gatilho de sessão nunca rodaria — em silêncio, porque a falha é tratada
+    como 'nada a atualizar'."""
+    source = render_session_start_hook()
+
+    assert '"-m", "harness.autoupdate"' in source
+    assert '"-S"' not in source
+    assert '"-E"' not in source
+
+
+def test_a_recompiled_project_says_so_in_the_session_context(tmp_path: Path) -> None:
+    """Atualização silenciosa é a mesma classe de problema do kill-switch
+    invisível (issue #52): o que o harness faz sozinho tem de aparecer."""
+    stub_root = _write_autoupdate_stub(
+        tmp_path,
+        {"recompiled": True, "compiled_version": "0.29.0", "installed_version": "0.30.0"},
+    )
+    script_path = _write_hook_script(tmp_path)
+
+    context = _context(_run_hook_with_stub(script_path, tmp_path, stub_root))
+
+    assert "0.29.0" in context
+    assert "0.30.0" in context
+    # A sessão CORRENTE segue com os hooks antigos já carregados — dizer o
+    # contrário faria o agente confiar num estado que não existe ainda.
+    assert "sess" in context.lower()
+
+
+def test_a_project_already_up_to_date_adds_nothing_to_the_context(tmp_path: Path) -> None:
+    stub_root = _write_autoupdate_stub(
+        tmp_path, {"recompiled": False, "verdict": "up_to_date"}
+    )
+    feature_list_path = tmp_path / ".harness" / "feature_list.json"
+    feature_list_path.parent.mkdir(parents=True, exist_ok=True)
+    feature_list_path.write_text(json.dumps(FEATURE_LIST_PENDING), encoding="utf-8")
+    script_path = _write_hook_script(tmp_path)
+
+    context = _context(_run_hook_with_stub(script_path, tmp_path, stub_root))
+
+    assert "recompilad" not in context.lower()
+    assert "T-02" in context
+
+
+def test_a_broken_update_never_costs_the_session_its_context(tmp_path: Path) -> None:
+    """Sem `harness` importável no subprocesso (o caso real de um venv
+    recriado), o `-m harness.autoupdate` falha. O hook precisa seguir
+    injetando o contexto: perder o estado da sessão anterior é um dano bem
+    maior do que ficar uma versão atrás."""
+    stub_root = tmp_path / "vazio"
+    stub_root.mkdir()
+    feature_list_path = tmp_path / ".harness" / "feature_list.json"
+    feature_list_path.parent.mkdir(parents=True, exist_ok=True)
+    feature_list_path.write_text(json.dumps(FEATURE_LIST_PENDING), encoding="utf-8")
+    script_path = _write_hook_script(tmp_path)
+
+    context = _context(_run_hook_with_stub(script_path, tmp_path, stub_root))
+
+    assert "T-02" in context
+
+
+def test_a_disabled_harness_does_not_get_updated_behind_the_users_back(tmp_path: Path) -> None:
+    """Kill-switch é a saída de emergência: nada do harness pode agir
+    enquanto ele está ligado, muito menos escrever artefatos."""
+    stub_root = _write_autoupdate_stub(
+        tmp_path,
+        {"recompiled": True, "compiled_version": "0.29.0", "installed_version": "0.30.0"},
+    )
+    (tmp_path / ".harness").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".harness" / "harness.disabled").write_text("{}", encoding="utf-8")
+    script_path = _write_hook_script(tmp_path)
+
+    context = _context(_run_hook_with_stub(script_path, tmp_path, stub_root))
+
+    assert "desativado" in context.lower()
+    assert "0.29.0" not in context
+
+
 # ---------------- install_session_start ----------------
 
 def test_install_writes_hook_file(tmp_path: Path) -> None:

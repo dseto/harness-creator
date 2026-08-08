@@ -553,6 +553,42 @@ Exit 0 se tudo bate, 1 com a lista de issues e o comando exato de correção.
 Vale rodar depois de todo `pip install --upgrade`, `claude plugin update` ou
 `git clone`.
 
+### Atualização transparente dos artefatos
+
+Das 3 camadas acima, a do meio — o `.harness/` compilado do projeto — não
+depende mais de ninguém lembrar de recompilar. Quando ela está atrás do
+pacote pip instalado, o harness regenera os artefatos sozinho, por dois
+gatilhos:
+
+- **qualquer comando `harness` naquele repositório**, o que inclui as skills
+  `/harness-creator:*` (elas chamam a CLI);
+- **abrir uma sessão do Claude Code**, via hook `SessionStart`.
+
+O que ele roda é `harness compile` e, se houver contrato ativo,
+`harness compile-session --no-branch`. A saída é uma linha em stderr
+(`harness: artefatos recompilados 0.29.0 -> 0.30.0`); pelo gatilho de sessão,
+o aviso também entra no contexto injetado, porque atualização silenciosa é a
+mesma classe de problema do kill-switch invisível.
+
+Cinco limites, todos deliberados:
+
+| Situação | Comportamento |
+|---|---|
+| `.harness/` **à frente** do pacote pip (outra máquina compilou) | Só avisa. Nunca regride artefato |
+| Recompilação falha (venv recriado, disco em erro) | Aviso em stderr; o comando que a disparou segue normalmente |
+| Kill-switch ligado (`.harness/harness.disabled`) | Não roda — o sentinel desliga o harness inteiro, inclusive isto |
+| `harness doctor`, `status`, `enable`, `disable`, `compile`, `compile-session` | Isentos. Os dois primeiros grupos precisam do estado real; os dois últimos são o próprio alvo |
+| `HARNESS_AUTO_UPDATE=0` no ambiente | Desliga o comportamento. É machine-local, e por isso variável de ambiente e não chave do `harness.yaml` |
+
+Duas coisas que ele **não** faz. Não cria nem troca a branch de contrato: por
+isso o `--no-branch`, e por isso quem está em `main` continua em `main`. E não
+compila pela primeira vez um clone que nunca rodou `harness compile` nesta
+máquina — esse caso continua sendo issue do `doctor`, com o comando exato.
+
+Limitação assumida: a sessão que dispara a recompilação já carregou os hooks e
+o `settings.local.json` anteriores. Os arquivos novos valem a partir da sessão
+seguinte.
+
 ## 10. Encerrar a demanda
 
 Quando `harness supervise --dir <alvo>` devolve `next: null`, todas as tarefas

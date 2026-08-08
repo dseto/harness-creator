@@ -85,6 +85,38 @@ def _audit_exit_code(report: Any) -> int:
     return 0 if report.score >= 60 else 1
 
 
+#: Subcomandos que NÃO disparam a atualização automática dos artefatos
+#: compilados, por três razões distintas:
+#:
+#: - `compile`/`compile-session`: são o próprio alvo da recompilação — o
+#:   gatilho aqui os chamaria em laço.
+#: - `doctor`: existe para mostrar o estado REAL das 3 camadas de versão.
+#:   Corrigir uma delas antes de reportar tornaria o laudo uma ficção.
+#: - `status`/`enable`/`disable`: o kill-switch precisa responder em qualquer
+#:   estado, inclusive com o harness quebrado. É a saída de emergência; nada
+#:   pode rodar antes dela.
+_AUTO_UPDATE_EXEMPT_COMMANDS = frozenset(
+    {"compile", "compile-session", "doctor", "status", "enable", "disable"}
+)
+
+
+def _auto_update(command: str | None, target_dir: Path) -> None:
+    """Sincroniza os artefatos compilados com o pacote instalado antes de
+    despachar o subcomando. Ver `harness.autoupdate`.
+
+    O `except` amplo é o mesmo compromisso do módulo: uma falha na
+    atualização automática nunca pode mudar o resultado do comando que o
+    usuário pediu."""
+    if command in _AUTO_UPDATE_EXEMPT_COMMANDS:
+        return
+    try:
+        from harness.autoupdate import sync_if_outdated
+
+        sync_if_outdated(target_dir)
+    except Exception as exc:
+        print(f"aviso: atualização automática do harness ignorada ({exc})", file=sys.stderr)
+
+
 def main() -> None:
     # No Windows, stdout redirecionado/piped fica na locale cp1252 e corrompia o JSON
     # ensure_ascii=False do laudo (UnicodeEncodeError em paths com caracteres fora do cp1252, ex. cirílico/CJK).
@@ -172,6 +204,13 @@ def main() -> None:
         help="Compila a sessão autônoma (Fase 2): permissions, boundary guard, lifecycle, templates, SessionStart",
     )
     cs.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+    cs.add_argument(
+        "--no-branch", action="store_true",
+        help="Compila os artefatos sem criar nem trocar a branch de contrato, "
+        "mesmo com branch_per_contract ativo. Existe para a recompilação "
+        "automática (harness.autoupdate), que não pode mover o desenvolvedor "
+        "de branch sem ele pedir",
+    )
 
     ver = sub.add_parser(
         "verify", help="Roda o verify_cmd de uma feature e grava .harness/evidence/<id>.json"
@@ -271,6 +310,7 @@ def main() -> None:
     # `compile` acertava e `analyze`/`audit` erravam).
     if getattr(args, "dir", None) is not None:
         args.dir = str(_validated_target_dir(args.dir))
+        _auto_update(args.command, Path(args.dir))
 
     if args.command == "compile":
         from harness.compiler import compile_project
@@ -457,8 +497,12 @@ def main() -> None:
         # de qualquer escrita — o dirty-check não pode contar artefatos que o
         # próprio compile-session grava. Sem feature_list, pula: o
         # compile_session_permissions abaixo produz o erro canônico.
+        # `--no-branch` desliga o posicionamento em `contract/<slug>` — com ele
+        # o dirty-check de `ensure_contract_branch` também não se aplica, porque
+        # o que aquele check protege é a CRIAÇÃO da branch. Ver `--no-branch` em
+        # `add_argument` e `harness.autoupdate`.
         branch = None
-        if load_branch_per_contract(target_dir) and feature_list_path.is_file():
+        if not args.no_branch and load_branch_per_contract(target_dir) and feature_list_path.is_file():
             if not is_git_repository(resolved_dir):
                 print(
                     "aviso: branch_per_contract ativo mas o diretório não é um "

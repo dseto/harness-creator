@@ -1,0 +1,14 @@
+{
+  "feature_id": "T-05",
+  "contract": "auto-update-transparente",
+  "desc": "Abrir uma sessão do Claude Code também atualiza o projeto, sem ninguém rodar comando nenhum",
+  "files": [
+    "src/harness/session_start.py",
+    "tests/test_session_start.py",
+    "src/harness/autoupdate.py"
+  ],
+  "verify_cmd": "pytest tests/test_session_start.py -q",
+  "recorded_at": "2026-08-08T22:43:41.930022+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:570d43429f7203aad9f13565e90dd420013d60aea1dff1052c320f1bdce4bfa7"
+}

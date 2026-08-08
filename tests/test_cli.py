@@ -492,6 +492,155 @@ def test_compile_session_non_git_dir_warns_and_skips_branch(
     assert "aviso" in captured.err
 
 
+def _current_branch(target: Path) -> str:
+    import subprocess
+
+    proc = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=target, capture_output=True, text=True, check=True,
+    )
+    return proc.stdout.strip()
+
+
+def test_compile_session_no_branch_leaves_the_developer_where_they_were(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """T-02: `--no-branch` compila os mesmos artefatos sem tocar em git.
+
+    Existe para a recompilação AUTOMÁTICA (T-03/T-05): disparada no início
+    da sessão, a versão sem a flag moveria quem está em `main` para
+    `contract/<slug>` sem ter pedido nada."""
+    _init_git_repo(tmp_path)
+    _prepare_compile_session_fixture(tmp_path)
+    _write(tmp_path / ".harness" / "harness.yaml", "governance:\n  branch_per_contract: true\n")
+    assert _current_branch(tmp_path) == "main"
+
+    monkeypatch.setattr(
+        sys, "argv", ["harness", "compile-session", "--dir", str(tmp_path), "--no-branch"]
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["branch"] is None
+    assert _current_branch(tmp_path) == "main"
+
+    # Pular a branch não pode pular a compilação: os artefatos são os mesmos.
+    assert (tmp_path / ".claude" / "settings.local.json").is_file()
+    assert (tmp_path / ".harness" / "hooks" / "boundary_guard.py").is_file()
+    assert (tmp_path / ".harness" / "hooks" / "session_start.py").is_file()
+    assert (tmp_path / ".harness" / "hooks" / "stop_hook.py").is_file()
+    assert (tmp_path / "AGENTS.md").is_file()
+
+
+def test_compile_session_no_branch_does_not_abort_on_a_dirty_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """O aborto por árvore suja protege a CRIAÇÃO da branch (finding C) —
+    sem branch a criar, ele não se aplica. Se aplicasse, a recompilação
+    automática só funcionaria com o repositório limpo, ou seja, quase nunca
+    durante o trabalho."""
+    _init_git_repo(tmp_path)
+    _prepare_compile_session_fixture(tmp_path)
+    _write(tmp_path / ".harness" / "harness.yaml", "governance:\n  branch_per_contract: true\n")
+    import subprocess
+    subprocess.run(["git", "add", "pyproject.toml"], cwd=tmp_path,
+                   capture_output=True, text=True, check=True)
+    subprocess.run(["git", "commit", "-m", "track"], cwd=tmp_path,
+                   capture_output=True, text=True, check=True)
+    (tmp_path / "pyproject.toml").write_text("# modificado depois\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        sys, "argv", ["harness", "compile-session", "--dir", str(tmp_path), "--no-branch"]
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    assert (tmp_path / ".claude" / "settings.local.json").is_file()
+    assert _current_branch(tmp_path) == "main"
+
+
+class _SyncSpy:
+    """Substitui `autoupdate.sync_if_outdated` para registrar SE e COM QUE
+    diretório o gatilho da CLI disparou."""
+
+    def __init__(self) -> None:
+        self.dirs: list[str] = []
+
+    def __call__(self, target_dir, **_kwargs):  # noqa: ANN001, ANN003
+        self.dirs.append(str(target_dir))
+
+        class _Result:
+            recompiled = False
+
+        return _Result()
+
+
+def _install_sync_spy(monkeypatch: pytest.MonkeyPatch) -> _SyncSpy:
+    import harness.autoupdate as autoupdate
+
+    spy = _SyncSpy()
+    monkeypatch.setattr(autoupdate, "sync_if_outdated", spy)
+    return spy
+
+
+#: (argv do subcomando, dispara o auto-update?, por quê)
+_AUTO_UPDATE_TRIGGER_CASES = [
+    (["analyze"], True, "comando comum dispara"),
+    (["audit"], True, "comando comum dispara"),
+    (["status"], False, "kill-switch precisa funcionar em qualquer estado"),
+    (["enable"], False, "kill-switch precisa funcionar em qualquer estado"),
+    (["disable"], False, "kill-switch precisa funcionar em qualquer estado"),
+    (["doctor"], False, "doctor mostra o estado real, não o corrige"),
+    (["compile"], False, "é o próprio alvo da recompilação: recursão"),
+    (["compile-session"], False, "é o próprio alvo da recompilação: recursão"),
+]
+
+
+@pytest.mark.parametrize(
+    ("argv", "expect_trigger", "why"),
+    _AUTO_UPDATE_TRIGGER_CASES,
+    ids=[f"{c[0][0]}: {c[2]}" for c in _AUTO_UPDATE_TRIGGER_CASES],
+)
+def test_auto_update_runs_before_every_command_except_the_ones_that_must_see_the_real_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    argv: list[str], expect_trigger: bool, why: str,
+) -> None:
+    spy = _install_sync_spy(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["harness", *argv, "--dir", str(tmp_path)])
+
+    with pytest.raises(SystemExit):
+        main()
+    capsys.readouterr()
+
+    assert bool(spy.dirs) is expect_trigger, why
+    if expect_trigger:
+        assert spy.dirs == [str(tmp_path.resolve())]
+
+
+def test_auto_update_failure_never_breaks_the_command_that_triggered_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Cinto e suspensórios: `sync_if_outdated` já promete não levantar, mas o
+    comando do usuário não pode depender dessa promessa para sair com o
+    código certo."""
+    import harness.autoupdate as autoupdate
+
+    def explode(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("falha inesperada no auto-update")
+
+    monkeypatch.setattr(autoupdate, "sync_if_outdated", explode)
+    monkeypatch.setattr(sys, "argv", ["harness", "analyze", "--dir", str(tmp_path)])
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    assert json.loads(capsys.readouterr().out)["languages"] == []
+
+
 def _write_feature_list(tmp_path: Path, verify_cmd: str) -> None:
     payload = {
         "contract": "exemplo-feature",

@@ -1,63 +1,101 @@
 {
-  "contract": "governanca-parcial-invisivel-sem-init",
-  "compiled_at": "2026-08-06T19:00:48.918662+00:00",
-  "compiled_with_version": "0.29.0",
+  "contract": "auto-update-transparente",
+  "compiled_at": "2026-08-08T22:41:22.562769+00:00",
+  "compiled_with_version": "0.30.0",
   "features": [
     {
       "id": "T-01",
-      "desc": "`harness compile-session` avisa quando `.harness/harness.yaml` não existe",
+      "desc": "O harness reconhece quando os arquivos de governança do projeto foram gerados por uma versão mais antiga do que a instalada na máquina",
       "files": [
-        "src/harness/session_permissions.py",
-        "src/harness/cli.py",
-        "tests/test_session_permissions.py",
-        "tests/test_cli.py"
+        "src/harness/autoupdate.py",
+        "tests/test_autoupdate.py"
       ],
-      "verify_cmd": "python -m pytest tests/test_session_permissions.py tests/test_cli.py -q -k \"compile_session or harness_yaml\"",
+      "verify_cmd": "pytest tests/test_autoupdate.py -q",
       "depends": [],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-02",
-      "desc": "`harness status` e `harness doctor` reportam governança parcial quando falta `harness.yaml` mas há sessão compilada",
+      "desc": "Recompilar o projeto nunca tira o desenvolvedor da branch em que ele está trabalhando",
       "files": [
-        "src/harness/killswitch.py",
-        "src/harness/doctor.py",
         "src/harness/cli.py",
-        "tests/test_killswitch.py",
-        "tests/test_doctor.py"
+        "tests/test_cli.py"
       ],
-      "verify_cmd": "python -m pytest tests/test_killswitch.py tests/test_doctor.py -q",
-      "depends": [
-        "T-01"
-      ],
-      "cwd": null,
-      "passes": true
-    },
-    {
-      "id": "T-03",
-      "desc": "Bloco colável de `extra_allowed_commands` inclui a chave `governance:` quando ela ainda não existe no `harness.yaml`",
-      "files": [
-        "src/harness/boundary_guard.py",
-        "tests/test_boundary_guard.py",
-        "tests/e2e/evidence/fase2-outcomes-verification.md"
-      ],
-      "verify_cmd": "python -m pytest tests/test_boundary_guard.py -q -k \"allowlist_yaml_hint or escape_hint\"",
+      "verify_cmd": "pytest tests/test_cli.py -q",
       "depends": [],
       "cwd": null,
       "passes": true
     },
     {
-      "id": "T-04",
-      "desc": "Teste de integração com cópia real de C:\\Projetos\\MinimumAPI prova a correção sem regressão no fluxo já governado",
+      "id": "T-03",
+      "desc": "A atualização automática nunca quebra o comando que a disparou, nunca regride versão e obedece ao kill-switch e ao opt-out",
       "files": [
-        "tests/test_integration_minimumapi.py"
+        "src/harness/autoupdate.py",
+        "tests/test_autoupdate.py"
       ],
-      "verify_cmd": "python -m pytest tests/test_integration_minimumapi.py -q",
+      "verify_cmd": "pytest tests/test_autoupdate.py -q",
       "depends": [
         "T-01",
-        "T-02",
+        "T-02"
+      ],
+      "cwd": null,
+      "passes": true
+    },
+    {
+      "id": "T-04",
+      "desc": "Rodar qualquer comando do harness já deixa o projeto na versão instalada, sem passo extra",
+      "files": [
+        "src/harness/cli.py",
+        "tests/test_cli.py"
+      ],
+      "verify_cmd": "pytest tests/test_cli.py -q",
+      "depends": [
         "T-03"
+      ],
+      "cwd": null,
+      "passes": true
+    },
+    {
+      "id": "T-05",
+      "desc": "Abrir uma sessão do Claude Code também atualiza o projeto, sem ninguém rodar comando nenhum",
+      "files": [
+        "src/harness/session_start.py",
+        "tests/test_session_start.py",
+        "src/harness/autoupdate.py"
+      ],
+      "verify_cmd": "pytest tests/test_session_start.py -q",
+      "depends": [
+        "T-03"
+      ],
+      "cwd": null,
+      "passes": true
+    },
+    {
+      "id": "T-06",
+      "desc": "O ciclo completo funciona num repositório de verdade: estado antigo entra, versão atual sai, branch intacta",
+      "files": [
+        "tests/e2e/test_autoupdate_flow.py"
+      ],
+      "verify_cmd": "pytest tests/e2e/test_autoupdate_flow.py -q",
+      "depends": [
+        "T-04",
+        "T-05"
+      ],
+      "cwd": null,
+      "passes": true
+    },
+    {
+      "id": "T-07",
+      "desc": "A documentação passa a descrever a atualização como um passo só",
+      "files": [
+        "docs/plugin/TUTORIAL.md",
+        "docs/plugin/GUIDE.md",
+        "README.md"
+      ],
+      "verify_cmd": "pytest tests/test_docs_enforcement_claims.py -q",
+      "depends": [
+        "T-06"
       ],
       "cwd": null,
       "passes": true
