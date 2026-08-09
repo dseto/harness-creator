@@ -1,5 +1,80 @@
 # Changelog
 
+## v0.32.0 — um gate humano no ciclo, e o plugin desatualizado deixa de ser invisível (issue #76, PR #77)
+
+O ciclo interrompia a pessoa três vezes: aprovar o contrato, pedir a
+implementação, aprovar o commit. Duas dessas paradas pediam algo que ela já
+tinha decidido. Passa a haver **uma**.
+
+E a camada 3 das 3 camadas de distribuição — o cache de plugin do Claude Code,
+que serve as skills `/harness-creator:*` — deixa de envelhecer em silêncio.
+
+### A camada 3 avisa na abertura da sessão
+
+Ela não pode se auto-atualizar: `claude plugin update` exige rede, e as skills
+são carregadas na inicialização da sessão. Antes, a defasagem só aparecia para
+quem rodasse `harness doctor` de propósito.
+
+Agora o hook `SessionStart` injeta um bloco em destaque com o que está velho,
+o comando exato numa linha própria para copiar, e o aviso de que é preciso
+reiniciar — além da frase que deixa claro que **nada está bloqueado**.
+
+Nenhum subprocesso novo: o payload de `python -m harness.autoupdate`, que o
+hook já dispara desde a v0.31.0, ganhou a chave `stale_plugins`; e a
+comparação reutiliza `doctor.stale_plugin_installs`, em vez de nascer uma
+terceira cópia da regra de versão. `harness doctor` passa a consumir a mesma
+função — antes tinha a sua própria (`!=`), e duas regras de versão são duas
+regras que podem divergir.
+
+**Bloquear tool calls pelo cache velho foi avaliado e descartado**, com as
+quatro razões registradas no `spec.md` e no `GUIDE.md` para a decisão não
+voltar como sugestão: auto-trava no release (bumpar o pacote torna o cache
+obsoleto no mesmo instante); não existe superfície estreita para negar (skills
+são prompts, não tool calls); não há conserto dentro da sessão, então o deny
+empurraria para o kill-switch, que é desproteção total; e skill desatualizada
+não fura gate nenhum — o enforcement vive nos hooks e na CLI, ambos correntes.
+
+`HARNESS_AUTO_UPDATE=0` **não** silencia o aviso: desliga o agir, não o
+informar.
+
+### Commit e push automáticos
+
+Os passos 15 e 16 do Agent Session Lifecycle deixam de exigir sinal verde
+humano. O gate era **instrucional, não imposto** — o `boundary_guard` só barra
+branch protegida —, então a mudança é no texto que governa o comportamento, e
+nenhum guard foi afrouxado.
+
+O que substitui o gate: `harness finish` com `blockers: []`, que só sai assim
+com toda tarefa em `passes: true` e evidência cujo `files_hash` bate com o
+código atual. Sem isso, o agente para e chama o humano.
+
+O passo 15 não sumiu — deixou de BARRAR e continua MOSTRANDO: descrição
+funcional e link `file:line` seguem exigidos (issue #12).
+
+O runtime floor segue idêntico: push só de `contract/<slug>` para ela mesma,
+sem `--force`; commit em branch protegida continua barrado, e o `chore` de
+versão/CHANGELOG continua sendo do humano.
+
+### `harness pr-draft` — o PR chega pronto
+
+Comando novo. Grava `.harness/scratch/pr-body.md` a partir do contrato (título
+tirado do `# Spec:`, tabela de tarefas com `verify_cmd` e estado da evidência)
+e imprime o `gh pr create` exato com `--body-file` — nunca `--body` inline,
+porque acentuação em linha de comando no PowerShell 5.1 corrompe multi-byte.
+
+Ele gera o **fato** derivável do contrato e deixa marcado com `PREENCHER` o
+**racional**, que não é derivável e é a parte que faz alguém entender o PR.
+
+**Abrir, aprovar ou mergear PR nunca é ação do agente** — não-objetivo
+explícito e `stop_condition` do contrato.
+
+### Bug corrigido: `--head` de um repositório sem relação
+
+`git rev-parse` SOBE a árvore de diretórios. Sem checar `is_git_repository`
+antes, `pr_draft` rodando num diretório aninhado sob outro repositório — um
+`~` versionado, por exemplo — devolveria a branch daquele repo, e o comando
+sairia com um `--head` errado, que é pior que sair sem nenhum.
+
 ## v0.31.0 — atualização transparente dos artefatos compilados (issue #74, PR #75)
 
 Atualizar o harness passa a ser **um passo**: `pip install --upgrade
