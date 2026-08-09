@@ -55,6 +55,17 @@ aprovado e só devolve o controle ao humano em estado retomável.
    código, esboçar a abordagem: quais arquivos mudam, que testes cobrem a
    mudança, qual é o critério de pronto.
 
+   Descartou uma alternativa por razão NÃO ÓBVIA, ou tomou uma decisão que
+   restringe as iterações seguintes? Registre:
+
+       harness decide "<título curto>" --decision "<o que foi decidido>" --why "<a razão, incluindo a alternativa descartada>"
+
+   O registro é append-only (`.harness/decisions.md`) e as decisões recentes
+   chegam sozinhas no contexto da próxima sessão. Sem isso, a sessão de daqui
+   a duas semanas "descobre" e tenta de novo o caminho que esta aqui descartou
+   por bom motivo — o motivo não estava em lugar nenhum que ela lesse. Não é
+   ADR: três linhas bastam, e decisão óbvia não precisa de registro nenhum.
+
 8. **Implementar a mudança dentro do raio de impacto declarado.** Editar
    apenas os arquivos ligados à feature escolhida — o `boundary_guard`
    (Fase 2) nega qualquer edição fora dessa superfície.
@@ -137,9 +148,21 @@ aprovado e só devolve o controle ao humano em estado retomável.
     evidência fresca do passo 11 — marcar sem evidência é enfraquecer a
     garantia que todo o lifecycle existe para proteger.
 
-14. **Documentar o que ficou quebrado, se houver.** Transparência: se algo
-    ficou incompleto ou quebrado, isso é registrado explicitamente — nunca
-    escondido atrás de um commit "limpo".
+14. **Documentar o que ficou quebrado, e anotar a fricção que apareceu.**
+    Transparência: se algo ficou incompleto ou quebrado, isso é registrado
+    explicitamente — nunca escondido atrás de um commit "limpo".
+
+    Bateu numa fricção durante a sessão — regra que barrou demais, critério
+    ambíguo, mensagem de erro que não ajudou, o mesmo erro pela terceira vez?
+    Anote no momento em que aconteceu, uma linha, sem interromper o trabalho:
+
+        harness lesson "<a fricção observada>" --fix "<melhoria candidata no harness/skill/critério>"
+
+    **O agente anota; quem compila é o humano.** Não feche um item, não
+    "aplique" a lição editando o harness, não abra issue por conta própria:
+    auto-modificação do harness pelo próprio agente é a camada mais perigosa
+    do design e não vale o risco. As lições em aberto aparecem no
+    `harness finish` (campo `open_lessons`) — é ali que a pessoa as encontra.
 
 15. **Apresentar o que será commitado.** Este passo deixou de ser um gate: o
     ciclo tem UM pedido humano, a aprovação do contrato, e ela já autoriza o

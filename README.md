@@ -129,7 +129,7 @@ automática: ele existe para mostrar o estado real, não para corrigi-lo.
 Detalhe completo do preflight (tabela de checks, contrato do JSON, decisões de
 arquitetura): [docs/preflight.md](docs/preflight.md).
 
-## CLI — os 22 subcomandos
+## CLI — os 24 subcomandos
 
 Todos aceitam `--dir <alvo>` (default `.`) e só operam sobre um diretório que
 já existe: um `--dir` com erro de digitação sai com código 2 sem escrever nada.
@@ -149,6 +149,13 @@ já existe: um `--dir` com erro de digitação sai com código 2 sem escrever na
 | `harness budget --feature <id>` | Disjuntor do loop: conta o rastro de tentativas e devolve `continue`/`stop_same_failure`/`stop_iterations`. Só leitura; exit 2 quando manda parar |
 | `harness finish` | Encerra a demanda: audita o fecho e, só se aprovado, varre os descartáveis do `.harness/`. **Nunca toca git** |
 | `harness pr-draft` | Monta o PR a partir do contrato: grava `.harness/scratch/pr-body.md` e imprime o `gh pr create` exato. **O agente nunca abre o PR** |
+
+### Spine do projeto (§5.2 e §5.3)
+
+| Comando | Faz |
+|---|---|
+| `harness decide "<título>" --decision "..." --why "..."` | Acrescenta uma decisão (com a alternativa descartada e o porquê) em `.harness/decisions.md`. Append-only, id sequencial, datada. As recentes voltam sozinhas no contexto da próxima sessão |
+| `harness lesson "<fricção>" --fix "..."` | Acrescenta uma linha em `.harness/lessons.md`. **O agente anota, o humano compila** — as abertas aparecem no `harness finish` |
 
 ### Ajustes sem reabrir o gate de aprovação
 
@@ -352,6 +359,36 @@ gate final, quando o diff suspeito já tem o tamanho da demanda inteira.
 
 Base: §6 do mesmo documento.
 
+### A spine completa: progresso, decisões e lições
+
+O design descreve TRÊS registros persistentes, com ciclos de vida diferentes. O
+harness mecanizava só o primeiro:
+
+| arquivo | responde | vida | escrito por |
+|---|---|---|---|
+| `.harness/progress.md` | onde estamos | a demanda | `verify`/`finish` (reescreve) |
+| `.harness/decisions.md` | por que decidimos assim | o projeto | `harness decide` (append) |
+| `.harness/lessons.md` | o que atrapalhou | o projeto | `harness lesson` (append) |
+
+- **Append-only é a garantia** — decisão registrada não é editada nem apagada;
+  mudou de ideia, registre outra que a supersede. Um arquivo reescrevível não
+  prova que a razão gravada é a razão original, e essa prova é a única coisa
+  que ele tem a oferecer.
+- **Escrever é comando, não edição** — o `boundary_guard` barra escrita em
+  `.harness/**` (plano de controle não se auto-amplia), então ou existe verbo
+  ou estes arquivos nunca são escritos. O verbo também numera e data sem
+  colisão.
+- **As decisões chegam sozinhas** — o `SessionStart` injeta as mais recentes,
+  com o porquê junto, depois do resumo de progresso: a hora de saber o que não
+  re-tentar é ao escolher a próxima fatia. Sem isso, a sessão de daqui a duas
+  semanas "descobre" a alternativa que esta descartou por bom motivo.
+- **As lições NÃO chegam** — §5.3 é explícito: elas não bloqueiam retomada.
+  Aparecem no `harness finish` (`open_lessons`) para o humano. O agente anota;
+  **o agente não aplica**. Auto-modificação do harness pelo próprio agente é a
+  camada mais perigosa do design.
+
+Base: §5.2 e §5.3 do mesmo documento.
+
 ## Estrutura do repo
 
 ```
@@ -361,8 +398,8 @@ harness-creator/
 │   └── marketplace.json         # auto-referência p/ instalar como marketplace local
 ├── AGENTS.md                    # 3 blocos gerenciados + prosa humana
 ├── skills/                      # preflight, init, plan, compile, audit, team
-├── src/harness/                 # 36 módulos, uma responsabilidade cada
-│   ├── cli.py                   # dispatch dos 22 subcomandos
+├── src/harness/                 # 37 módulos, uma responsabilidade cada
+│   ├── cli.py                   # dispatch dos 24 subcomandos
 │   │
 │   │                            # -- base (fonte única de cada verdade) --
 │   ├── config.py                # HarnessConfig (pydantic) — schema do yaml
@@ -393,6 +430,7 @@ harness-creator/
 │   ├── verify.py                # roda verify_cmd e grava a evidência
 │   ├── attempts.py              # rastro de tentativas: erro cru + assinatura da falha
 │   ├── regression.py            # re-prova incremental: fatia nova × fatias já provadas
+│   ├── spine.py                 # decisões e lições: append-only, vida = o projeto
 │   ├── budget.py                # disjuntor do loop: continue / stop_* por contagem
 │   ├── reconcile.py             # declarado × real na ABERTURA (reusa audit_closure)
 │   ├── review.py                # state machine do revisor (teto duro de iterações)
@@ -414,7 +452,7 @@ harness-creator/
 │   └── .gitignore               # a regra de ignore é do próprio produto
 ├── docs/plugin/                 # TUTORIAL, GUIDE, ARCHITECTURE, arquitetura-visual.html
 ├── docs/project/                # ROADMAP, PLAN, laudos e handoffs
-└── tests/                       # 1091 casos (sem Docker/API para compile/audit)
+└── tests/                       # 1121 casos (sem Docker/API para compile/audit)
 ```
 
 Quem decide o que entra no git é a **Seção 3** de
@@ -427,7 +465,7 @@ de compilação que carrega dado de máquina é machine-local e regenerada por
 
 ```powershell
 $env:PYTHONPATH = "src"
-python -m pytest tests -q          # unit + E2E — 1091 casos
+python -m pytest tests -q          # unit + E2E — 1121 casos
 ```
 
 A suíte E2E (`tests/e2e/`) roda inteira sobre repos sintéticos criados em

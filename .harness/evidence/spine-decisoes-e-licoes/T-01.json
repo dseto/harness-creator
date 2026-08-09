@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-01",
+  "contract": "spine-decisoes-e-licoes",
+  "desc": "O projeto passa a ter onde guardar a razão de uma escolha e a fricção observada, com numeração e data automáticas, e nada do que já foi registrado pode ser alterado por um registro novo",
+  "files": [
+    "src/harness/spine.py",
+    "tests/test_spine.py"
+  ],
+  "verify_cmd": "pytest tests/test_spine.py -q",
+  "recorded_at": "2026-08-09T13:10:48.991738+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:abe8d767380186561f3d6461aaa70f14ca07da465f8f9a5944e1912f26e61c79"
+}

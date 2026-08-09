@@ -2182,6 +2182,12 @@ _HARNESS_SUBCOMMANDS = [
     # ABERTURA de toda sessao: fora desta lista, o primeiro comando do ciclo
     # seria negado pelo hook que o proprio ciclo instalou.
     "reconcile",
+    # 'decide' e 'lesson' escrevem em .harness/decisions.md e
+    # .harness/lessons.md -- justamente os arquivos que ESTE guard proibe editar
+    # direto (plano de controle nao se auto-amplia). Ou o verbo passa, ou os dois
+    # registros da spine nunca sao escritos por ninguem. Superficie estreita: os
+    # dois so acrescentam linha no fim do arquivo, nunca reescrevem.
+    "decide", "lesson",
     # Formas de invocacao read-only: negar `harness --help` deixava o agente
     # sem sequer descobrir os subcomandos disponiveis (relatado ao vivo no
     # deadlock de bootstrap). 'doctor'/'status' sao read-only; 'enable' e

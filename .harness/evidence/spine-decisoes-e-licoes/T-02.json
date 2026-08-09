@@ -1,0 +1,15 @@
+{
+  "feature_id": "T-02",
+  "contract": "spine-decisoes-e-licoes",
+  "desc": "Registrar uma decisão ou uma lição é um comando de uma linha, que o próprio hook de proteção não nega",
+  "files": [
+    "src/harness/cli.py",
+    "tests/test_cli.py",
+    "src/harness/boundary_guard.py",
+    "tests/test_boundary_guard.py"
+  ],
+  "verify_cmd": "pytest tests/test_cli.py tests/test_boundary_guard.py -q",
+  "recorded_at": "2026-08-09T13:12:23.439125+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:412b42fe100553e37a248ccf8faa44943906ad29d7ae47c979d65f247305cddf"
+}

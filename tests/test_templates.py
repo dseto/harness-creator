@@ -20,6 +20,7 @@ from harness.templates import (
     render_progress_template,
     update_progress_status,
 )
+from harness.spine import DECISIONS_FILE, LESSONS_FILE, record_decision, record_lesson
 
 
 def _write(path: Path, text: str) -> Path:
@@ -309,7 +310,14 @@ def test_render_init_scripts_pip_generates_pip_install_editable(tmp_path: Path) 
     assert "pip install -e ." in init_ps1
 
 
-def test_install_templates_creates_three_files_in_empty_dir(tmp_path: Path) -> None:
+def test_install_templates_creates_the_whole_spine_in_an_empty_dir(tmp_path: Path) -> None:
+    """Os três registros da spine (§5) mais os dois scripts de init.
+
+    `decisions.md`/`lessons.md` nascem aqui porque o `boundary_guard` proíbe
+    escrita em `.harness/**`: sem o esqueleto compilado, o primeiro `harness
+    decide` de um projeto criaria um arquivo sem cabeçalho nenhum, e nada diria
+    ao humano que ele é append-only.
+    """
     profile = {
         "package_manager": {"value": "poetry", "evidence": "poetry.lock", "confidence": 1.0},
         "test_command": {"value": "pytest", "evidence": "pyproject.toml", "confidence": 1.0},
@@ -320,12 +328,38 @@ def test_install_templates_creates_three_files_in_empty_dir(tmp_path: Path) -> N
     progress_path = tmp_path / PROGRESS_FILE
     init_sh_path = tmp_path / INIT_SH_FILE
     init_ps1_path = tmp_path / INIT_PS1_FILE
+    decisions_path = tmp_path / DECISIONS_FILE
+    lessons_path = tmp_path / LESSONS_FILE
 
-    assert set(written) == {progress_path, init_sh_path, init_ps1_path}
+    assert set(written) == {
+        progress_path, init_sh_path, init_ps1_path, decisions_path, lessons_path,
+    }
     assert progress_path.is_file()
     assert init_sh_path.is_file()
     assert init_ps1_path.is_file()
     assert "poetry install" in init_sh_path.read_text(encoding="utf-8")
+    assert "append-only" in decisions_path.read_text(encoding="utf-8").lower()
+    assert "append-only" in lessons_path.read_text(encoding="utf-8").lower()
+
+
+def test_recompiling_never_erases_a_decision_or_a_lesson(tmp_path: Path) -> None:
+    """A vida destes dois arquivos é o PROJETO, não a demanda: uma demanda nova
+    recompila a sessão, e regenerar aqui apagaria a razão de escolhas tomadas em
+    demandas anteriores — que é exatamente o que eles existem para guardar."""
+    profile = {
+        "package_manager": {"value": "poetry", "evidence": "poetry.lock", "confidence": 1.0},
+        "test_command": {"value": "pytest", "evidence": "pyproject.toml", "confidence": 1.0},
+    }
+    install_templates(tmp_path, _FEATURE_LIST, profile)
+    record_decision(tmp_path, "Decisao antiga", decision="x", why="y", today="2026-08-01")
+    record_lesson(tmp_path, "friccao antiga", fix="melhoria")
+
+    written = install_templates(tmp_path, _FEATURE_LIST, profile)
+
+    assert (tmp_path / DECISIONS_FILE) not in written
+    assert (tmp_path / LESSONS_FILE) not in written
+    assert "Decisao antiga" in (tmp_path / DECISIONS_FILE).read_text(encoding="utf-8")
+    assert "friccao antiga" in (tmp_path / LESSONS_FILE).read_text(encoding="utf-8")
 
 
 def test_install_templates_preserves_existing_progress_but_regenerates_init(

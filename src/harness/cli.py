@@ -249,6 +249,32 @@ def main() -> None:
         "do agente a cada verify",
     )
 
+    decide = sub.add_parser(
+        "decide",
+        help="Registra uma decisão do projeto (com o porquê) em .harness/decisions.md",
+    )
+    decide.add_argument("title", help="Título curto da decisão")
+    decide.add_argument(
+        "--decision", required=True, help="O que foi decidido, em uma frase",
+    )
+    decide.add_argument(
+        "--why", required=True,
+        help="A razão, incluindo a alternativa descartada e por quê. Obrigatório: "
+        "decisão sem porquê não impede ninguém de re-litigar, que é o único "
+        "trabalho deste registro",
+    )
+    decide.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+
+    lesson = sub.add_parser(
+        "lesson",
+        help="Anota uma fricção observada em .harness/lessons.md (quem compila é o humano)",
+    )
+    lesson.add_argument("friction", help="A fricção observada, em uma linha")
+    lesson.add_argument(
+        "--fix", required=True, help="A melhoria candidata no harness/skill/critério",
+    )
+    lesson.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+
     team = sub.add_parser("team", help="Team-Architecture Factory (Fase 4): design/generate de times de agentes")
     team_sub = team.add_subparsers(dest="team_command", required=True)
 
@@ -858,14 +884,51 @@ def main() -> None:
     if args.command == "finish":
         from harness.finish import audit_closure, sweep_disposables
 
+        from harness.spine import open_lessons
+
         report = audit_closure(Path(args.dir))
         # A auditoria é o gate: reprovada, o comando reporta e sai sem varrer
         # nada — limpar por cima de um fecho quebrado apagaria o rastro
         # necessário para consertá-lo.
         if not report["blockers"]:
             report["swept"] = sweep_disposables(Path(args.dir))
+        # As lições saem SEMPRE, inclusive com bloqueador: elas não são veredito
+        # de fecho, são a pauta do humano (§5.3), e a demanda que travou é
+        # justamente a que costuma ter gerado fricção. Lista sempre presente —
+        # chave ausente e lista vazia dizem coisas diferentes a quem consome
+        # este JSON.
+        report["open_lessons"] = [
+            f"{lesson.friction} → {lesson.fix}" if lesson.fix else lesson.friction
+            for lesson in open_lessons(Path(args.dir))
+        ]
         print(json.dumps(report, indent=2, ensure_ascii=False))
         sys.exit(1 if report["blockers"] else 0)
+
+    if args.command == "decide":
+        from harness.spine import DECISIONS_FILE, record_decision
+
+        decision_id = record_decision(
+            Path(args.dir), args.title, decision=args.decision, why=args.why,
+        )
+        print(json.dumps({
+            "id": decision_id,
+            "file": DECISIONS_FILE,
+            "title": args.title,
+        }, indent=2, ensure_ascii=False))
+        sys.exit(0)
+
+    if args.command == "lesson":
+        from harness.spine import LESSONS_FILE, open_lessons, record_lesson
+
+        line = record_lesson(Path(args.dir), args.friction, fix=args.fix)
+        print(json.dumps({
+            "line": line,
+            "file": LESSONS_FILE,
+            # A contagem de abertas é o único número que interessa aqui: ela é o
+            # que o humano vai encontrar no fecho da demanda.
+            "open": len(open_lessons(Path(args.dir))),
+        }, indent=2, ensure_ascii=False))
+        sys.exit(0)
 
     if args.command == "audit-team":
         from harness.team_audit import audit_team

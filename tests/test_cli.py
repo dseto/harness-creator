@@ -1367,6 +1367,11 @@ def test_every_dir_taking_subcommand_refuses_a_nonexistent_dir(
     for command in ("analyze", "compile", "audit", "audit-runtime", "preflight",
                     "compile-session", "supervise", "doctor", "status", "reconcile"):
         assert _run(monkeypatch, command, "--dir", ghost) == 2, command
+    # Os verbos de registro da spine tomam posicional obrigatório: sem eles o
+    # exit 2 viria do argparse e o teste passaria sem exercitar a guarda.
+    assert _run(monkeypatch, "decide", "t", "--decision", "d", "--why", "p",
+                "--dir", ghost) == 2
+    assert _run(monkeypatch, "lesson", "f", "--fix", "m", "--dir", ghost) == 2
     assert not Path(ghost).exists()
 
 
@@ -1395,6 +1400,83 @@ def test_audit_exits_one_when_a_critical_finding_exists(
     assert report["score"] == 60
     assert any(f["severity"] == "critical" for f in report["findings"])
     assert code == 1, "critical com score exatamente 60 saía 0"
+
+
+# ---------------------------------------------------------------------------
+# harness decide / harness lesson (contrato `spine-decisoes-e-licoes`, T-02)
+# ---------------------------------------------------------------------------
+
+def test_decide_records_the_reason_and_answers_with_the_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code = _run(
+        monkeypatch, "decide", "Nao inferir acoplamento",
+        "--decision", "Usar files[] declarado",
+        "--why", "Inferencia por import erra em silencio",
+        "--dir", str(tmp_path),
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["id"] == "D-001"
+    content = (tmp_path / ".harness" / "decisions.md").read_text(encoding="utf-8")
+    assert "Nao inferir acoplamento" in content
+    assert "Inferencia por import erra em silencio" in content
+
+
+def test_a_decision_without_a_reason_is_refused_by_the_parser(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Decisão sem porquê é o registro que não serve para nada: o modo de falha
+    é a sessão futura re-litigar, e é o porquê que a impede."""
+    code = _run(monkeypatch, "decide", "Titulo", "--decision", "x", "--dir", str(tmp_path))
+
+    assert code == 2
+    assert not (tmp_path / ".harness" / "decisions.md").exists()
+
+
+def test_lesson_records_the_friction_and_the_candidate_fix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code = _run(
+        monkeypatch, "lesson", "guard nega git switch em comando composto",
+        "--fix", "tornar o deny deterministico", "--dir", str(tmp_path),
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["open"] == 1
+    content = (tmp_path / ".harness" / "lessons.md").read_text(encoding="utf-8")
+    assert "- [ ] guard nega git switch em comando composto" in content
+
+
+def test_finish_hands_the_open_lessons_to_the_human(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """§5.3: as lições são consumidas pelo HUMANO, em cadência — e o fim da
+    demanda é a cadência que já existe. Sem isso o arquivo cresce e ninguém o
+    abre, que é o mesmo que não ter anotado."""
+    _reconcilable_repo(tmp_path, contract="demo", progress_contract="demo")
+    _run(monkeypatch, "lesson", "guard nega demais", "--fix", "afrouxar", "--dir", str(tmp_path))
+    capsys.readouterr()
+
+    _run(monkeypatch, "finish", "--dir", str(tmp_path))
+
+    report = json.loads(capsys.readouterr().out)
+    assert len(report["open_lessons"]) == 1
+    assert "guard nega demais" in report["open_lessons"][0]
+
+
+def test_finish_without_lessons_reports_an_empty_list_not_a_missing_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Chave ausente e lista vazia dizem coisas diferentes para quem consome o
+    JSON: "não sei" e "não há". Aqui sempre se sabe."""
+    _reconcilable_repo(tmp_path, contract="demo", progress_contract="demo")
+
+    _run(monkeypatch, "finish", "--dir", str(tmp_path))
+
+    assert json.loads(capsys.readouterr().out)["open_lessons"] == []
 
 
 # ---------------------------------------------------------------------------
