@@ -1,0 +1,14 @@
+{
+  "feature_id": "T-05",
+  "contract": "aviso-plugin-e-ciclo-automatico",
+  "desc": "O Pull Request chega pronto: comando exato e descrição montada a partir do contrato",
+  "files": [
+    "src/harness/pr_draft.py",
+    "src/harness/cli.py",
+    "tests/test_pr_draft.py"
+  ],
+  "verify_cmd": "pytest tests/test_pr_draft.py -q",
+  "recorded_at": "2026-08-09T00:52:02.802506+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:5c6010bdb7c0840cc496b8f562e69c0ee1db033cca63a591358fd75605936ec9"
+}

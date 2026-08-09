@@ -89,6 +89,18 @@ sem isso o usuário precisa perguntar onde o contrato está.
 Se o usuário pedir mudanças, edite `spec.md`/`Plans.md` e repita este passo
 até a aprovação explícita.
 
+> **A aprovação autoriza o ciclo inteiro — não pare depois dela.** Este é o
+> **único gate** humano antes do Pull Request. Recebida a aprovação, siga
+> direto pelos Passos 6 a 9 (compilar, implementar em TDD, encerrar,
+> commitar e empurrar) sem pedir "posso implementar?" nem qualquer outra
+> confirmação intermediária: quem aprovou o contrato já autorizou o trabalho
+> que ele descreve. Pedir de novo é fazer o humano decidir duas vezes a
+> mesma coisa.
+>
+> Isso NÃO afrouxa o gate acima: `approved_by`/`approved_at` continuam
+> proibidos de auto-preenchimento. O que a aprovação dispensa é o SEGUNDO
+> pedido, não o primeiro.
+
 ## Passo 6 — Compilar o contrato
 
 Só depois do frontmatter aprovado (Passo 5), rode:
@@ -198,12 +210,12 @@ Isso é ADICIONAL aos `verify_cmd` automatizados de cada tarefa, não os
 substitui. Sem UI tocada nas tarefas (mudança só de backend/API/CLI), este
 passo não se aplica.
 
-## Passo 9 — Encerrar o contrato (`harness finish`) ANTES do commit final
+## Passo 9 — Encerrar, commitar, empurrar e entregar o PR pronto
 
 Depois que todas as tarefas passarem e o Passo 8 (se aplicável) estiver
 feito, rode `harness finish --dir <alvo>` **ainda na branch do contrato**
-(`contract/<slug>`) — **antes** de pedir a aprovação humana do commit e
-**antes** de fazer push/PR. Não espere o merge para rodar isto.
+(`contract/<slug>`) — **antes** do commit e **antes** do push. Não espere o
+merge para rodar isto.
 
 Por quê: `harness finish` reescreve `.harness/progress.md` como demanda
 encerrada. Rodar isso depois do merge deixa essa reescrita como uma sobra
@@ -216,9 +228,35 @@ nada.
 Se `harness finish` reportar `blockers` (ex.: `evidence_stale` — o
 `files_hash` gravado não bate mais com o arquivo atual), resolva ali
 mesmo: rode `harness verify <T-ID>` de novo para cada tarefa apontada e
-repita `harness finish`. Só peça a aprovação do commit final depois que
-`finish` sair com `blockers: []` — o diff que o humano aprova já inclui o
-`progress.md` reescrito.
+repita `harness finish`.
+
+Com `blockers: []`, siga direto — sem pedir autorização, que já veio no
+Passo 5:
+
+1. **Apresente o que vai ser commitado** (passo 15 do lifecycle): por
+   feature, a descrição funcional do que mudou e o link `file:line` do teste
+   que prova. Isto é visibilidade, não pergunta.
+2. **Commite e empurre** a branch do contrato. `blockers: []` é a
+   pré-condição que substituiu o gate humano — ele já garante toda tarefa com
+   `passes: true` e evidência batendo com o código atual. Sem isso, pare e
+   chame o humano.
+3. **Monte o PR e entregue ao humano:**
+
+   ```
+   python -m harness.cli pr-draft --dir <alvo>
+   ```
+
+   O comando grava o corpo em `.harness/scratch/pr-body.md` a partir do
+   contrato e devolve o `gh pr create` exato. Preencha as seções marcadas
+   `PREENCHER` — o racional (o que muda para quem usa, quais decisões e por
+   quê) não é derivável do contrato e é a parte que faz alguém entender o PR.
+   Depois repasse o comando ao usuário.
+
+> **O agente NUNCA abre, aprova ou mergeia o Pull Request.** Commit e push
+> são automáticos; expor o trabalho para revisão e merge é decisão humana
+> deliberada, por qualquer caminho. Do mesmo modo, `main` (e qualquer branch
+> protegida) continua barrada pelo runtime floor: o `chore` de versão e
+> CHANGELOG é do humano, no terminal dele.
 
 ## Regras
 

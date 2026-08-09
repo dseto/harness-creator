@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-07",
+  "contract": "aviso-plugin-e-ciclo-automatico",
+  "desc": "Aprovar o contrato passa a ser o único pedido feito ao humano antes do PR",
+  "files": [
+    "skills/plan/SKILL.md",
+    "tests/test_plan_skill_approval_flow.py"
+  ],
+  "verify_cmd": "pytest tests/test_plan_skill_approval_flow.py -q",
+  "recorded_at": "2026-08-09T00:42:31.036351+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:6be33123b6fb0160048ec12c35dcbef848ec6b670d805ef208683e639eab077a"
+}

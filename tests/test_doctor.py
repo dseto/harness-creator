@@ -10,11 +10,14 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from pathlib import Path
+
+import pytest
 
 import harness
 from harness.compiler import HARNESS_YAML, STATE_FILE
-from harness.doctor import run_doctor
+from harness.doctor import run_doctor, stale_plugin_installs
 from harness.settings_paths import MANAGED_SETTINGS_FILE, managed_settings_path
 from harness.hook_launcher import hook_command
 
@@ -354,3 +357,143 @@ def test_feature_list_with_harness_yaml_present_has_no_partial_governance_note(t
     report = run_doctor(tmp_path, plugins_file=tmp_path / "no-such-file.json")
 
     assert not any("/harness-creator:init" in n for n in report.notes)
+
+
+# ---------------- T-01: cache de plugin atrasado, reutilizável fora do laudo ----------------
+#
+# O hook `SessionStart` precisa da MESMA comparação para avisar na abertura da
+# sessão, e ele não pode importar o laudo inteiro. A função existe para não
+# nascer uma segunda regra de versão capaz de divergir desta.
+
+def _installed_plugins(tmp_path: Path, entries: dict[str, str]) -> Path:
+    path = tmp_path / "installed_plugins.json"
+    path.write_text(
+        json.dumps({
+            "plugins": {
+                plugin_id: [{"installPath": str(tmp_path / "cache"), "version": version}]
+                for plugin_id, version in entries.items()
+            }
+        }),
+        encoding="utf-8",
+    )
+    return path
+
+
+@dataclass(frozen=True)
+class StaleCase:
+    cached: str
+    installed: str
+    expect_stale: bool
+    why: str
+
+
+STALE_CASES = [
+    StaleCase("0.30.0", "0.31.0", True, "cache atras: e o caso alvo"),
+    StaleCase("0.9.0", "0.10.0", True, "atras em semver, a frente em ordem alfabetica"),
+    StaleCase("0.31.0", "0.31.0", False, "em dia"),
+    StaleCase("0.32.0", "0.31.0", False, "cache a frente: update nao corrige isso"),
+    StaleCase("0.31", "0.31.0", False, "componente omitido equivale a zero"),
+    StaleCase("nao-e-versao", "0.31.0", False, "versao ilegivel: nao afirmar defasagem"),
+]
+
+
+@pytest.mark.parametrize("case", STALE_CASES, ids=lambda c: c.why)
+def test_only_a_plugin_behind_the_installed_package_is_reported(
+    tmp_path: Path, case: StaleCase
+) -> None:
+    plugins_file = _installed_plugins(tmp_path, {"harness-creator@local": case.cached})
+
+    stale = stale_plugin_installs(case.installed, plugins_file=plugins_file)
+
+    assert bool(stale) is case.expect_stale
+
+
+def test_a_stale_plugin_carries_the_exact_command_that_fixes_it() -> None:
+    """O valor da função é entregar o comando pronto — quem consome (hook de
+    sessão) não pode ter de montar a string do id."""
+    import harness.doctor as doctor_module
+
+    entry = {"id": "harness-creator@harness-creator-local", "version": "0.30.0"}
+    command = doctor_module.plugin_update_command(entry["id"])
+
+    assert command == "claude plugin update harness-creator@harness-creator-local"
+
+
+def test_the_reported_entry_has_id_versions_and_command(tmp_path: Path) -> None:
+    plugins_file = _installed_plugins(tmp_path, {"harness-creator@marketplace": "0.30.0"})
+
+    stale = stale_plugin_installs("0.31.0", plugins_file=plugins_file)
+
+    assert len(stale) == 1
+    entry = stale[0]
+    assert entry["id"] == "harness-creator@marketplace"
+    assert entry["version"] == "0.30.0"
+    assert entry["installed_version"] == "0.31.0"
+    assert entry["command"] == "claude plugin update harness-creator@marketplace"
+
+
+@dataclass(frozen=True)
+class SilentCase:
+    write: object
+    why: str
+
+
+SILENT_CASES = [
+    SilentCase(None, "arquivo ausente: normal em quem usa --plugin-dir ou so pip"),
+    SilentCase("{ nao e json", "json invalido nunca vira afirmacao de defasagem"),
+    SilentCase(json.dumps({"plugins": {}}), "nenhum plugin registrado"),
+    SilentCase(json.dumps({"plugins": {"outro-plugin@x": [{"version": "0.1.0"}]}}),
+               "plugin de terceiro nao e problema deste pacote"),
+]
+
+
+@pytest.mark.parametrize("case", SILENT_CASES, ids=lambda c: c.why)
+def test_nothing_is_reported_when_there_is_nothing_to_say(
+    tmp_path: Path, case: SilentCase
+) -> None:
+    plugins_file = tmp_path / "installed_plugins.json"
+    if case.write is not None:
+        plugins_file.write_text(str(case.write), encoding="utf-8")
+
+    assert stale_plugin_installs("0.31.0", plugins_file=plugins_file) == []
+
+
+def test_the_plugins_file_can_be_pointed_elsewhere_through_the_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sem este seam, exercitar o caminho real através do subprocesso do hook
+    exigiria escrever no `~/.claude` de quem roda a suíte."""
+    from harness.doctor import INSTALLED_PLUGINS_ENV
+
+    plugins_file = _installed_plugins(tmp_path, {"harness-creator@local": "0.0.1"})
+    monkeypatch.setenv(INSTALLED_PLUGINS_ENV, str(plugins_file))
+
+    stale = stale_plugin_installs("0.31.0")
+
+    assert len(stale) == 1
+    assert stale[0]["version"] == "0.0.1"
+
+
+def test_a_plugin_ahead_of_the_package_is_a_note_with_the_other_fix(tmp_path: Path) -> None:
+    """`stale_plugin_installs` cala nesse caso porque `claude plugin update`
+    não corrige — mas o `doctor` existe para mostrar divergência, e omitir
+    esconderia um estado real. Nota, não issue: a correção é do outro lado."""
+    plugins_file = _installed_plugins(tmp_path, {"harness-creator@local": "99.0.0"})
+
+    report = run_doctor(tmp_path, plugins_file=plugins_file)
+
+    assert not any("claude plugin update" in i for i in report.issues)
+    assert any("pip install --upgrade" in n for n in report.notes)
+
+
+def test_the_doctor_report_uses_the_same_function_it_exposes(tmp_path: Path) -> None:
+    """Se o laudo mantivesse a comparação própria, as duas regras poderiam
+    divergir — que é exatamente o defeito que este contrato remove."""
+    plugins_file = _installed_plugins(tmp_path, {"harness-creator@local": "0.0.1"})
+
+    report = run_doctor(tmp_path, plugins_file=plugins_file)
+    stale = stale_plugin_installs(_PIP_VERSION, plugins_file=plugins_file)
+
+    assert stale
+    assert not report.ok
+    assert any(stale[0]["command"] in issue for issue in report.issues)

@@ -589,6 +589,37 @@ Limitação assumida: a sessão que dispara a recompilação já carregou os hoo
 o `settings.local.json` anteriores. Os arquivos novos valem a partir da sessão
 seguinte.
 
+### A camada 3 avisa, e não bloqueia
+
+O cache de plugin do Claude Code — as skills `/harness-creator:*` — não pode
+se auto-atualizar: `claude plugin update` exige rede, e as skills são
+carregadas na inicialização da sessão. O que o harness faz é **avisar na
+abertura da sessão**, com tudo que a pessoa precisa para agir: o que está
+velho, o comando exato numa linha própria para copiar, e o aviso de que é
+preciso reiniciar.
+
+Bloquear tool calls enquanto o cache estiver velho foi avaliado e
+**descartado**. As quatro razões, registradas para a decisão não voltar como
+sugestão a cada revisão:
+
+1. **Auto-trava no release.** Bumpar o pacote torna o cache obsoleto no mesmo
+   instante — o próprio commit de bump seria a última ação possível no
+   repositório.
+2. **Não existe superfície estreita para negar.** Skills são arquivos de
+   prompt, não tool calls: não passam pelo `PreToolUse`. A escolha seria entre
+   não bloquear nada e bloquear tudo.
+3. **Não há conserto dentro da sessão.** O deny ficaria de pé até a sessão
+   morrer, e empurraria a pessoa para `harness disable` — kill-switch é
+   desproteção total, bem pior que uma skill velha.
+4. **Skill desatualizada não fura gate nenhum.** O enforcement vive nos hooks
+   (camada 2) e na CLI (camada 1), ambos correntes. A camada 3 é consultiva.
+
+O aviso some quando o plugin está em dia, quando `installed_plugins.json` não
+existe (normal em quem usa `--plugin-dir` ou só pip) e quando o plugin está à
+frente do pacote — nesse caso o `doctor` emite uma nota, porque `claude plugin
+update` não corrige cache adiantado. `HARNESS_AUTO_UPDATE=0` **não** silencia o
+aviso: essa variável desliga o agir, não o informar.
+
 ## 10. Encerrar a demanda
 
 Quando `harness supervise --dir <alvo>` devolve `next: null`, todas as tarefas
@@ -623,14 +654,45 @@ Efeito colateral que importa: o `progress.md` reescrito é o que **destrava o
 contrato seguinte**. Sem ele, a sessão nova herdava o estado da demanda
 anterior.
 
-**Ordem recomendada: rode isto ANTES do PR, ainda na branch do contrato**
-— não depois do merge. `harness finish` não toca git, então rodá-lo cedo
-não tem custo; rodá-lo tarde (pós-merge, em `main`) sempre deixa a
-reescrita do `progress.md` como sobra não commitada numa branch protegida,
-obrigando um commit manual só pra fechar o contrato. Rode `finish` depois
-que todas as tarefas passarem, resolva os `blockers` ali mesmo (`harness
-verify <T-ID>` de novo se `evidence_stale`), e só então peça a aprovação
-do commit final — o `progress.md` já reescrito entra no mesmo commit/PR.
+**Ordem obrigatória: rode isto ANTES do commit, ainda na branch do
+contrato** — não depois do merge. `harness finish` não toca git, então
+rodá-lo cedo não tem custo; rodá-lo tarde (pós-merge, em `main`) sempre
+deixa a reescrita do `progress.md` como sobra não commitada numa branch
+protegida, obrigando um commit manual só pra fechar o contrato. Resolva os
+`blockers` ali mesmo (`harness verify <T-ID>` de novo se `evidence_stale`)
+— o `progress.md` já reescrito entra no mesmo commit.
+
+### Um gate humano, e o PR entregue pronto
+
+O ciclo tinha três paradas humanas: aprovar o contrato, pedir a
+implementação, aprovar o commit. Tem **uma**.
+
+Aprovar o contrato já autoriza o trabalho que ele descreve. Verificar tarefa
+a tarefa já prova o commit. O que substitui o antigo gate do commit é
+`harness finish` com `blockers: []` — que só sai assim com toda tarefa em
+`passes: true` e evidência cujo `files_hash` bate com o código atual. Sem
+isso, o agente para e chama o humano.
+
+Com a auditoria limpa, o agente commita e empurra a branch do contrato
+sozinho. O runtime floor não foi afrouxado para isso: o push continua sendo
+só de `contract/<slug>` para ela mesma, sem `--force`, e commit em branch
+protegida segue barrado — o `chore` de versão e CHANGELOG continua sendo do
+humano.
+
+**Abrir o PR nunca é ação do agente.** O que ele entrega é o trabalho pronto
+para isso:
+
+```
+harness pr-draft --dir <alvo>
+```
+
+O comando grava `.harness/scratch/pr-body.md` a partir do contrato — título
+tirado do `# Spec:`, tabela de tarefas com `verify_cmd` e estado da
+evidência — e imprime o `gh pr create` exato, com `--body-file` (nunca
+`--body` inline: acentuação em linha de comando no PowerShell 5.1 corrompe
+multi-byte). As seções marcadas `PREENCHER` ficam para o agente escrever: o
+racional não é derivável do contrato, e é a parte que faz alguém entender o
+PR.
 
 ## 11. Kill-switch — desligar tudo
 

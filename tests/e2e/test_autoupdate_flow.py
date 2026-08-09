@@ -195,6 +195,76 @@ def test_opting_out_keeps_the_project_exactly_where_the_user_left_it(tmp_path: P
     assert _compiled_version(root) == STALE_VERSION
 
 
+def test_a_stale_plugin_cache_reaches_the_session_with_the_command_and_no_block(
+    tmp_path: Path,
+) -> None:
+    """Camada 3 ponta a ponta, com `installed_plugins.json` de verdade em
+    disco: hook real -> subprocesso real -> doctor real. Prova a costura, que
+    e onde o risco mora — cada peca ja tem teste proprio."""
+    root = tmp_path / "alvo"
+    root.mkdir()
+    _bootstrap_governed_repo(root)
+    assert _run_cli(["compile-session", "--dir", ".", "--no-branch"], root).returncode == 0
+    # Artefatos em dia: isola a camada 3 do aviso de recompilacao da camada 2.
+    assert _run_cli(["compile", "--dir", "."], root).returncode == 0
+
+    plugins_file = tmp_path / "installed_plugins.json"
+    plugins_file.write_text(json.dumps({
+        "plugins": {
+            "harness-creator@harness-creator-local": [
+                {"version": "0.0.1", "installPath": str(tmp_path / "cache")}
+            ]
+        }
+    }), encoding="utf-8")
+
+    hook = root / ".harness" / "hooks" / "session_start.py"
+    proc = subprocess.run(
+        [sys.executable, str(hook)],
+        input=json.dumps({"cwd": str(root)}),
+        capture_output=True, text=True, timeout=180,
+        env=_env() | {"HARNESS_INSTALLED_PLUGINS_FILE": str(plugins_file)},
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    context = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "ACAO NECESSARIA" in context
+    assert "claude plugin update harness-creator@harness-creator-local" in context
+    assert "REINICIE" in context
+    assert "0.0.1" in context and harness.__version__ in context
+    # O resto do contexto continua intacto: o aviso soma, nao substitui.
+    assert "Estado da sessao anterior" in context
+
+
+def test_a_plugin_in_step_with_the_package_adds_no_noise_to_the_session(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "alvo"
+    root.mkdir()
+    _bootstrap_governed_repo(root)
+    assert _run_cli(["compile-session", "--dir", ".", "--no-branch"], root).returncode == 0
+    assert _run_cli(["compile", "--dir", "."], root).returncode == 0
+
+    plugins_file = tmp_path / "installed_plugins.json"
+    plugins_file.write_text(json.dumps({
+        "plugins": {
+            "harness-creator@harness-creator-local": [
+                {"version": harness.__version__, "installPath": str(tmp_path / "cache")}
+            ]
+        }
+    }), encoding="utf-8")
+
+    hook = root / ".harness" / "hooks" / "session_start.py"
+    proc = subprocess.run(
+        [sys.executable, str(hook)],
+        input=json.dumps({"cwd": str(root)}),
+        capture_output=True, text=True, timeout=180,
+        env=_env() | {"HARNESS_INSTALLED_PLUGINS_FILE": str(plugins_file)},
+    )
+
+    context = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "ACAO NECESSARIA" not in context
+
+
 def test_the_session_start_hook_updates_the_project_and_says_so(tmp_path: Path) -> None:
     """O gatilho que não exige comando nenhum: abrir a sessão. É o caso que
     torna a atualização de fato transparente para quem só usa o Claude Code."""

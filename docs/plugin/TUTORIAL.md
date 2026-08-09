@@ -876,13 +876,17 @@ harness compile-session ──► branch contract/<slug> + permissions do raio d
 sessão trabalha sozinha dentro do raio ──► implementa ──► harness verify
         │                                                  (prova executável)
         ▼
-evidência gravada ──► passes: true ──► aprovação humana do commit
-        │                              (descrição funcional + link file:line)
-        ▼
-commit em estado retomável ──► harness supervise devolve next: null
+evidência gravada ──► passes: true ──► harness supervise devolve next: null
         │
         ▼
 harness finish ──► audita o fecho + varre descartáveis   ◄── fim da demanda
+        │          (blockers: [] é a pré-condição do commit)
+        ▼
+agente apresenta o diff ──► commit + push na branch do contrato
+        │                   (descrição funcional + link file:line)
+        ▼
+harness pr-draft ──► corpo do PR + comando gh pr create
+        │            ◄── o humano abre o PR (o agente nunca abre)
 ```
 
 ## B.9 (Opcional) Fase 4 — time de agentes com revisão independente

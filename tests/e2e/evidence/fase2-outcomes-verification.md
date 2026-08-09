@@ -106,7 +106,7 @@ Segunda rodada de `compile-session`: uma única entrada do boundary_guard (idemp
 Veredito: **ATINGIDO**
 
 AGENTS.md após `compile` (mecanismo antigo) + `compile-session`: texto humano preservado, bloco `<!-- harness:begin -->` do compiler.py byte a byte intacto, bloco `<!-- harness:lifecycle:begin -->` adicionado.
-Bloco do lifecycle: 17 passos numerados (1 linha por passo), citando init/.harness/progress.md/feature_list.json/git log/'exatamente UMA feature pendente'/gate de aprovação humana antes do commit, com ponteiro de progressive disclosure para `.harness/LIFECYCLE.md`.
+Bloco do lifecycle: 17 passos numerados (1 linha por passo), citando init/.harness/progress.md/feature_list.json/git log/'exatamente UMA feature pendente'/commit condicionado a `harness finish` com blockers vazio, com ponteiro de progressive disclosure para `.harness/LIFECYCLE.md`.
 `.harness/LIFECYCLE.md` existe com os 17 passos detalhados (um parágrafo por passo).
 Segunda rodada: um único bloco lifecycle (substituído in-place), bloco do compiler e texto humano seguem intactos.
 

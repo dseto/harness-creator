@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-02",
+  "contract": "aviso-plugin-e-ciclo-automatico",
+  "desc": "O estado do plugin viaja no payload que o hook de sessão já consome",
+  "files": [
+    "src/harness/autoupdate.py",
+    "tests/test_autoupdate.py"
+  ],
+  "verify_cmd": "pytest tests/test_autoupdate.py -q",
+  "recorded_at": "2026-08-09T00:51:57.075879+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:e5134681791f4caab1739dd5d594c28d97249d4324232241a0fd874306cfd381"
+}

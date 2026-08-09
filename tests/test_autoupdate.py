@@ -35,6 +35,12 @@ def _write(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def harness_version() -> str:
+    import harness
+
+    return harness.__version__
+
+
 def _write_compiled_state(target: Path, version: str | None) -> None:
     payload: dict = {} if version is None else {"plugin_version": version}
     _write(target / STATE_FILE, json.dumps(payload))
@@ -439,6 +445,134 @@ def test_an_error_while_inspecting_the_version_is_a_warning_not_an_exception(
     assert not result.recompiled
     assert result.plan.verdict == UNKNOWN
     assert "aviso" in capsys.readouterr().err.lower()
+
+
+def _run_module_main(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, plugins: dict) -> dict:
+    """Roda `python -m harness.autoupdate` in-process e devolve o JSON impresso."""
+    import harness.autoupdate as autoupdate
+
+    plugins_file = tmp_path / "installed_plugins.json"
+    plugins_file.write_text(json.dumps(plugins), encoding="utf-8")
+    monkeypatch.setattr(
+        autoupdate, "DEFAULT_INSTALLED_PLUGINS_FILE", plugins_file, raising=False
+    )
+    import harness.doctor as doctor_module
+    monkeypatch.setattr(doctor_module, "DEFAULT_INSTALLED_PLUGINS_FILE", plugins_file)
+
+    import io
+    import contextlib
+
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        autoupdate._main(["--dir", str(tmp_path)])
+    return json.loads(buffer.getvalue())
+
+
+def _plugins_payload(version: str) -> dict:
+    return {"plugins": {"harness-creator@local": [{"version": version, "installPath": "x"}]}}
+
+
+def test_the_payload_carries_the_stale_plugin_so_the_hook_can_warn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """O hook `SessionStart` não importa `harness` (roda com -S). Este payload
+    é o único canal por onde a informação de versão chega até ele."""
+    monkeypatch.delenv("HARNESS_AUTO_UPDATE", raising=False)
+    monkeypatch.delenv("HARNESS_AUTO_UPDATE_RUNNING", raising=False)
+    _write(tmp_path / HARNESS_YAML, "version: 1\n")
+    _write_compiled_state(tmp_path, harness_version())
+
+    data = _run_module_main(tmp_path, monkeypatch, _plugins_payload("0.0.1"))
+
+    assert len(data["stale_plugins"]) == 1
+    entry = data["stale_plugins"][0]
+    assert entry["id"] == "harness-creator@local"
+    assert entry["version"] == "0.0.1"
+    assert entry["command"] == "claude plugin update harness-creator@local"
+
+
+def test_the_payload_reports_the_plugin_even_when_nothing_was_recompiled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Projeto em dia não dispara recompilação nenhuma — e mesmo assim o aviso
+    de plugin precisa sair, porque são defasagens independentes."""
+    monkeypatch.delenv("HARNESS_AUTO_UPDATE", raising=False)
+    _write(tmp_path / HARNESS_YAML, "version: 1\n")
+    _write_compiled_state(tmp_path, harness_version())
+
+    data = _run_module_main(tmp_path, monkeypatch, _plugins_payload("0.0.1"))
+
+    assert data["recompiled"] is False
+    assert data["stale_plugins"]
+
+
+def test_opting_out_of_the_update_does_not_opt_out_of_being_informed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`HARNESS_AUTO_UPDATE=0` desliga o AGIR, não o INFORMAR. Calar os dois
+    com uma chave só devolveria a invisibilidade que este canal remove."""
+    monkeypatch.setenv("HARNESS_AUTO_UPDATE", "0")
+    _write(tmp_path / HARNESS_YAML, "version: 1\n")
+    _write_compiled_state(tmp_path, "0.0.1")
+
+    data = _run_module_main(tmp_path, monkeypatch, _plugins_payload("0.0.1"))
+
+    assert data["recompiled"] is False
+    assert "HARNESS_AUTO_UPDATE" in data["skipped_reason"]
+    assert data["stale_plugins"]
+
+
+@dataclass(frozen=True)
+class QuietPayloadCase:
+    plugins: dict
+    why: str
+
+
+QUIET_PAYLOAD_CASES = [
+    QuietPayloadCase({"plugins": {}}, "nenhum plugin registrado"),
+    QuietPayloadCase({"plugins": {"outro@x": [{"version": "0.0.1"}]}}, "plugin de terceiro"),
+]
+
+
+@pytest.mark.parametrize("case", QUIET_PAYLOAD_CASES, ids=lambda c: c.why)
+def test_the_payload_says_nothing_when_there_is_nothing_to_warn_about(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: QuietPayloadCase
+) -> None:
+    monkeypatch.delenv("HARNESS_AUTO_UPDATE", raising=False)
+    _write(tmp_path / HARNESS_YAML, "version: 1\n")
+    _write_compiled_state(tmp_path, harness_version())
+
+    data = _run_module_main(tmp_path, monkeypatch, case.plugins)
+
+    assert data["stale_plugins"] == []
+
+
+def test_a_failure_reading_the_plugin_cache_never_breaks_the_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """O payload é consumido pelo hook de sessão. Uma exceção aqui custaria o
+    contexto inteiro da sessão por causa de um aviso acessório."""
+    import harness.autoupdate as autoupdate
+    import harness.doctor as doctor_module
+
+    monkeypatch.delenv("HARNESS_AUTO_UPDATE", raising=False)
+    _write(tmp_path / HARNESS_YAML, "version: 1\n")
+    _write_compiled_state(tmp_path, harness_version())
+
+    def explode(*_args: object, **_kwargs: object) -> None:
+        raise OSError("cache ilegivel")
+
+    monkeypatch.setattr(doctor_module, "stale_plugin_installs", explode)
+
+    import io
+    import contextlib
+
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        exit_code = autoupdate._main(["--dir", str(tmp_path)])
+
+    assert exit_code == 0
+    assert json.loads(buffer.getvalue())["stale_plugins"] == []
 
 
 def test_the_recompilation_subprocess_is_marked_so_it_cannot_recurse(

@@ -1,0 +1,15 @@
+{
+  "feature_id": "T-06",
+  "contract": "aviso-plugin-e-ciclo-automatico",
+  "desc": "O lifecycle passa a mandar commitar e empurrar sozinho, com prova verde como pré-condição",
+  "files": [
+    "src/harness/lifecycle.py",
+    "tests/test_lifecycle.py",
+    "tests/e2e/test_fase2_outcomes.py",
+    "tests/e2e/evidence/fase2-outcomes-verification.md"
+  ],
+  "verify_cmd": "pytest tests/test_lifecycle.py -q",
+  "recorded_at": "2026-08-09T00:52:30.613529+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:9988d4af0adbb3d83ee4799123b28eb8518ef52ac0d8c4037e1cf76ac042ddd7"
+}
