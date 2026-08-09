@@ -47,8 +47,10 @@ def render_lifecycle_block() -> str:
 9. Rodar `verify_cmd` da tarefa — o `harness verify` ainda re-prova sozinho as
    tarefas concluídas que compartilham arquivo com esta; exit 2 = regressão a
    consertar antes de seguir.
-10. Se falhar: consultar `harness budget --feature <id>` e obedecer o
-    veredito — autocorrigir e re-rodar só enquanto ele disser `continue`.
+10. Se falhar (falha transiente já tenta de novo sozinha, 3× — não conta):
+    consultar `harness budget --feature <id>` e obedecer o veredito —
+    autocorrigir e re-rodar só enquanto ele disser `continue`; em qualquer
+    parada, usar o campo `escalation` da saída pronto, sem escrever à mão.
 11. Registrar a prova (evidência da verificação bem-sucedida).
 12. Atualizar `.harness/progress.md` com o estado atual.
 13. Marcar a feature concluída em `feature_list.json`.
@@ -197,9 +199,18 @@ aprovado e só devolve o controle ao humano em estado retomável.
     novo, sem envolver o humano — mas não indefinidamente, e não por
     julgamento próprio sobre quando desistir.
 
-    Toda falha de `harness verify` já grava a tentativa em
+    Antes de qualquer contagem, `harness verify` já tenta sozinho: um
+    `verify_cmd` que falha com sinal reconhecidamente TRANSIENTE (timeout de
+    aplicação, erro de rede/conexão — §8.1) tenta de novo até 3× com uma
+    pausa curta entre tentativas, sem envolver você e sem gravar nada
+    enquanto ainda houver tentativa sobrando — retry não é correção, é
+    repetição. Se algum retry passar, a falha nem chega a existir no rastro.
+    Isso é automático; não há passo manual aqui.
+
+    Toda falha TERMINAL de `harness verify` (estrutural de primeira, ou
+    transiente que esgotou os 3 retries) grava a tentativa em
     `.harness/attempts/<contrato>/<id>.jsonl` (erro cru, exit code,
-    assinatura da falha). A cada vermelho, rode:
+    assinatura da falha, classificação). A cada vermelho, rode:
 
         harness budget --feature <id>
 
@@ -213,11 +224,18 @@ aprovado e só devolve o controle ao humano em estado retomável.
     - `stop_iterations` — o teto de tentativas desde o último verde
       estourou. Pare, registre o estado em `.harness/progress.md` e devolva
       o controle ao humano.
+    - `stop_transient_exhausted` — o retry automático do §8.1 esgotou e o
+      erro continua transiente. **Não é bug de lógica** — é o §8.3 batendo
+      por outra porta ("mesmo erro transiente 3× → reclassificar como
+      infra"): nunca healing automático, sempre parada + escalada. Não tente
+      "corrigir" um `Connection refused` editando código.
 
     Os tetos vêm, nesta ordem, das `stop_conditions:` TIPADAS do frontmatter
     do `spec.md` ativo (`{type: consecutive_verify_failures, n: 3}`,
     `{type: same_failure_signature, n: 3}`) e, na ausência delas, de
     `governance.budget.max_green_iterations` do `.harness/harness.yaml`.
+    `stop_transient_exhausted` não usa teto nenhum — a primeira vez que
+    acontece já é a resposta.
 
     As `stop_conditions:` escritas em PROSA continuam valendo como condição
     adicional — elas cobrem o que nenhuma contagem pega, como o sinal de
@@ -227,9 +245,12 @@ aprovado e só devolve o controle ao humano em estado retomável.
     por uma delas é acerto, não desistência, e não precisa esperar teto
     nenhum.
 
-    Em qualquer parada, o que vai para o humano é DIAGNÓSTICO, não sintoma:
-    o que estava sendo tentado, as abordagens em ordem, o último erro cru
-    (está no `reason` e no rastro), e a sugestão de próximo passo.
+    **Em qualquer parada, use o campo `escalation` da saída de `harness
+    budget` — não escreva a mensagem de escalada à mão.** Ele já vem com as
+    seis partes que o §8 exige, na ordem que ele exige (o que estava sendo
+    tentado, o que foi tentado, o último erro cru, a classificação, o estado
+    da spine, a sugestão de próximo passo); `null` quando o veredito é
+    `continue`, texto pronto para copiar em qualquer outro veredito.
 
 11. **Registrar a prova (evidência da verificação bem-sucedida).** Grava a
     evidência de que `verify_cmd` passou (timestamp, comando, hash) — é o

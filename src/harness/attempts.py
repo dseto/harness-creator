@@ -44,10 +44,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 ATTEMPTS_DIR = ".harness/attempts"
+
+CLASSIFICATION_STRUCTURAL = "structural"
+CLASSIFICATION_TRANSIENT = "transient"
 
 #: Espelha `verify.UNSCOPED_EVIDENCE_DIR`: subdiretório usado quando o
 #: `feature_list.json` não declara `contract` (contrato compilado por versão
@@ -93,6 +97,38 @@ def failure_signature(failure_line: str) -> str:
     return digest[:_SIGNATURE_LENGTH]
 
 
+#: Sinal de falha PASSAGEIRA (§8.1: "timeout, rede, flake"). Cobre só a
+#: manifestação RECONHECÍVEL — timeout de aplicação e erro de rede/conexão —
+#: nunca "teste falha às vezes sem explicação aparente" (impossível distinguir
+#: de bug real só pela linha de erro; ver Não-objetivos do spec). Padrão largo
+#: de propósito: um falso positivo aqui custa, no pior caso, 3 tentativas
+#: rápidas antes de cair no caminho estrutural de sempre — um falso negativo
+#: custa o disjuntor tratar rede instável como bug de lógica, que é o defeito
+#: que esta regra existe para evitar.
+_TRANSIENT_PATTERN = re.compile(
+    r"\btimed?\s*out\b|\btimeout\b|\bETIMEDOUT\b|"
+    r"connection (refused|reset|aborted)|\bECONNRESET\b|\bECONNREFUSED\b|"
+    r"remote end closed connection|max retries exceeded|"
+    r"network is unreachable|\bENETUNREACH\b|\bEHOSTUNREACH\b|"
+    r"temporary failure in name resolution|name or service not known|"
+    r"getaddrinfo failed|\b(502|503|504)\b.*(bad gateway|service unavailable|gateway timeout)",
+    re.IGNORECASE,
+)
+
+
+def classify_failure(failure_line: str) -> str:
+    """`"transient"` | `"structural"` — o sinal que o §8.1 pede.
+
+    Falha transiente ganha retry próprio em `verify.run_verify` (T-02) e
+    conta separado no disjuntor (`budget.check_budget`, T-03): nada aqui
+    decide o que fazer com a classificação, só nomeia o sinal — mesma divisão
+    de responsabilidade de `failure_signature`.
+    """
+    if _TRANSIENT_PATTERN.search(failure_line or ""):
+        return CLASSIFICATION_TRANSIENT
+    return CLASSIFICATION_STRUCTURAL
+
+
 def extract_failure_line(stdout: str, stderr: str) -> str:
     """Primeira linha ÚTIL do erro cru, stderr antes de stdout.
 
@@ -133,6 +169,7 @@ def record_failure(
     stderr: str,
     files_hash: str,
     recorded_at: str,
+    classification: str = CLASSIFICATION_STRUCTURAL,
 ) -> Path:
     """Acrescenta uma tentativa FALHA ao rastro. Retorna o caminho do jsonl.
 
@@ -140,6 +177,13 @@ def record_failure(
     um carimbo do evento, e gerar um relógio novo aqui produziria dois
     timestamps divergentes para a mesma passada (a mesma regra que fez
     `run_verify` reusar o `recorded_at` da evidência na nota do progress.md).
+
+    `classification` é dita por quem chama, não recomputada aqui —
+    `verify.run_verify` (T-02) já roda `classify_failure` para decidir se
+    retry, e uma segunda chamada correria o risco (hoje impossível, mas
+    frágil) de as duas decisões divergirem. Default `"structural"`: todo
+    chamador antigo (e todo teste antigo) continua produzindo exatamente o
+    mesmo registro de sempre.
     """
     failure_line = extract_failure_line(stdout, stderr)
     return _append(
@@ -154,6 +198,7 @@ def record_failure(
             "failure_line": failure_line,
             "failure_signature": failure_signature(failure_line),
             "files_hash": files_hash,
+            "classification": classification,
         },
     )
 
@@ -236,18 +281,31 @@ def open_failures(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
-    """Contadores que o disjuntor de §4.2/§8.2 consome.
+    """Contadores que o disjuntor de §4.2/§8.2/§8.1 consome.
 
     - `attempts_total`: todas as falhas já registradas na fatia (histórico
       completo, atravessa verdes — serve para o relatório, não para o teto).
-    - `consecutive_failures`: falhas desde o último verde. É o teto de
-      iterações de §4.2.
-    - `same_signature_streak`: quantas das últimas falhas consecutivas
-      compartilham a assinatura da mais recente. É o sinal de §8.2 — insistir
-      não adianta, a abordagem é que está errada.
-    - `last_failure_line`/`last_failure_signature`: o último erro CRU, que o
-      formato de escalada de §8 exige. `None` quando a última passada foi
-      verde (não há falha pendente a relatar).
+    - `consecutive_failures`: falhas ESTRUTURAIS desde o último verde. É o
+      teto de iterações de §4.2. Falha `classification == "transient"` fica
+      de fora da contagem — §8.1 é explícito que retry transiente "não conta
+      como tentativa de correção", e o único registro transiente que chega a
+      existir no rastro (T-02: os retries que falham não são gravados, só o
+      esgotamento final) não pode inflar o orçamento de correção de bug.
+    - `same_signature_streak`: quantas das últimas falhas ESTRUTURAIS
+      consecutivas compartilham a assinatura da mais recente. É o sinal de
+      §8.2 — insistir não adianta, a abordagem é que está errada. Mesma
+      exclusão de transiente que `consecutive_failures`.
+    - `last_failure_line`/`last_failure_signature`: o último erro CRU
+      registrado, transiente ou estrutural — o formato de escalada de §8
+      exige o erro real, não uma versão filtrada. `None` quando a última
+      passada foi verde (não há falha pendente a relatar).
+    - `last_classification`: a classificação do último registro (default
+      `"structural"` para registro antigo sem o campo, ou quando a última
+      passada foi verde). É o sinal que `budget.check_budget` usa para
+      decidir o veredito `stop_transient_exhausted` (T-03) — se a ÚLTIMA
+      falha registrada foi transiente, ela só existe porque T-02 já esgotou
+      os retries, e §8.1 manda tratá-la como o silêncio do §8.3: nunca
+      healing automático, sempre parada.
 
     Registro com `result` fora de `{"fail", "pass"}` é ignorado: só esses dois
     têm significado definido, e adivinhar o resto seria inventar sinal.
@@ -258,21 +316,30 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
     if trailing:
         last = trailing[-1]
         last_signature = last.get("failure_signature")
-        streak = 0
-        for record in reversed(trailing):
-            if record.get("failure_signature") != last_signature:
-                break
-            streak += 1
         last_line = last.get("failure_line")
+        last_classification = last.get("classification") or CLASSIFICATION_STRUCTURAL
     else:
         last_signature = None
         last_line = None
-        streak = 0
+        last_classification = None
+
+    structural_trailing = [
+        r for r in trailing
+        if (r.get("classification") or CLASSIFICATION_STRUCTURAL) == CLASSIFICATION_STRUCTURAL
+    ]
+    streak = 0
+    if structural_trailing:
+        streak_signature = structural_trailing[-1].get("failure_signature")
+        for record in reversed(structural_trailing):
+            if record.get("failure_signature") != streak_signature:
+                break
+            streak += 1
 
     return {
         "attempts_total": attempts_total,
-        "consecutive_failures": len(trailing),
+        "consecutive_failures": len(structural_trailing),
         "same_signature_streak": streak,
         "last_failure_line": last_line,
         "last_failure_signature": last_signature,
+        "last_classification": last_classification,
     }

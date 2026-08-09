@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
+from harness.attempts import CLASSIFICATION_STRUCTURAL, CLASSIFICATION_TRANSIENT, read_attempts
 from harness.verify import (
     UNSCOPED_EVIDENCE_DIR,
     VerifyError,
@@ -158,6 +159,94 @@ def test_run_verify_failure_does_not_write_evidence_and_propagates_exit_code(tmp
     assert exc_info.value.feature_id == "T-01"
     evidence_path = tmp_path / ".harness" / "evidence" / "T-01.json"
     assert not evidence_path.is_file()
+
+
+# ---------------------------------------------------------------------------
+# REGRA — falha transiente (§8.1) tenta de novo sozinha, sem contar como
+# tentativa de correção; falha estrutural nunca entra nesse caminho
+#
+# `_flaky_cmd` é um script real (mesmo padrão de `_cwd_check_cmd`): cada
+# chamada lê e incrementa um contador em disco e devolve o `(exit_code,
+# stderr)` da posição correspondente em `codes` — comportamento determinístico
+# ao longo de várias execuções reais do subprocess, sem golpear internals.
+# ---------------------------------------------------------------------------
+
+def _flaky_cmd(tmp_path: Path, codes: list[tuple[int, str]]) -> tuple[str, Path]:
+    script = tmp_path / "flaky.py"
+    counter = tmp_path / "flaky_counter.txt"
+    _write(
+        script,
+        "import pathlib, sys\n"
+        f"codes = {codes!r}\n"
+        "counter = pathlib.Path(sys.argv[1])\n"
+        "n = int(counter.read_text()) if counter.is_file() else 0\n"
+        "counter.write_text(str(n + 1))\n"
+        "code, message = codes[min(n, len(codes) - 1)]\n"
+        "if message:\n"
+        "    sys.stderr.write(message)\n"
+        "sys.exit(code)\n",
+    )
+    return f'"{sys.executable}" "{script}" "{counter}"', counter
+
+
+def test_run_verify_retries_transient_failure_and_succeeds_without_recording_retries(
+    tmp_path: Path,
+) -> None:
+    verify_cmd, counter = _flaky_cmd(
+        tmp_path,
+        [(1, "Connection refused"), (1, "Connection refused"), (0, "")],
+    )
+    _write_feature_list(
+        tmp_path,
+        [{"id": "T-01", "desc": "x", "files": [], "verify_cmd": verify_cmd, "depends": [], "passes": False}],
+    )
+    sleeps: list[float] = []
+
+    evidence = run_verify(tmp_path, "T-01", sleep=sleeps.append)
+
+    assert evidence.is_file()
+    assert int(counter.read_text()) == 3
+    assert sleeps == [1, 2]
+    records = read_attempts(tmp_path, "exemplo-feature", "T-01")
+    assert [r["result"] for r in records] == ["pass"]
+
+
+def test_run_verify_transient_failure_exhausted_retries_records_once_as_transient(
+    tmp_path: Path,
+) -> None:
+    verify_cmd, counter = _flaky_cmd(tmp_path, [(1, "Read timed out")] * 3)
+    _write_feature_list(
+        tmp_path,
+        [{"id": "T-01", "desc": "x", "files": [], "verify_cmd": verify_cmd, "depends": [], "passes": False}],
+    )
+
+    with pytest.raises(VerifyFailedError):
+        run_verify(tmp_path, "T-01", sleep=lambda seconds: None)
+
+    assert int(counter.read_text()) == 3
+    records = read_attempts(tmp_path, "exemplo-feature", "T-01")
+    assert [r["result"] for r in records] == ["fail"]
+    assert records[0]["classification"] == CLASSIFICATION_TRANSIENT
+    assert records[0]["failure_line"] == "Read timed out"
+
+
+def test_run_verify_structural_failure_never_retries(tmp_path: Path) -> None:
+    verify_cmd, counter = _flaky_cmd(tmp_path, [(1, "AssertionError: x != y")])
+    _write_feature_list(
+        tmp_path,
+        [{"id": "T-01", "desc": "x", "files": [], "verify_cmd": verify_cmd, "depends": [], "passes": False}],
+    )
+
+    def _never_sleep(seconds: float) -> None:
+        raise AssertionError("falha estrutural não deveria disparar retry/backoff")
+
+    with pytest.raises(VerifyFailedError):
+        run_verify(tmp_path, "T-01", sleep=_never_sleep)
+
+    assert int(counter.read_text()) == 1
+    records = read_attempts(tmp_path, "exemplo-feature", "T-01")
+    assert [r["result"] for r in records] == ["fail"]
+    assert records[0]["classification"] == CLASSIFICATION_STRUCTURAL
 
 
 def test_run_verify_nonexistent_feature_raises_verify_error_naming_id(tmp_path: Path) -> None:

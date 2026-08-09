@@ -178,6 +178,29 @@ def test_step_ten_points_at_the_mechanical_breaker_not_at_prose() -> None:
     assert ".harness/attempts/" in detail
 
 
+def test_step_ten_names_the_transient_retry_and_the_ready_made_escalation() -> None:
+    """Passo 10 do contrato `falha-transiente-e-escalada` (§8.1/§8 do design).
+
+    Duas coisas mudaram na fronteira mecânica: (1) `harness verify` passou a
+    tentar de novo sozinho falha transiente, ANTES de o disjuntor ser
+    consultado — o passo precisa dizer isso, senão o agente lê "3 tentativas
+    sozinho" no terminal e acha que é um comportamento estranho pra
+    investigar, não o design funcionando; (2) o disjuntor ganhou um terceiro
+    veredito de parada (`stop_transient_exhausted`) e um campo `escalation`
+    pronto — sem o passo apontar para ele, a escalada volta a ser prosa
+    inventada na hora, o mesmo defeito que o formato fixo do §8 existe para
+    fechar."""
+    block = render_lifecycle_block()
+    detail = render_lifecycle_detail()
+
+    assert "transiente" in block
+    assert "stop_transient_exhausted" in detail
+    assert "escalation" in detail
+    # O retry é automático — o passo não pode instruir o agente a rodá-lo à
+    # mão, ou o mecanismo vira mais um passo manual que ninguém cumpre.
+    assert "sozinh" in detail
+
+
 def test_step_two_checks_the_environment_with_a_command_instead_of_a_script_nobody_runs() -> None:
     """Passo 2 do contrato `health-check-de-abertura` (§7.2/§8.3 do design).
 

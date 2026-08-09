@@ -1,0 +1,15 @@
+{
+  "feature_id": "T-04",
+  "contract": "falha-transiente-e-escalada",
+  "desc": "Todo veredito de parada do disjuntor vem com o bloco de escalada nas seis partes que o §8 exige, pronto para copiar ao humano",
+  "files": [
+    "src/harness/escalation.py",
+    "src/harness/cli.py",
+    "tests/test_escalation.py",
+    "tests/test_cli.py"
+  ],
+  "verify_cmd": "pytest tests/test_escalation.py tests/test_cli.py -q",
+  "recorded_at": "2026-08-09T20:46:05.284934+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:acb1318a5a3f8694e91a6811c1f6cb21aaa7c5b662e031da7487869ef6747076"
+}

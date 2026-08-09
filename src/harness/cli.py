@@ -888,13 +888,23 @@ def main() -> None:
 
     if args.command == "budget":
         from harness.budget import CONTINUE, BudgetError, check_budget
+        from harness.escalation import render_escalation
 
         try:
             report = check_budget(Path(args.dir), args.feature)
         except BudgetError as exc:
             print(f"erro: {exc}", file=sys.stderr)
             sys.exit(1)
-        print(json.dumps(report, indent=2, ensure_ascii=False))
+        # §8: todo veredito de parada vem com o bloco de escalada nas seis
+        # partes obrigatórias, pronto para copiar ao humano — mesmo padrão de
+        # dois canais que `harness health` já usa (campo no JSON + impresso
+        # em stderr para quem está rodando no terminal).
+        escalation = None
+        if report["verdict"] != CONTINUE:
+            escalation = render_escalation(Path(args.dir), report)
+        print(json.dumps({**report, "escalation": escalation}, indent=2, ensure_ascii=False))
+        if escalation:
+            print(escalation, file=sys.stderr)
         # Exit 2 no veredito de parada: um `if` de shell distingue "continua"
         # de "para" sem parsear JSON, e 2 (não 1) porque 1 já significa erro de
         # execução no resto da CLI — parar por budget é resultado legítimo do

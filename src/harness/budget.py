@@ -5,6 +5,12 @@ escrito + ausência de teto = loop infinito. O budget é o seguro contra o
 próprio erro de design." E §8.2: "se a tentativa N produz o MESMO erro da
 tentativa N-1, a abordagem está errada, não a execução".
 
+Contrato `falha-transiente-e-escalada` (T-03) soma §8.1: falha transiente
+esgotada (`attempts.classify_failure` via `verify.run_verify`) vira o
+veredito `stop_transient_exhausted`, que vence os outros dois — não é o
+loop de correção normal do §8.2 pegando um teto, é o §8.3 batendo por outra
+porta ("mesmo erro transiente 3× → reclassificar como infra").
+
 O que estava furado: `max_green_iterations` existia no `harness.yaml` e no
 schema (`config.BudgetConfig`) sem UM consumidor — o `compiler.py` o
 imprimia no `AGENTS.md` numa seção chamada, literalmente, "Orçamento
@@ -40,7 +46,7 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
-from harness.attempts import read_attempts, summarize
+from harness.attempts import CLASSIFICATION_TRANSIENT, read_attempts, summarize
 from harness.config import HarnessConfig
 from harness.contract import FEATURE_LIST_FILE
 
@@ -56,6 +62,14 @@ DEFAULT_SAME_SIGNATURE_LIMIT = 3
 CONTINUE = "continue"
 STOP_SAME_FAILURE = "stop_same_failure"
 STOP_ITERATIONS = "stop_iterations"
+#: §8.1: "mesmo erro transiente 3× → reclassificar como infra (§8.3)". O
+#: único jeito de um registro `classification == "transient"` chegar a
+#: existir no rastro é `verify.run_verify` já ter esgotado os retries
+#: (T-02) — então este veredito nunca espera acumular contagem nenhuma: a
+#: PRIMEIRA vez que a última falha registrada é transiente já é a resposta
+#: do §8.3 (nunca healing automático, sempre parada + escalada), não um
+#: caso do loop de correção normal do §8.2.
+STOP_TRANSIENT_EXHAUSTED = "stop_transient_exhausted"
 
 
 class BudgetError(Exception):
@@ -136,11 +150,20 @@ def check_budget(target_dir: Path | str, feature_id: str) -> dict[str, Any]:
          "verdict": "continue" | "stop_same_failure" | "stop_iterations",
          "reason": "<frase para humano>"}
 
-    Precedência quando os dois tetos estouram juntos: `stop_same_failure`
-    vence. Os dois param o loop, mas só um diz o que fazer a seguir — "a mesma
-    falha três vezes" é um diagnóstico acionável (troque de abordagem, registre
-    a decisão), enquanto "acabaram as iterações" informa apenas que o tempo
-    passou. §8 exige que a escalada entregue diagnóstico, não sintoma.
+    Precedência: `stop_transient_exhausted` vence QUALQUER outro veredito —
+    checado antes de streak/consecutivas, do mesmo jeito que `health.py`
+    checa proteção antes de governança antes de ferramenta ("quem lê para no
+    primeiro item, e o primeiro item tem que ser o que mais muda a decisão").
+    Falha transiente esgotada é, por definição do §8.1, o §8.3 batendo —
+    ambiente instável não é abordagem errada nem teto de tentativas estourado,
+    e misturar as três faria o loop tentar "corrigir" o que não é bug.
+
+    Sem isso, `stop_same_failure` vence quando os dois tetos estruturais
+    estouram juntos. Os dois param o loop, mas só um diz o que fazer a seguir
+    — "a mesma falha três vezes" é um diagnóstico acionável (troque de
+    abordagem, registre a decisão), enquanto "acabaram as iterações" informa
+    apenas que o tempo passou. §8 exige que a escalada entregue diagnóstico,
+    não sintoma.
 
     Levanta `BudgetError` para contrato não compilado ou `feature_id` fora do
     contrato — devolver `continue` nesses casos faria um id digitado errado
@@ -174,7 +197,16 @@ def check_budget(target_dir: Path | str, feature_id: str) -> dict[str, Any]:
     consecutive = summary["consecutive_failures"]
     streak = summary["same_signature_streak"]
 
-    if streak >= limits["same_failure_signature"]:
+    if summary["last_classification"] == CLASSIFICATION_TRANSIENT:
+        verdict = STOP_TRANSIENT_EXHAUSTED
+        reason = (
+            f"o retry transiente do §8.1 esgotou (`{summary['last_failure_line']}` "
+            "persistiu por todas as tentativas) — não é falha de lógica para "
+            "consertar por dentro do loop, é ambiente instável (rede, timeout de "
+            "aplicação). Pare e escale com o erro cru; insistir aqui é a mesma "
+            "aposta que o §8.3 proíbe explicitamente."
+        )
+    elif streak >= limits["same_failure_signature"]:
         verdict = STOP_SAME_FAILURE
         reason = (
             f"{streak} tentativas seguidas quebraram com a mesma falha "
