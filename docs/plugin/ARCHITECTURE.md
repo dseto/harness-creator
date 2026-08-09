@@ -58,10 +58,10 @@ contagem de tokens a hooks.
 |---|---|---|---|
 | **0 · Host** | Claude Code | Executa: lê `permissions`, dispara hooks, carrega skills e subagentes | — |
 | **1a · Skills** | `skills/` (7) | Conduz a conversa com o humano | Não escreve nada direto — toda escrita passa pela CLI |
-| **1b · CLI** | `cli.py` | Dispatch dos 21 subcomandos, validação de `--dir` | Não decide `allow`/`deny` em runtime |
+| **1b · CLI** | `cli.py` | Dispatch dos 22 subcomandos, validação de `--dir` | Não decide `allow`/`deny` em runtime |
 | **2 · Compiladores** | `compiler`, `contract`, `analyzer`, `session_permissions`, `lifecycle`, `templates`, `branching`, `profile_edit`, `install_command`, `autoupdate` | Transformam entrada humana em artefato. Determinísticos, zero LLM, zero rede | Não rodam no caminho da tool call |
 | **3 · Enforcement** | `boundary_guard`, `session_start`, `stop_hook` | Decidem `allow`/`ask`/`deny` a cada tool call | Não importam a biblioteca — stdlib puro |
-| **4 · Prova e controle** | `verify`, `attempts`, `budget`, `review`, `supervisor`, `teams`, `finish`, `pr_draft` | Produzem e consomem evidência; ordenam o trabalho | Nenhum chama git de escrita |
+| **4 · Prova e controle** | `verify`, `attempts`, `budget`, `reconcile`, `review`, `supervisor`, `teams`, `finish`, `pr_draft` | Produzem e consomem evidência; ordenam o trabalho | Nenhum chama git de escrita |
 | **5 · Diagnóstico** | `preflight`, `audit`, `runtime_audit`, `team_audit`, `doctor`, `metrics` | Emitem laudo + o comando exato de correção | Nunca corrigem sozinhos |
 | **Base** | `config`, `governance/approval`, `patterns`, `settings_paths`, `hook_launcher`, `killswitch` | Cada um é fonte **única** de uma verdade | — |
 
@@ -305,6 +305,41 @@ Duas escolhas de fronteira valem registro:
   default do schema, e condição tipada com `type` desconhecido **reprova a
   compilação** em vez de virar advisory mudo. Rebaixamento silencioso é o modo
   de falha perigoso aqui: o contrato pareceria ter disjuntor sem ter.
+
+### A mesma regra em dois momentos: fecho e abertura
+
+`finish.audit_closure` compara estado declarado com estado real e sempre foi o
+julgamento certo — no momento errado, sozinho. Rodando só no fecho, ele
+encontra a prova vencida depois de a sessão ter passado o dia inteiro
+acreditando nela. `reconcile` chama **a mesma função** na abertura; a decisão
+que vale registro é a de não escrever um segundo julgamento, porque duas
+implementações da mesma regra é exatamente como elas passam a discordar.
+
+O que muda entre os dois momentos não é a regra, é o que conta como problema:
+
+| `kind` | no fecho (`finish`) | na abertura (`reconcile`) |
+|---|---|---|
+| `evidence_stale` / `evidence_missing` | bloqueador | divergência |
+| `tree_residue` / `killswitch_active` | bloqueador | divergência |
+| `feature_not_passed` | bloqueador | **estado normal** — é o trabalho a fazer |
+| `no_contract` | bloqueador | **bootstrap** — ainda não há o que reconciliar |
+| `progress_contract_mismatch` | invisível (o `finish` reescreve o arquivo) | divergência |
+
+As duas linhas em negrito são o desenho: um aviso que aparece em toda abertura
+de sessão é um aviso que ensina a ignorar avisos, e `divergences: []` só
+significa alguma coisa se não significar "sempre alguma coisa". A última linha é
+o inverso — uma divergência que só existe aqui, porque o `finish` regenera o
+`progress.md` logo depois de olhar para ele. Foi o defeito da v0.25.0: o
+`SessionStart` injetou "nenhuma feature pendente" numa sessão com seis tarefas a
+fazer, e nada no harness sabia contradizê-lo.
+
+`reconcile` também não bloqueia — mesma postura do `budget`. A diferença é que
+ele não depende de o agente lembrar: o hook `SessionStart` injeta a seção de
+aviso antes do resumo de progresso, porque quando o estado declarado não bate,
+o resumo logo abaixo é justamente o que não se pode acreditar. O texto do aviso
+é renderizado em `harness/reconcile.py` e chega ao hook já pronto (campo
+`section`) — o script gerado é stdlib puro (camada 3) e formatar lá dentro
+poria a formatação fora do alcance da suíte.
 
 ---
 

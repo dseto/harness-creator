@@ -253,6 +253,43 @@ def _stale_plugin_notice(data: dict) -> str | None:
     )
 
 
+def _reconcile_section(cwd: Path) -> str | None:
+    """Reconciliacao de abertura (passo 5 do lifecycle) — secao de aviso, ou
+    None quando o estado declarado bate com o real.
+
+    Delega a `python -m harness.reconcile` pelo mesmo motivo do `_auto_update`:
+    este script roda com -S (sem site-packages) e nao consegue importar
+    `harness`. O texto do aviso chega JA renderizado no campo `section`, para
+    que a formatacao fique em `harness/reconcile.py`, dentro do alcance da
+    suite, em vez de numa copia aqui dentro.
+
+    Exit 0 (integro) e 2 (ha divergencia) sao respostas; qualquer outro codigo,
+    ou qualquer falha, vira None. Perder o contexto da sessao anterior por
+    causa de um aviso acessorio seria um dano maior do que ficar sem o aviso.
+    """
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "harness.reconcile", "--dir", str(cwd)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode not in (0, 2):
+        return None
+    try:
+        data = json.loads(proc.stdout)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    section = data.get("section")
+    if isinstance(section, str) and section.strip():
+        return section
+    return None
+
+
 def build_context(cwd: Path) -> str:
     parts = ["## Estado da sessao anterior (injetado pelo harness)"]
 
@@ -263,6 +300,13 @@ def build_context(cwd: Path) -> str:
         for notice in (_stale_plugin_notice(update), _recompiled_notice(update)):
             if notice:
                 parts.append(notice)
+
+    # ANTES do resumo de progresso, e nao depois: quando o estado declarado nao
+    # bate com o repositorio, o resumo logo abaixo e justamente o que nao se
+    # pode acreditar. Ler o aviso primeiro muda como o resto e lido.
+    reconciliation = _reconcile_section(cwd)
+    if reconciliation:
+        parts.append(reconciliation)
 
     parts.append(_read_feature_summary(cwd))
 

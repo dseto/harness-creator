@@ -1,0 +1,18 @@
+{
+  "feature_id": "T-05",
+  "contract": "reconciliacao-de-abertura",
+  "desc": "O passo 5 do ciclo passa a mandar reconciliar com um comando, em vez de pedir uma olhada no histórico, e a documentação do projeto reflete o verbo novo",
+  "files": [
+    "src/harness/lifecycle.py",
+    "tests/test_lifecycle.py",
+    "README.md",
+    "docs/plugin/ARCHITECTURE.md",
+    "tests/e2e/test_fase2_outcomes.py",
+    "AGENTS.md",
+    "tests/e2e/evidence/fase2-outcomes-verification.md"
+  ],
+  "verify_cmd": "pytest tests/test_lifecycle.py -q",
+  "recorded_at": "2026-08-09T05:31:15.601851+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:fb489a74935eb273b38e55d533edfd4a3ac1ccd35c63182f01be1bb6f075d8c3"
+}

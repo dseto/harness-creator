@@ -3194,3 +3194,65 @@ def test_powershell_readonly_allowlist_opens_no_write_door(tmp_path: Path) -> No
              why="segmento arbitrario colado a um permitido derruba o comando"),
     )
 
+
+# ---------------------------------------------------------------------------
+# Todo verbo da CLI ou está liberado, ou está excluído por decisão escrita
+# ---------------------------------------------------------------------------
+
+#: Verbos que o guard nega DE PROPÓSITO, cada um com a razão:
+#:
+#: - `profile` grava no `repo-profile.json`, e o `test_command` de lá alimenta a
+#:   superfície de comando compilada — agente capaz de escrever ali amplia a
+#:   própria superfície (ver `test_profile_is_not_an_agent_subcommand`);
+#: - `enable`/`disable` mexem no kill-switch, que é floor: o agente não liga
+#:   nem desliga a própria governança.
+DELIBERATELY_DENIED_VERBS = {"profile", "enable", "disable"}
+
+
+def _cli_verbs(monkeypatch, capsys) -> set[str]:
+    """Verbos que o argparse do `harness` realmente aceita, lidos do parser —
+    não de uma lista copiada à mão, que é o que este teste existe para não ser.
+    """
+    from harness.cli import main
+
+    monkeypatch.setattr(sys, "argv", ["harness", "--help"])
+    try:
+        main()
+    except SystemExit:
+        pass
+    usage = capsys.readouterr().out
+    block = usage[usage.index("{") + 1 : usage.index("}")]
+    return {verb.strip() for verb in block.split(",") if verb.strip()}
+
+
+def test_every_cli_verb_is_either_allowed_or_deliberately_denied(monkeypatch, capsys) -> None:
+    """REGRA: verbo que a CLI aceita e o guard nega é um passo do lifecycle
+    mandando rodar comando barrado.
+
+    Já aconteceu duas vezes. `pr-draft` saiu na v0.32.0 e ficou fora de
+    `_HARNESS_SUBCOMMANDS` até o contrato seguinte — com o passo 16 mandando
+    rodá-lo. O teste que nasceu daquele achado listava os nomes à mão e dizia
+    servir "para que o próximo verbo não repita o esquecimento", mas uma lista
+    fixa não checa o verbo seguinte: ela precisa ser editada pela mesma pessoa
+    que esqueceu. Aqui a lista vem do parser, então o esquecimento aparece
+    sozinho — e excluir um verbo passa a exigir escrever a razão em
+    `DELIBERATELY_DENIED_VERBS`.
+    """
+    from harness.boundary_guard import render_boundary_guard
+
+    verbs = _cli_verbs(monkeypatch, capsys)
+    assert {"verify", "finish", "budget", "reconcile"} <= verbs, (
+        "âncora: a leitura do parser quebrou, não a lista do guard"
+    )
+
+    generated = render_boundary_guard()
+    missing = sorted(
+        verb for verb in verbs - DELIBERATELY_DENIED_VERBS
+        if f'"{verb}"' not in generated
+    )
+    assert not missing, (
+        f"verbos que a CLI aceita e o guard nega: {missing}. "
+        "Ou entram em `_HARNESS_SUBCOMMANDS`, ou entram em "
+        "DELIBERATELY_DENIED_VERBS com a razão escrita."
+    )
+

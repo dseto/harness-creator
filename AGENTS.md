@@ -136,7 +136,8 @@ sempre exige aprovação humana.
 2. Rodar `.harness/init.sh`/`.harness/init.ps1` (deps + health check do profile).
 3. Ler `.harness/progress.md`.
 4. Ler `feature_list.json`.
-5. Checar `git log`.
+5. Rodar `harness reconcile` e resolver toda divergência antes de seguir —
+   estado declarado que não bate com o repositório envenena a sessão inteira.
 6. Escolher exatamente UMA feature pendente.
 7. Planejar a implementação da feature escolhida.
 8. Implementar a mudança dentro do raio de impacto declarado.

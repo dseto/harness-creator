@@ -555,3 +555,103 @@ def test_install_preserves_manual_settings_and_other_hook_events(tmp_path: Path)
     assert settings["permissions"]["allow"] == ["Bash(git status)"]
     assert len(settings["hooks"]["PreToolUse"]) == 1
     assert "SessionStart" in settings["hooks"]
+
+
+# ---------------------------------------------------------------------------
+# Reconciliação de abertura injetada no contexto (contrato
+# `reconciliacao-de-abertura`, T-04)
+#
+# O passo 5 do lifecycle manda rodar `harness reconcile`, mas depender de o
+# agente lembrar é o mesmo erro que as stop conditions em prosa cometiam: o
+# mecanismo existe e ninguém aciona. Aqui a checagem entra sozinha, no único
+# momento em que dá para agir sobre ela — antes de escolher a fatia.
+# ---------------------------------------------------------------------------
+
+def _write_progress_of_another_contract(tmp_path: Path) -> None:
+    """`feature_list.json` de um contrato e `progress.md` de outro — o estado
+    que fez o hook injetar "nenhuma feature pendente" numa sessão com seis
+    tarefas a fazer (v0.25.0)."""
+    harness_dir = tmp_path / ".harness"
+    harness_dir.mkdir(parents=True, exist_ok=True)
+    (harness_dir / "feature_list.json").write_text(
+        json.dumps(FEATURE_LIST_PENDING), encoding="utf-8"
+    )
+    (harness_dir / "progress.md").write_text(
+        "# Claude Progress\n\nContrato: " + chr(96) + "demanda-antiga" + chr(96) + "\n",
+        encoding="utf-8",
+    )
+
+
+def test_the_session_is_warned_when_the_declared_state_does_not_match(tmp_path: Path) -> None:
+    _write_progress_of_another_contract(tmp_path)
+
+    context = _context(_run_hook(_write_hook_script(tmp_path), tmp_path))
+
+    assert "progress_contract_mismatch" in context
+    assert "harness reconcile" in context
+    # O resto do contexto continua vindo: o aviso ACRESCENTA, não substitui.
+    assert "T-02" in context
+
+
+def test_a_coherent_repository_gets_no_reconciliation_noise(tmp_path: Path) -> None:
+    """Contexto de abertura entra em TODA sessão. Uma seção dizendo "está tudo
+    certo" gastaria, toda vez, a atenção de que o aviso de verdade precisa."""
+    harness_dir = tmp_path / ".harness"
+    harness_dir.mkdir(parents=True, exist_ok=True)
+    # Tudo pendente e nada alegando prova: o estado de quem vai começar. Note
+    # que `FEATURE_LIST_PENDING` NÃO serve aqui — o T-01 dele diz `passes: true`
+    # sem arquivo de evidência, que é divergência de verdade (`evidence_missing`).
+    (harness_dir / "feature_list.json").write_text(
+        json.dumps({
+            "contract": "exemplo-feature",
+            "features": [
+                {"id": "T-02", "desc": "Ainda pendente", "files": [],
+                 "verify_cmd": "pytest", "passes": False},
+            ],
+        }),
+        encoding="utf-8",
+    )
+
+    context = _context(_run_hook(_write_hook_script(tmp_path), tmp_path))
+
+    assert "AVISO: o estado declarado" not in context
+    assert "T-02" in context
+
+
+def test_a_broken_reconciliation_costs_the_warning_never_the_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Degradação igual à do `_auto_update`: perder o contexto da sessão
+    anterior é dano maior do que ficar sem o aviso. Testado no script GERADO,
+    não numa cópia da lógica."""
+    namespace: dict = {}
+    exec(compile(render_session_start_hook(), "session_start_gerado", "exec"), namespace)
+
+    def _explode(*_args, **_kwargs):
+        raise OSError("python sumiu do PATH")
+
+    monkeypatch.setattr(namespace["subprocess"], "run", _explode)
+
+    assert namespace["_reconcile_section"](tmp_path) is None
+
+
+def test_the_hook_payload_carries_the_rendered_section_not_raw_divergences(
+    tmp_path: Path,
+) -> None:
+    """O script gerado é stdlib-only e não importa `harness` — se ele montasse
+    o texto do aviso, essa formatação ficaria fora do alcance da suíte e
+    divergiria na primeira mudança. Por isso `python -m harness.reconcile`
+    entrega a seção JÁ renderizada, e ao hook resta anexá-la."""
+    _write_progress_of_another_contract(tmp_path)
+
+    proc = subprocess.run(
+        [sys.executable, "-m", "harness.reconcile", "--dir", str(tmp_path)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert proc.returncode == 2, proc.stderr
+    payload = json.loads(proc.stdout)
+    assert payload["divergences"]
+    assert "AVISO: o estado declarado" in payload["section"]

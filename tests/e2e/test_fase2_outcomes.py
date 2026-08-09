@@ -899,14 +899,19 @@ def test_outcome6_lifecycle_block_idempotent_and_coexistent(tmp_path: Path) -> N
         # `harness finish` com blockers vazio). O que o passo 16 precisa citar
         # agora é essa pré-condição — trocar um marcador pelo outro mantém o
         # teste cobrindo o mesmo ponto do bloco.
+        # `git log` saiu da lista em `reconciliacao-de-abertura`: o passo 5
+        # deixou de pedir uma olhada no histórico e passou a mandar rodar
+        # `harness reconcile`, que compara estado declarado com estado real —
+        # prova vencida, tarefa marcada sem prova, progresso de outra demanda,
+        # nada disso aparece num `git log`. Mesma troca de marcador de antes.
         for marker in ("exatamente UMA feature pendente", ".harness/progress.md",
-                       "feature_list.json", "git log", "harness finish"):
+                       "feature_list.json", "harness reconcile", "harness finish"):
             assert marker in block, f"passo esperado ausente do bloco: {marker!r}"
         proof.append(
             "Bloco do lifecycle: 17 passos numerados (1 linha por passo), citando "
-            "init/.harness/progress.md/feature_list.json/git log/'exatamente UMA "
-            "feature pendente'/commit condicionado a `harness finish` com blockers "
-            "vazio, com ponteiro de progressive disclosure para "
+            "init/.harness/progress.md/feature_list.json/`harness reconcile`/"
+            "'exatamente UMA feature pendente'/commit condicionado a `harness finish` "
+            "com blockers vazio, com ponteiro de progressive disclosure para "
             "`.harness/LIFECYCLE.md`."
         )
 

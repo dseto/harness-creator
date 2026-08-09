@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-02",
+  "contract": "reconciliacao-de-abertura",
+  "desc": "`harness reconcile` responde por linha de comando se o estado declarado bate com o real, com exit code utilizável por quem automatiza",
+  "files": [
+    "src/harness/cli.py",
+    "tests/test_cli.py"
+  ],
+  "verify_cmd": "pytest tests/test_cli.py -q",
+  "recorded_at": "2026-08-09T05:13:15.185484+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:040b0751fb5a1a9405372a8964cf83dcd9440bc01e7751484becf3d26727bb63"
+}

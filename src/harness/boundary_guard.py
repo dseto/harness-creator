@@ -2178,6 +2178,10 @@ _HARNESS_SUBCOMMANDS = [
     "compile", "audit", "audit-runtime", "analyze", "preflight",
     "compile-contract", "compile-session", "verify", "team", "review",
     "supervise", "audit-team", "task", "finish", "budget", "pr-draft",
+    # 'reconcile' e read-only e o passo 5 do lifecycle manda roda-lo na
+    # ABERTURA de toda sessao: fora desta lista, o primeiro comando do ciclo
+    # seria negado pelo hook que o proprio ciclo instalou.
+    "reconcile",
     # Formas de invocacao read-only: negar `harness --help` deixava o agente
     # sem sequer descobrir os subcomandos disponiveis (relatado ao vivo no
     # deadlock de bootstrap). 'doctor'/'status' sao read-only; 'enable' e
