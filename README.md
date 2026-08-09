@@ -129,7 +129,7 @@ automática: ele existe para mostrar o estado real, não para corrigi-lo.
 Detalhe completo do preflight (tabela de checks, contrato do JSON, decisões de
 arquitetura): [docs/preflight.md](docs/preflight.md).
 
-## CLI — os 19 subcomandos
+## CLI — os 20 subcomandos
 
 Todos aceitam `--dir <alvo>` (default `.`) e só operam sobre um diretório que
 já existe: um `--dir` com erro de digitação sai com código 2 sem escrever nada.
@@ -146,6 +146,7 @@ já existe: um `--dir` com erro de digitação sai com código 2 sem escrever na
 | `harness verify <id>` | Fase 3 — roda o `verify_cmd` real e grava `.harness/evidence/<contrato>/<id>.json`. Marca `passes:true` por padrão desde a v0.23.0 |
 | `harness supervise` | Devolve a próxima feature pronta respeitando `depends[]`. Leitura síncrona, não daemon |
 | `harness finish` | Encerra a demanda: audita o fecho e, só se aprovado, varre os descartáveis do `.harness/`. **Nunca toca git** |
+| `harness pr-draft` | Monta o PR a partir do contrato: grava `.harness/scratch/pr-body.md` e imprime o `gh pr create` exato. **O agente nunca abre o PR** |
 
 ### Ajustes sem reabrir o gate de aprovação
 
@@ -267,8 +268,8 @@ harness-creator/
 │   └── marketplace.json         # auto-referência p/ instalar como marketplace local
 ├── AGENTS.md                    # 3 blocos gerenciados + prosa humana
 ├── skills/                      # preflight, init, plan, compile, audit, team
-├── src/harness/                 # 30 módulos, uma responsabilidade cada
-│   ├── cli.py                   # dispatch dos 19 subcomandos
+├── src/harness/                 # 32 módulos, uma responsabilidade cada
+│   ├── cli.py                   # dispatch dos 20 subcomandos
 │   │
 │   │                            # -- base (fonte única de cada verdade) --
 │   ├── config.py                # HarnessConfig (pydantic) — schema do yaml
@@ -288,6 +289,7 @@ harness-creator/
 │   ├── branching.py             # fluxo branch-first: contract/<slug>
 │   ├── profile_edit.py          # harness profile set + reconciliação do test_glob
 │   ├── install_command.py       # comando de instalação a partir do package manager
+│   ├── autoupdate.py            # decide e dispara a recompilação de artefato atrasado
 │   │
 │   │                            # -- enforcement em runtime (hooks gerados) --
 │   ├── boundary_guard.py        # dispatcher único: raio de impacto + runtime floor
@@ -300,6 +302,7 @@ harness-creator/
 │   ├── supervisor.py            # próxima feature pronta, respeitando depends[]
 │   ├── teams.py                 # catálogo de 6 padrões + análise de domínio
 │   ├── finish.py                # encerra a demanda: audita o fecho e varre
+│   ├── pr_draft.py              # contrato + evidência -> corpo do PR e comando gh
 │   │
 │   │                            # -- diagnóstico (read-only) --
 │   ├── preflight.py             # laudo de prontidão do repo cru
@@ -314,7 +317,7 @@ harness-creator/
 │   └── .gitignore               # a regra de ignore é do próprio produto
 ├── docs/plugin/                 # TUTORIAL, GUIDE, ARCHITECTURE, arquitetura-visual.html
 ├── docs/project/                # ROADMAP, PLAN, laudos e handoffs
-└── tests/                       # 724 casos (sem Docker/API para compile/audit)
+└── tests/                       # 908 casos (sem Docker/API para compile/audit)
 ```
 
 Quem decide o que entra no git é a **Seção 3** de
@@ -327,7 +330,7 @@ de compilação que carrega dado de máquina é machine-local e regenerada por
 
 ```powershell
 $env:PYTHONPATH = "src"
-python -m pytest tests -q          # unit + E2E — 724 casos
+python -m pytest tests -q          # unit + E2E — 908 casos
 ```
 
 A suíte E2E (`tests/e2e/`) roda inteira sobre repos sintéticos criados em
@@ -338,7 +341,8 @@ externo ao plugin.
 **Convenção da suíte (v0.26.0):** um teste = uma REGRA, com tabela de casos
 (`Case` + `_expect`), nunca um `def` por caso. A suíte tinha chegado a 1008
 casos e caiu para 724 sem perder uma asserção — o que sobrou é o piso
-mecânico, não gordura restante.
+mecânico, não gordura restante. O crescimento desde então (908) é regra nova
+coberta, não a gordura voltando.
 
 Achado que a suíte documenta (via `harness.cli` chamado com
 `--output-format json`, mesmo padrão usado pelo `claude -p` real): uma ação

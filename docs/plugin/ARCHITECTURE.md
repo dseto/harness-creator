@@ -58,10 +58,10 @@ contagem de tokens a hooks.
 |---|---|---|---|
 | **0 · Host** | Claude Code | Executa: lê `permissions`, dispara hooks, carrega skills e subagentes | — |
 | **1a · Skills** | `skills/` (7) | Conduz a conversa com o humano | Não escreve nada direto — toda escrita passa pela CLI |
-| **1b · CLI** | `cli.py` | Dispatch dos 19 subcomandos, validação de `--dir` | Não decide `allow`/`deny` em runtime |
-| **2 · Compiladores** | `compiler`, `contract`, `analyzer`, `session_permissions`, `lifecycle`, `templates`, `branching`, `profile_edit`, `install_command` | Transformam entrada humana em artefato. Determinísticos, zero LLM, zero rede | Não rodam no caminho da tool call |
+| **1b · CLI** | `cli.py` | Dispatch dos 20 subcomandos, validação de `--dir` | Não decide `allow`/`deny` em runtime |
+| **2 · Compiladores** | `compiler`, `contract`, `analyzer`, `session_permissions`, `lifecycle`, `templates`, `branching`, `profile_edit`, `install_command`, `autoupdate` | Transformam entrada humana em artefato. Determinísticos, zero LLM, zero rede | Não rodam no caminho da tool call |
 | **3 · Enforcement** | `boundary_guard`, `session_start`, `stop_hook` | Decidem `allow`/`ask`/`deny` a cada tool call | Não importam a biblioteca — stdlib puro |
-| **4 · Prova e controle** | `verify`, `review`, `supervisor`, `teams`, `finish` | Produzem e consomem evidência; ordenam o trabalho | Nenhum chama git de escrita |
+| **4 · Prova e controle** | `verify`, `review`, `supervisor`, `teams`, `finish`, `pr_draft` | Produzem e consomem evidência; ordenam o trabalho | Nenhum chama git de escrita |
 | **5 · Diagnóstico** | `preflight`, `audit`, `runtime_audit`, `team_audit`, `doctor`, `metrics` | Emitem laudo + o comando exato de correção | Nunca corrigem sozinhos |
 | **Base** | `config`, `governance/approval`, `patterns`, `settings_paths`, `hook_launcher`, `killswitch` | Cada um é fonte **única** de uma verdade | — |
 
@@ -331,11 +331,23 @@ demanda ──assess──► laudo ──► spec + Plans ──compile-contrac
                                                                      │
                                                                      ▼
                                        feature-lock  ·  review  ·  supervise  ·  finish
+                                                                     │
+                                                     blockers: [] ───┼──► commit + push
+                                                                     ▼    (branch do contrato)
+                                                              pr-draft ──► pr-body.md
+                                                                           + gh pr create
+                                                                           (o humano abre)
 ```
 
 Os dois pontos onde o fluxo pode parar antes de qualquer escrita são os
 portões: `preflight` com `NOT_READY` e `assess` com `FORA_DE_ESCOPO`. Todo o
 resto ou segue, ou para no gate humano do contrato.
+
+Depois do gate, o fluxo não pede humano de novo. O que autoriza o commit é
+`harness finish` com `blockers: []` — condição de máquina, não aprovação de
+conversa. A única coisa reservada ao humano no fim é **abrir o PR**, e o
+`pr_draft` existe para que isso não exija redigir nada: ele lê o contrato e a
+evidência já gravada e devolve corpo e comando prontos.
 
 ---
 
@@ -370,6 +382,39 @@ explícita depois de um caso real: UM `critical` custa 40 pontos, deixava o scor
 em exatamente 60, e o comando saía 0 — um repositório sem harness nenhum passava
 por qualquer gate de CI que olhasse o exit code.
 
+### A exceção: a camada 2 se conserta sozinha
+
+O título desta seção vale para os laudos, não para as três camadas de
+distribuição. Delas, a do meio — o `.harness/` compilado — é a única em que
+consertar é **determinístico e local**: recompilar é rodar o mesmo compilador
+sobre a mesma entrada. Não precisa de rede, não precisa de decisão. Por isso
+`autoupdate` a regenera sem pedir, disparado por qualquer subcomando ou pela
+abertura de sessão.
+
+A decisão e a execução ficam separadas de propósito: `plan_update()` é pura e
+compara **tuplas semver**, nunca `!=`. A distinção importa porque as duas
+assimetrias têm respostas opostas — artefato atrás recompila, artefato à frente
+só avisa. Um `!=` regrediria o trabalho de outra máquina.
+
+As outras duas camadas não têm esse conserto. O pacote pip é ação de fora do
+processo. E a camada 3 — o cache de plugin — carrega as skills na
+inicialização e exige rede: qualquer correção só valeria na sessão seguinte.
+Sobra avisar, e o aviso vive no `SessionStart` porque é o único ponto que roda
+antes de a pessoa começar a trabalhar.
+
+Esse aviso e o `doctor` leem a **mesma** função, `stale_plugin_installs()` —
+não duas comparações de versão. É o mesmo princípio da seção 2: a divergência
+entre duas tabelas que deveriam concordar é o bug que este desenho existe para
+prevenir, e um diagnóstico que discorda do aviso da sessão seria exatamente
+isso.
+
+Três invariantes fecham o comportamento automático. Ele **falha aberto** — a
+recompilação que morre nunca derruba o comando que a disparou. Ele **nunca
+toca git** — daí o `--no-branch` no `compile-session` interno: trocar a branch
+do desenvolvedor como efeito colateral de um comando de leitura seria pior que
+o artefato velho. E ele **respeita o kill-switch**, porque o sentinel desliga o
+harness inteiro, inclusive a parte que se conserta.
+
 ---
 
 ## 9. Kill-switch: o paradoxo e sua resolução
@@ -396,7 +441,7 @@ aviso completo sobre esquecer o kill-switch ligado estão em
 
 ## 10. Estado atual e limites conhecidos
 
-**Fases 1–4 entregues** (v0.11 → v0.26) e em uso: o projeto se governa com o
+**Fases 1–4 entregues** (v0.11 → v0.32) e em uso: o projeto se governa com o
 próprio harness — os contratos em `.harness/work/` deste repositório são o
 histórico real de uso.
 
@@ -408,7 +453,12 @@ diagnóstico honesto de onde a autonomia ainda trava:
    o guard libera comando. *"A skill nunca se auto-aprova" é instrução, não
    mecanismo.* A Fase 5 fecha por mecanismo: risk-tier determinístico, juiz
    independente em processo frio, `approval_hash` e regra de floor sobre
-   `approved_*`.
+   `approved_*`. A v0.32.0 **aumentou o que está em jogo** aqui: como o gate
+   virou único, aprovar o contrato passou a autorizar também o commit e o push
+   da branch. Isso não é folga nova — o que impede o agente de commitar sem
+   trabalho provado é `harness finish` com `blockers: []`, condição de máquina
+   sobre evidência fresca, e o floor continua barrando branch protegida e
+   `--force`. Mas fecha o item 1 por mecanismo virou mais urgente, não menos.
 2. **Não existe driver de loop.** `supervisor.py` é leitor síncrono deliberado;
    ninguém encadeia feature→feature, sessão→sessão. O orquestrador real só
    existe hoje dentro do teste E2E.
