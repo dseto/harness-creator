@@ -26,3 +26,11 @@ Porquê: Fatia com passes:true e sem arquivo de prova e marcacao a mao, e e o qu
 ## D-006 — Importar a lista, nao comparar duas listas (2026-08-09)
 Decisão: HARNESS_CLI_VERBS vira constante de modulo em boundary_guard.py; o hook gerado recebe bakeada por json.dumps e session_permissions e o e2e importam a mesma
 Porquê: A lista estava em TRES copias a mao (guard, session_permissions, tests/e2e/test_fase2_outcomes) e duas estavam desatualizadas -- a do e2e assertava a superficie EXATA, entao a copia velha exigia que o produto ficasse errado junto. Descartado o teste que compara as listas: comparar DETECTA a divergencia depois de ela existir; importar IMPEDE que exista. Bakear com json.dumps e nao repr porque aspas duplas mantem o estilo do hook gerado e ha teste que procura o verbo entre aspas duplas nesse texto.
+
+## D-007 — O health check pergunta, nunca executa o verify_cmd (2026-08-09)
+Decisão: Resolver o executavel no PATH e, so na forma <python> -m <modulo>, rodar um import; nunca executar o comando do contrato
+Porquê: Executar a suite na abertura foi o que fez ninguem rodar o .harness/init.ps1 que o passo 2 ja mandava rodar; um check caro vira opcional na pratica, e um check opcional nao cobre o modo de falha do 8.3, que e o silencio
+
+## D-008 — Conteudo da working tree nao decide o que o health check lanca (2026-08-09)
+Decisão: Executavel so e procurado dentro da arvore quando o token tem separador de caminho, e so vira import o que casa nome de modulo pontilhado
+Porquê: Sem as duas fronteiras, um arquivo de texto homonimo fazia o laudo dizer VERDE para ferramenta ausente, e um arquivo chamado python escolhia o interpretador que o hook da abertura lanca sozinho; a fronteira do separador ainda bate com o que o cmd.exe faz de verdade

@@ -1358,6 +1358,52 @@ def test_audit_with_nonexistent_dir_does_not_emit_a_plausible_report(
     assert "missing_harness_yaml" not in captured.out
 
 
+# ---------------------------------------------------------------------------
+# REGRA: `harness health` — o verbo que o passo 2 do lifecycle manda rodar à
+# mão — devolve a MESMA coisa que o hook da abertura recebe. Duas saídas para
+# um laudo só é como o canal que a prosa prescreve acaba sendo o mais pobre: o
+# aviso diz "rode `harness health` de novo", e quem roda precisa ler ali o que
+# fazer, não só um JSON de sintomas.
+# ---------------------------------------------------------------------------
+
+def test_health_verb_carries_the_verdict_and_what_to_do(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    harness_dir = tmp_path / ".harness"
+    harness_dir.mkdir(parents=True)
+    (harness_dir / "feature_list.json").write_text(
+        json.dumps({"contract": "x", "features": [
+            {"id": "T-01", "desc": "d", "files": [],
+             "verify_cmd": "binario-inexistente-xyz -q", "passes": False},
+        ]}),
+        encoding="utf-8",
+    )
+
+    code = _run(monkeypatch, "health", "--dir", str(tmp_path))
+
+    captured = capsys.readouterr()
+    # 2 é veredito legítimo de parada, como em `budget`/`reconcile`/`blind`.
+    assert code == 2
+    payload = json.loads(captured.out)
+    assert payload["classification"] == "infra"
+    assert payload["problems"]
+    # O que fazer chega renderizado, no mesmo payload que o hook consome.
+    assert "INFRAESTRUTURA" in payload["section"]
+    # E legível para quem rodou no terminal, sem precisar ler JSON.
+    assert "Nao tente consertar" in captured.err
+
+
+def test_health_verb_is_silent_about_what_answers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code = _run(monkeypatch, "health", "--dir", str(tmp_path))
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert json.loads(captured.out)["section"] is None
+    assert captured.err == ""
+
+
 def test_every_dir_taking_subcommand_refuses_a_nonexistent_dir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1365,7 +1411,8 @@ def test_every_dir_taking_subcommand_refuses_a_nonexistent_dir(
     comando é o que deixou `compile` certo e `analyze`/`audit` errados."""
     ghost = str(tmp_path / "nao-existe")
     for command in ("analyze", "compile", "audit", "audit-runtime", "preflight",
-                    "compile-session", "supervise", "doctor", "status", "reconcile"):
+                    "compile-session", "supervise", "doctor", "status", "reconcile",
+                    "health"):
         assert _run(monkeypatch, command, "--dir", ghost) == 2, command
     # Os verbos de registro da spine tomam posicional obrigatório: sem eles o
     # exit 2 viria do argparse e o teste passaria sem exercitar a guarda.

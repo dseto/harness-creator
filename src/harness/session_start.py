@@ -290,6 +290,40 @@ def _reconcile_section(cwd: Path) -> str | None:
     return None
 
 
+def _health_section(cwd: Path) -> str | None:
+    """Health check de abertura (passo 2 do lifecycle, secao 7.2 do design) —
+    secao de aviso, ou None quando todas as ferramentas do contrato respondem.
+
+    Mesma delegacao do `_reconcile_section`, e pelo mesmo motivo: este script
+    roda com -S e nao importa `harness`. O texto chega JA renderizado.
+
+    Exit 0 (saudavel) e 2 (ambiente quebrado) sao respostas; qualquer outro
+    codigo, ou qualquer falha, vira None. Uma sessao sem o aviso trabalha pior;
+    uma sessao sem contexto nenhum nao trabalha.
+    """
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "harness.health", "--dir", str(cwd)],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode not in (0, 2):
+        return None
+    try:
+        data = json.loads(proc.stdout)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    section = data.get("section")
+    if isinstance(section, str) and section.strip():
+        return section
+    return None
+
+
 def _decisions_section(cwd: Path) -> str | None:
     """Decisoes recentes do projeto (secao 5.2 do design), ja renderizadas.
 
@@ -333,6 +367,20 @@ def build_context(cwd: Path) -> str:
         for notice in (_stale_plugin_notice(update), _recompiled_notice(update)):
             if notice:
                 parts.append(notice)
+
+    # ANTES da reconciliacao, que ja vem antes de todo o resto. E a posicao que
+    # o passo 2 do lifecycle (secao 7.2 do design) da ao health check: logo
+    # depois da governanca, antes de tudo que depende do ambiente responder.
+    # (A ordem entre spine e reconciliacao aqui e a inversa da do design, de
+    # proposito: o aviso de divergencia muda como o resto e lido, entao ele vem
+    # antes do que ele desqualifica.) Nao e estetica — a reconciliacao manda CORRIGIR o
+    # registro, e corrigir registro num ambiente que nao responde produz
+    # trabalho que ninguem consegue verificar. Ambiente quebrado tambem e a
+    # unica das duas situacoes em que a resposta certa e parar (secao 8.3), e
+    # nao ha por que ler o resto antes de saber disso.
+    health = _health_section(cwd)
+    if health:
+        parts.append(health)
 
     # ANTES do resumo de progresso, e nao depois: quando o estado declarado nao
     # bate com o repositorio, o resumo logo abaixo e justamente o que nao se

@@ -1,6 +1,6 @@
 # Claude Progress
 
-Contrato: `compilar-as-primeiras-licoes`
+Contrato: `health-check-de-abertura`
 
 _Demanda ENCERRADA por `harness finish`._
 
@@ -8,9 +8,9 @@ _Demanda ENCERRADA por `harness finish`._
 
 | id | desc | status |
 | --- | --- | --- |
-| T-01 | A re-prova que passa vale como prova: a tarefa re-provada não é mais cobrada de novo à mão, e uma tarefa sem prova nenhuma continua sendo cobrada | done |
-| T-02 | A configuração de permissões passa a acompanhar sozinha todo comando do harness que o hook libera, sem ninguém manter uma segunda lista | done |
-| T-03 | Nenhum número da documentação sobre o tamanho do projeto pode ficar errado sem quebrar a suíte | done |
+| T-01 | A sessão passa a saber quais ferramentas exigidas pelo contrato não respondem, sem precisar rodar nenhum comando do contrato para descobrir | done |
+| T-02 | Um laudo só responde pelas três formas de o harness estar desprotegido em silêncio — ferramenta ausente, governança desalinhada e proteção desligada — e diz que a resposta é parar, não consertar | done |
+| T-03 | A abertura da sessão entrega o veredito de ambiente sozinha, antes de qualquer coisa que dependa dele, sem ninguém precisar lembrar de pedir | done |
 
 ## Última atualização
 

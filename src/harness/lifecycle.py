@@ -33,7 +33,9 @@ def render_lifecycle_block() -> str:
 ## Agent Session Lifecycle (gerado — 17 passos, docs/project/ROADMAP.md Fase 2)
 
 1. Ler `AGENTS.md`.
-2. Rodar `.harness/init.sh`/`.harness/init.ps1` (deps + health check do profile).
+2. Rodar `harness health` e parar se o ambiente não responder — é falha de
+   infraestrutura (§8.3), não teste vermelho: não melhora tentando de novo.
+   Dependência faltando se instala com `.harness/init.sh`/`.harness/init.ps1`.
 3. Ler `.harness/progress.md`.
 4. Ler `feature_list.json`.
 5. Rodar `harness reconcile` e resolver toda divergência antes de seguir —
@@ -80,10 +82,33 @@ aprovado e só devolve o controle ao humano em estado retomável.
    governança compilada (permissions, hooks, este próprio lifecycle) antes
    de tocar em qualquer arquivo do projeto.
 
-2. **Rodar `.harness/init.sh`/`.harness/init.ps1` (deps + health check do profile).** Script
-   gerado a partir do profile do projeto: instala dependências e roda um
-   health check para confirmar que o ambiente está utilizável antes de
-   começar a trabalhar.
+2. **Rodar `harness health` (§7.2 do design).** Pergunta, numa passada só, se
+   este projeto está em condições de trabalhar. São as três formas de o
+   harness estar desprotegido **em silêncio** que o §8.3 nomeia junto:
+
+   - **ferramenta indisponível** — o executável de algum `verify_cmd` do
+     contrato não resolve, ou o módulo dele não importa. Sem esta pergunta, o
+     defeito chega ao loop disfarçado de teste vermelho.
+   - **governança desalinhada** — hook com interpretador irresolúvel (a tool
+     call passa sem gate nenhum), `.claude/settings.local.json` ausente num
+     repositório que parece governado, `.harness/` compilado com outra versão.
+     É o que o `harness doctor` sempre soube achar, e só falava quando
+     perguntado.
+   - **proteção desligada** — o kill-switch ativo: os hooks em no-op. Neste
+     repositório isso durou quatro dias sem ninguém ver.
+
+   **Exit 2 é parada.** Ambiente quebrado é falha de **infraestrutura** (§8.3),
+   e a resposta dela é oposta à da falha estrutural: não se autocorrige, não
+   melhora tentando de novo, e o loop **não conserta** o próprio harness — se o
+   problema for de governança ou de proteção, pare e escale ao humano.
+   Dependência que falta se instala com `.harness/init.sh`/`.harness/init.ps1`,
+   gerado a partir do profile; o health check constata que faltou, não resolve.
+
+   Na sessão iniciada pelo Claude Code o hook `SessionStart` já injeta este
+   veredito sozinho, antes de tudo — inclusive antes da reconciliação do passo
+   5, porque corrigir registro num ambiente que não responde produz trabalho
+   que ninguém consegue verificar. Rode o comando à mão quando o aviso não
+   chegou: sessão retomada, execução fora do Claude Code, ou hook desinstalado.
 
 3. **Ler `.harness/progress.md`.** Resumo do estado da sessão anterior — o
    que já foi feito, o que ficou pendente, o que quebrou. Evita retrabalho

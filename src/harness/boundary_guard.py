@@ -206,6 +206,12 @@ HARNESS_CLI_VERBS: tuple[str, ...] = (
     # .harness/scratch/ e grava o veredito em .harness/blind-review/ -- de novo
     # dentro de .harness/**, de novo pelo mesmo motivo.
     "blind",
+    # 'health' e o passo 2 do lifecycle (secao 7.2 do design), e roda ANTES de
+    # qualquer coisa na abertura -- inclusive antes de 'reconcile', que esta
+    # nesta lista pelo mesmo motivo. Read-only por construcao: ele resolve
+    # executavel no PATH e pergunta se um modulo importa, nunca corrige nada
+    # (secao 8.3 proibe healing de infraestrutura).
+    "health",
     # Formas de invocacao read-only: negar `harness --help` deixava o agente sem
     # sequer descobrir os subcomandos disponiveis (relatado ao vivo no deadlock
     # de bootstrap). 'doctor'/'status' sao read-only.

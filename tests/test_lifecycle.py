@@ -178,6 +178,33 @@ def test_step_ten_points_at_the_mechanical_breaker_not_at_prose() -> None:
     assert ".harness/attempts/" in detail
 
 
+def test_step_two_checks_the_environment_with_a_command_instead_of_a_script_nobody_runs() -> None:
+    """Passo 2 do contrato `health-check-de-abertura` (§7.2/§8.3 do design).
+
+    O texto anterior mandava rodar `.harness/init.sh`/`init.ps1` — que instala
+    dependências E roda a suíte inteira. Ninguém rodava, porque custa uma suíte
+    por abertura, e um passo caro vira opcional na prática. O modo de falha
+    desta família é o silêncio (§8.3), então "opcional" aqui significa "não
+    existe": o guard deste próprio repositório ficou quatro dias em no-op sem
+    ninguém ver.
+
+    O passo passa a apontar o comando barato (`harness health`), e precisa
+    dizer as duas coisas que mudam a reação de quem lê: que a classificação é
+    infraestrutura — logo NÃO é teste vermelho e não melhora tentando de novo —
+    e que a resposta é parar, nunca consertar o próprio harness."""
+    block = render_lifecycle_block()
+    detail = render_lifecycle_detail()
+
+    assert "harness health" in block
+    assert "harness health" in detail
+    # A instalação de dependências continua sendo trabalho do init — o health
+    # check constata que faltou, não resolve.
+    assert ".harness/init." in detail
+    for expected in ("infraestrutura", "§8.3"):
+        assert expected in detail
+    assert "não conserta" in detail
+
+
 # ---------------- install_lifecycle ----------------
 
 def test_install_creates_agents_md_when_missing(tmp_path: Path) -> None:

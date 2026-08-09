@@ -1,0 +1,15 @@
+{
+  "feature_id": "T-02",
+  "contract": "health-check-de-abertura",
+  "desc": "Um laudo só responde pelas três formas de o harness estar desprotegido em silêncio — ferramenta ausente, governança desalinhada e proteção desligada — e diz que a resposta é parar, não consertar",
+  "files": [
+    "src/harness/health.py",
+    "tests/test_health.py",
+    "src/harness/doctor.py",
+    "tests/test_doctor.py"
+  ],
+  "verify_cmd": "pytest tests/test_health.py -q",
+  "recorded_at": "2026-08-09T18:15:22.175870+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:3bc1507415aed734b4cd293b74ae2a453c4824313de8a1ee33ebfc37cf3c5b4a"
+}
