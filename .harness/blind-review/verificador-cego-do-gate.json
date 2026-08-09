@@ -1,0 +1,23 @@
+{
+  "contract": "verificador-cego-do-gate",
+  "verdicts": [
+    {
+      "verdict": "pass",
+      "evidence": "Pacote derivado por codigo do contrato, sem canal para o racional (src/harness/blind.py:137-193 e 83-93; teste-canario em tests/test_blind.py:176-185). Veredito grava files_hash e e append (blind.py:278,282), com hash conferido ANTES do veredito (blind.py:311-316). Hook renderizado devolveu allow para blind package e blind verdict nas duas formas (boundary_guard.py:2191-2196). Fecho bloqueia com tres kind acionaveis (finish.py:104-150,255) sem virar ruido na abertura (reconcile.py:56-71). Passo 15 despacha a camada 3 com a lista do que jamais mandar (lifecycle.py:55-59,237-266). Provas declaradas verdes 31/182/39/25 e suite completa 1174 passed, 1 skipped.",
+      "files_hash": "sha256:c7cf59a8f46f953c4e73496c4702fd7e7521793ca7ea88f4352649f57b5b8a07",
+      "recorded_at": "2026-08-09T14:24:27.576558+00:00"
+    },
+    {
+      "verdict": "fail",
+      "evidence": "README.md:500 e README.md:513 dizem 1176 casos mas pytest --collect-only coleta 1177: a contagem foi tirada antes de o proprio delta acrescentar tests/test_branching.py:216. Resto do delta confere (src/harness/branching.py:73 com teste nao-vacuoso confirmado por mutacao) e as cinco tarefas seguem integras (299 passed).",
+      "files_hash": "sha256:e6a22b7c7d03d403c2ab8e9b96534b3ff9f9a162685ed8596bb3919ec735ea90",
+      "recorded_at": "2026-08-09T14:39:26.503255+00:00"
+    },
+    {
+      "verdict": "pass",
+      "evidence": "Confirmado por execucao propria: pytest --collect-only coleta 1177 e README.md:500 e README.md:513 dizem 1177, sem resquicio de 1121/1175/1176 em README, AGENTS.md ou docs/plugin/. Delta contido no README; src/harness/branching.py:73 segue com evidence/ e blind-review/. Cinco tarefas integras: 299 passed nos sete arquivos de teste declarados. 25 subcomandos e 38 modulos conferidos contra o argparse e o diretorio.",
+      "files_hash": "sha256:335691b8c2fcf691eafc1258e9f70a3d1a622db94bac8d5f8cee4d94d2cbc19e",
+      "recorded_at": "2026-08-09T14:44:18.902423+00:00"
+    }
+  ]
+}

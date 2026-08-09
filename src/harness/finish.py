@@ -101,6 +101,56 @@ def _tracked_dirty_paths(target_dir: Path) -> list[str]:
     return unmanaged_dirty_paths(proc.stdout)
 
 
+def _blind_review_blockers(target_dir: Path) -> list[dict[str, str]]:
+    """Camada 3 (§6/§9.1): a demanda não fecha sem um olho que não implementou.
+
+    Três estados bloqueiam, e cada um manda o humano fazer coisa diferente —
+    por isso três `kind`, e não um só. Confundir "ninguém julgou" com "julgaram
+    e reprovaram" faz o loop consertar o que ninguém chegou a olhar.
+    """
+    from harness.blind import BLIND_PACKAGE_FILE, review_state
+
+    state = review_state(target_dir)
+    kind = state["state"]
+    if kind == "fresh":
+        return []
+
+    if kind == "missing":
+        return [
+            _blocker(
+                "blind_review_missing",
+                "a entrega não passou por verificação independente — quem "
+                "implementou é o único que a olhou. Rode `harness blind "
+                f"package`, despache o pacote (`{BLIND_PACKAGE_FILE}`) para um "
+                "verificador com contexto limpo, e registre o veredito com "
+                "`harness blind verdict`.",
+            )
+        ]
+
+    verdict = state.get("verdict") or {}
+    evidence = str(verdict.get("evidence") or "").strip()
+    if kind == "stale":
+        return [
+            _blocker(
+                "blind_review_stale",
+                "o veredito independente é anterior ao código: os arquivos do "
+                "contrato mudaram depois do julgamento, então ele não fala mais "
+                "desta entrega. Refaça a verificação cega e registre um veredito "
+                "novo — o anterior fica no histórico.",
+            )
+        ]
+
+    return [
+        _blocker(
+            "blind_review_failed",
+            "a verificação independente REPROVOU a entrega: "
+            + (evidence or "(sem evidência registrada)")
+            + ". Corrija o que o veredito aponta e registre um veredito novo — "
+            "o verificador não conserta, e a demanda não fecha reprovada.",
+        )
+    ]
+
+
 def audit_closure(target_dir: Path | str) -> dict[str, Any]:
     """Audita o fecho da demanda. SÓ LEITURA — nada em disco muda aqui.
 
@@ -119,7 +169,11 @@ def audit_closure(target_dir: Path | str) -> dict[str, Any]:
     - `evidence_stale` — o `files_hash` da evidência não bate com o conteúdo
       atual dos `files[]`: o código mudou depois da prova;
     - `tree_residue` — tracked sujo fora dos `files[]` do contrato e fora dos
-      artefatos gerenciados pelo harness.
+      artefatos gerenciados pelo harness;
+    - `blind_review_missing` — nenhum veredito da camada 3: só quem implementou
+      olhou a entrega;
+    - `blind_review_stale` — o veredito é anterior ao código atual;
+    - `blind_review_failed` — o verificador independente reprovou.
     """
     target_dir = Path(target_dir).resolve()
     blockers: list[dict[str, str]] = []
@@ -197,6 +251,8 @@ def audit_closure(target_dir: Path | str) -> dict[str, Any]:
                 "evidence": evidence_state,
             }
         )
+
+    blockers.extend(_blind_review_blockers(target_dir))
 
     residue = [p for p in _tracked_dirty_paths(target_dir) if p not in declared_files]
     if residue:

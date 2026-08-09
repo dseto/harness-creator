@@ -285,6 +285,37 @@ def test_reconcile_never_writes_anything(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# REGRA (contrato `verificador-cego-do-gate`, T-04): o veredito da camada 3 é
+# assunto do FECHO. Na abertura, "ninguém verificou ainda" é o estado normal de
+# quem está começando — exatamente como tarefa pendente.
+#
+# Sem este filtro, TODA sessão nova abriria com divergência, e o aviso morreria
+# de ser ruído: o modo de falha que faz humano desligar alerta.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "kind",
+    ["blind_review_missing", "blind_review_stale", "blind_review_failed"],
+    ids=["ninguem julgou ainda", "julgou antes do codigo mudar", "julgou e reprovou"],
+)
+def test_the_blind_review_never_becomes_an_opening_divergence(
+    tmp_path: Path, kind: str
+) -> None:
+    from harness.reconcile import OPENING_IGNORED_KINDS
+
+    assert kind in OPENING_IGNORED_KINDS
+
+
+def test_a_session_that_never_ran_a_blind_review_opens_quiet(tmp_path: Path) -> None:
+    """O caso concreto: repo íntegro, sem veredito nenhum — que é como toda
+    demanda começa. Tem que abrir com `divergences: []`."""
+    target = tmp_path / "repo"
+    _scenario_clean(target)
+
+    assert reconcile(target)["divergences"] == []
+
+
+# ---------------------------------------------------------------------------
 # render_session_section — o que o hook SessionStart injeta
 # ---------------------------------------------------------------------------
 

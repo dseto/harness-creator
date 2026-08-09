@@ -1480,6 +1480,90 @@ def test_finish_without_lessons_reports_an_empty_list_not_a_missing_key(
 
 
 # ---------------------------------------------------------------------------
+# harness blind (contrato `verificador-cego-do-gate`, T-03)
+# ---------------------------------------------------------------------------
+
+def test_blind_package_writes_the_file_the_dispatch_sends(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """O pacote precisa existir em disco para poder ser despachado como está —
+    é isso que impede o prompt do verificador de passar pela redação de quem
+    acabou de implementar."""
+    _reconcilable_repo(tmp_path, contract="demo", progress_contract="demo")
+
+    code = _run(monkeypatch, "blind", "package", "--dir", str(tmp_path))
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["tasks"] == 1
+    assert (tmp_path / payload["package"]).is_file()
+
+
+def test_blind_package_without_a_contract_is_an_execution_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert _run(monkeypatch, "blind", "package", "--dir", str(tmp_path)) == 1
+
+
+def test_an_approved_verdict_closes_with_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _reconcilable_repo(tmp_path, contract="demo", progress_contract="demo")
+
+    code = _run(
+        monkeypatch, "blind", "verdict", "--pass",
+        "--evidence", "conferi src/x.py:10 contra o criterio de T-01",
+        "--dir", str(tmp_path),
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["verdict"] == "pass"
+    assert (tmp_path / ".harness" / "blind-review" / "demo.json").is_file()
+
+
+def test_a_rejected_verdict_exits_two_because_it_is_a_stop_verdict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Mesma convenção de `budget`, `reconcile` e da re-prova: 2 é veredito
+    legítimo de parada, não falha de execução. Reprovar é resultado normal do
+    passo — gate que só sabe aprovar não é gate."""
+    _reconcilable_repo(tmp_path, contract="demo", progress_contract="demo")
+
+    code = _run(
+        monkeypatch, "blind", "verdict", "--fail",
+        "--evidence", "T-01 nao cobre o caso vazio (src/x.py:22)",
+        "--dir", str(tmp_path),
+    )
+
+    assert code == 2
+    assert json.loads(capsys.readouterr().out)["verdict"] == "fail"
+
+
+def test_a_verdict_with_no_side_chosen_records_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sem `--pass`/`--fail` o parser recusa. A asserção é sobre o ARQUIVO, e
+    não sobre o exit code: o parser também sai com 2, que é justamente o código
+    do veredito reprovado — passaria pelo motivo errado."""
+    _reconcilable_repo(tmp_path, contract="demo", progress_contract="demo")
+
+    _run(monkeypatch, "blind", "verdict", "--evidence", "x", "--dir", str(tmp_path))
+
+    assert not (tmp_path / ".harness" / "blind-review").exists()
+
+
+def test_a_verdict_without_evidence_records_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _reconcilable_repo(tmp_path, contract="demo", progress_contract="demo")
+
+    _run(monkeypatch, "blind", "verdict", "--pass", "--dir", str(tmp_path))
+
+    assert not (tmp_path / ".harness" / "blind-review").exists()
+
+
+# ---------------------------------------------------------------------------
 # harness reconcile (contrato `reconciliacao-de-abertura`, T-02)
 # ---------------------------------------------------------------------------
 

@@ -193,6 +193,48 @@ def test_ensure_contract_branch_ignores_managed_progress_and_evidence(
     assert result == "contract/exemplo-feature"
 
 
+def test_the_two_spine_records_are_managed_like_the_rest(tmp_path: Path) -> None:
+    """Achado rodando o `harness finish` do contrato `verificador-cego-do-gate`:
+    ele acusou `.harness/decisions.md` e `.harness/lessons.md` como "trabalho de
+    outro contexto". São o oposto disso — o `boundary_guard` PROÍBE editá-los à
+    mão, então a única coisa que os escreve é `harness decide`/`harness lesson`.
+
+    Não era teórico: enquanto estavam fora do conjunto gerenciado, registrar uma
+    decisão durante a demanda travava o fecho dela, e o único jeito de fechar
+    seria não registrar — que é o contrário do que os dois verbos existem para
+    fazer."""
+    _init_repo(tmp_path)
+    harness_dir = tmp_path / ".harness"
+    harness_dir.mkdir(exist_ok=True)
+    (harness_dir / "decisions.md").write_text("# Decisões\n", encoding="utf-8")
+    (harness_dir / "lessons.md").write_text("# Lições\n", encoding="utf-8")
+    _git(tmp_path, "add", ".harness")
+    _git(tmp_path, "commit", "-m", "versiona .harness")
+    (harness_dir / "decisions.md").write_text("# Decisões\n\n## D-001\n", encoding="utf-8")
+    (harness_dir / "lessons.md").write_text("# Lições\n\n- [ ] x\n", encoding="utf-8")
+
+    assert ensure_contract_branch(tmp_path, "exemplo-feature") == "contract/exemplo-feature"
+
+
+def test_the_blind_verdict_is_managed_like_the_evidence(tmp_path: Path) -> None:
+    """Mesmo deadlock dos dois acima, uma pasta ao lado. Enquanto o veredito de
+    uma demanda for arquivo novo ele é untracked e o `-uno` do `finish` o ignora
+    — o problema aparece na demanda em que um veredito já foi commitado e outro
+    é registrado depois: o arquivo vira tracked-sujo, cai em `tree_residue`, e
+    não há escape, porque `harness task add-file` recusa caminho de plano de
+    controle. É prova de camada 3, exatamente como `.harness/evidence/` é prova
+    de camada 2."""
+    _init_repo(tmp_path)
+    review_dir = tmp_path / ".harness" / "blind-review"
+    review_dir.mkdir(parents=True)
+    (review_dir / "exemplo-feature.json").write_text("{}", encoding="utf-8")
+    _git(tmp_path, "add", ".harness")
+    _git(tmp_path, "commit", "-m", "versiona .harness")
+    (review_dir / "exemplo-feature.json").write_text('{"verdicts": []}', encoding="utf-8")
+
+    assert ensure_contract_branch(tmp_path, "exemplo-feature") == "contract/exemplo-feature"
+
+
 def test_ensure_contract_branch_aborts_when_unmanaged_file_is_dirty_beside_managed(
     tmp_path: Path,
 ) -> None:

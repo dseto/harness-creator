@@ -57,12 +57,20 @@ HARNESS_MANAGED_PATHS = frozenset({
     ".harness/repo-profile.json",
     ".harness/progress.md",
     ".harness/LIFECYCLE.md",
+    # Os dois registros da spine que vivem o projeto. O `boundary_guard` PROÍBE
+    # editá-los à mão, então a única coisa que os escreve é `harness decide` /
+    # `harness lesson` — chamá-los de "trabalho de outro contexto" é o oposto do
+    # que são. Enquanto ficaram de fora, registrar uma decisão durante a demanda
+    # travava o fecho dela, e o único jeito de fechar seria não registrar.
+    ".harness/decisions.md",
+    ".harness/lessons.md",
 })
 
 #: Mesma isenção, para as árvores inteiras que o harness gerencia. A evidência
-#: nasce de `harness verify` a cada tarefa, então num repo que versiona
-#: `.harness/` ela fica tracked-suja durante toda a demanda.
-HARNESS_MANAGED_PREFIXES = (".harness/evidence/",)
+#: nasce de `harness verify` a cada tarefa, e o veredito da camada 3 de
+#: `harness blind verdict` — as duas são prova, e num repo que versiona
+#: `.harness/` ficam tracked-sujas durante a demanda.
+HARNESS_MANAGED_PREFIXES = (".harness/evidence/", ".harness/blind-review/")
 
 
 class BranchingError(Exception):

@@ -275,6 +275,37 @@ def main() -> None:
     )
     lesson.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
 
+    blind = sub.add_parser(
+        "blind",
+        help="Camada 3 (§6): monta o pacote de verificação cega e registra o veredito",
+    )
+    blind_sub = blind.add_subparsers(dest="blind_command", required=True)
+
+    blind_package = blind_sub.add_parser(
+        "package",
+        help="Monta .harness/scratch/blind-package.md a partir do contrato — "
+        "sem nada do raciocínio de quem implementou",
+    )
+    blind_package.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+
+    blind_verdict = blind_sub.add_parser(
+        "verdict",
+        help="Registra o veredito do verificador em .harness/blind-review/<contrato>.json",
+    )
+    blind_side = blind_verdict.add_mutually_exclusive_group(required=True)
+    blind_side.add_argument(
+        "--pass", dest="passed", action="store_true", help="A entrega confere com o critério",
+    )
+    blind_side.add_argument(
+        "--fail", dest="passed", action="store_false", help="A entrega não confere com o critério",
+    )
+    blind_verdict.add_argument(
+        "--evidence", required=True,
+        help="O quê e ONDE (`arquivo:linha`). Obrigatório: veredito sem "
+        "evidência gera re-tentativa cega (§9.1)",
+    )
+    blind_verdict.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+
     team = sub.add_parser("team", help="Team-Architecture Factory (Fase 4): design/generate de times de agentes")
     team_sub = team.add_subparsers(dest="team_command", required=True)
 
@@ -929,6 +960,45 @@ def main() -> None:
             "open": len(open_lessons(Path(args.dir))),
         }, indent=2, ensure_ascii=False))
         sys.exit(0)
+
+    if args.command == "blind" and args.blind_command == "package":
+        from harness.blind import (
+            BLIND_PACKAGE_FILE,
+            BlindError,
+            build_package,
+            load_contract,
+            package_tasks,
+        )
+
+        try:
+            build_package(Path(args.dir))
+            data = load_contract(Path(args.dir))
+        except BlindError as exc:
+            print(f"erro: {exc}", file=sys.stderr)
+            sys.exit(1)
+        # Path RELATIVO ao alvo, e não o absoluto do processo: quem lê este JSON
+        # é o despacho do subagente, que roda com o repo como raiz.
+        print(json.dumps({
+            "package": BLIND_PACKAGE_FILE,
+            "contract": data.get("contract"),
+            "tasks": len(package_tasks(data)),
+        }, indent=2, ensure_ascii=False))
+        sys.exit(0)
+
+    if args.command == "blind" and args.blind_command == "verdict":
+        from harness.blind import BlindError, record_verdict
+
+        try:
+            entry = record_verdict(
+                Path(args.dir), passed=args.passed, evidence=args.evidence,
+            )
+        except BlindError as exc:
+            print(f"erro: {exc}", file=sys.stderr)
+            sys.exit(1)
+        print(json.dumps(entry, indent=2, ensure_ascii=False))
+        # 2 como em `budget`/`reconcile`/re-prova: veredito legítimo de parada,
+        # não falha de execução. Reprovar é resultado normal deste passo.
+        sys.exit(0 if args.passed else 2)
 
     if args.command == "audit-team":
         from harness.team_audit import audit_team

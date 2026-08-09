@@ -58,10 +58,10 @@ contagem de tokens a hooks.
 |---|---|---|---|
 | **0 · Host** | Claude Code | Executa: lê `permissions`, dispara hooks, carrega skills e subagentes | — |
 | **1a · Skills** | `skills/` (7) | Conduz a conversa com o humano | Não escreve nada direto — toda escrita passa pela CLI |
-| **1b · CLI** | `cli.py` | Dispatch dos 24 subcomandos, validação de `--dir` | Não decide `allow`/`deny` em runtime |
+| **1b · CLI** | `cli.py` | Dispatch dos 25 subcomandos, validação de `--dir` | Não decide `allow`/`deny` em runtime |
 | **2 · Compiladores** | `compiler`, `contract`, `analyzer`, `session_permissions`, `lifecycle`, `templates`, `branching`, `profile_edit`, `install_command`, `autoupdate` | Transformam entrada humana em artefato. Determinísticos, zero LLM, zero rede | Não rodam no caminho da tool call |
 | **3 · Enforcement** | `boundary_guard`, `session_start`, `stop_hook` | Decidem `allow`/`ask`/`deny` a cada tool call | Não importam a biblioteca — stdlib puro |
-| **4 · Prova e controle** | `verify`, `attempts`, `budget`, `reconcile`, `regression`, `review`, `supervisor`, `teams`, `finish`, `pr_draft`, `spine` | Produzem e consomem evidência; ordenam o trabalho | Nenhum chama git de escrita |
+| **4 · Prova e controle** | `verify`, `attempts`, `budget`, `reconcile`, `regression`, `blind`, `review`, `supervisor`, `teams`, `finish`, `pr_draft`, `spine` | Produzem e consomem evidência; ordenam o trabalho | Nenhum chama git de escrita |
 | **5 · Diagnóstico** | `preflight`, `audit`, `runtime_audit`, `team_audit`, `doctor`, `metrics` | Emitem laudo + o comando exato de correção | Nunca corrigem sozinhos |
 | **Base** | `config`, `governance/approval`, `patterns`, `settings_paths`, `hook_launcher`, `killswitch` | Cada um é fonte **única** de uma verdade | — |
 
@@ -409,6 +409,46 @@ retomada, e a razão é mais dura que economia de contexto: uma lista de fricç�
 no contexto do agente é um backlog que ele tentaria resolver — auto-modificação
 do harness pelo próprio agente, a camada que o design manda não construir. Elas
 saem no `harness finish`, para o humano.
+
+### Camada 3: o que se mecaniza é a ausência
+
+A escada de verificação do §6 tem três degraus, e os dois primeiros compartilham
+um ponto cego: quem escreveu o código escreveu o teste, e é quem declara pronto.
+
+| camada | quando | quem executa | módulo |
+|---|---|---|---|
+| 1 · sinal rápido | toda iteração | o agente | prosa do lifecycle |
+| 2 · prova da fatia | ao fechar a fatia | `harness verify` | `verify` + `regression` |
+| 3 · review profundo | uma vez, antes da entrega | um verificador que não implementou | `blind` |
+
+O julgamento da camada 3 é de quem julga — o harness não tem como mecanizá-lo.
+O que ele mecaniza é o que o verificador **não** recebe:
+
+- **O pacote é derivado do `feature_list.json`, não redigido.** Aquele arquivo já
+  é a projeção limpa do contrato (`desc`, `files[]`, `verify_cmd`); nada do
+  `spec.md` chega até ele. Um prompt escrito pelo implementador vaza a
+  justificativa por construção, e o §9.1 é explícito que a avaliação nasce
+  contaminada nesse caso. O tipo `PackageTask` é a fronteira em código: não tem
+  campo para racional, então não há por onde um passar.
+- **A lista de "não abra" vem com motivo.** O verificador é um agente com acesso
+  ao repositório — os arquivos do racional continuam no disco, e a única defesa
+  possível é nomeá-los. "Não leia" sem motivo é a instrução que mais se ignora.
+- **O veredito prende o hash do que julgou**, como a evidência de camada 2, e é
+  append como `decisions.md` — pelas mesmas duas razões: prova velha não vale
+  por prova nova, e reprovação que some é reprovação que se re-litiga.
+- **`harness finish` é o dente.** Três `kind` distintos (`blind_review_missing`,
+  `blind_review_stale`, `blind_review_failed`) porque cada um manda o humano
+  fazer coisa diferente — confundir "ninguém julgou" com "julgaram e reprovaram"
+  faz o loop consertar o que ninguém chegou a olhar.
+
+`blind` é módulo próprio, e não uma extensão de `review`: aquele é o state
+machine **por feature** do padrão Produtor-Revisor (Fase 4, opt-in de time), com
+iteração e teto de re-submissão; este é **por demanda**, uma passada, no gate.
+
+**Limite declarado.** O harness não prova que o subagente recebeu só o pacote —
+prova que o pacote existe, que saiu de código, e que o veredito está preso ao
+estado que julgou. O resto é o passo 15 do lifecycle. Mesma fronteira do resto do
+projeto: invariante vira mecanismo, julgamento vira prosa.
 
 ---
 

@@ -1,0 +1,15 @@
+{
+  "feature_id": "T-03",
+  "contract": "verificador-cego-do-gate",
+  "desc": "Montar o pacote e registrar o veredito são comandos de uma linha, que o próprio hook de proteção não nega",
+  "files": [
+    "src/harness/cli.py",
+    "src/harness/boundary_guard.py",
+    "tests/test_cli.py",
+    "tests/test_boundary_guard.py"
+  ],
+  "verify_cmd": "pytest tests/test_cli.py tests/test_boundary_guard.py -q",
+  "recorded_at": "2026-08-09T13:59:31.934232+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:75f94c93957323691e98589360fb5e6106f56b2e7c380c8055e851a4dc9b656a"
+}

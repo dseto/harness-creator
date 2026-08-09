@@ -129,7 +129,7 @@ automática: ele existe para mostrar o estado real, não para corrigi-lo.
 Detalhe completo do preflight (tabela de checks, contrato do JSON, decisões de
 arquitetura): [docs/preflight.md](docs/preflight.md).
 
-## CLI — os 24 subcomandos
+## CLI — os 25 subcomandos
 
 Todos aceitam `--dir <alvo>` (default `.`) e só operam sobre um diretório que
 já existe: um `--dir` com erro de digitação sai com código 2 sem escrever nada.
@@ -148,6 +148,8 @@ já existe: um `--dir` com erro de digitação sai com código 2 sem escrever na
 | `harness supervise` | Devolve a próxima feature pronta respeitando `depends[]`. Leitura síncrona, não daemon |
 | `harness budget --feature <id>` | Disjuntor do loop: conta o rastro de tentativas e devolve `continue`/`stop_same_failure`/`stop_iterations`. Só leitura; exit 2 quando manda parar |
 | `harness finish` | Encerra a demanda: audita o fecho e, só se aprovado, varre os descartáveis do `.harness/`. **Nunca toca git** |
+| `harness blind package` | Camada 3 — monta `.harness/scratch/blind-package.md` (o que foi prometido, onde olhar, qual era a prova) **sem nada do raciocínio de quem implementou** |
+| `harness blind verdict --pass\|--fail --evidence "..."` | Registra o veredito do verificador em `.harness/blind-review/<contrato>.json`. Append; exit 2 quando reprova |
 | `harness pr-draft` | Monta o PR a partir do contrato: grava `.harness/scratch/pr-body.md` e imprime o `gh pr create` exato. **O agente nunca abre o PR** |
 
 ### Spine do projeto (§5.2 e §5.3)
@@ -224,8 +226,11 @@ Duas metades, nesta ordem e nada além disso:
 1. **Auditoria do fecho** — só leitura. Bloqueadores possíveis:
    `killswitch_active` (a demanda rodou sem governança), `no_contract`,
    `feature_not_passed`, `evidence_missing` (marcação à mão),
-   `evidence_stale` (o `files_hash` não bate — o código mudou depois da prova)
-   e `tree_residue` (tracked sujo fora dos `files[]` do contrato).
+   `evidence_stale` (o `files_hash` não bate — o código mudou depois da prova),
+   `tree_residue` (tracked sujo fora dos `files[]` do contrato) e os três da
+   camada 3: `blind_review_missing` (só quem implementou olhou a entrega),
+   `blind_review_stale` (o veredito é anterior ao código) e
+   `blind_review_failed` (o verificador independente reprovou).
 2. **Varredura dos descartáveis** — só roda com a auditoria limpa: reescreve o
    `.harness/progress.md` como demanda encerrada e esvazia o
    `.harness/scratch/`.
@@ -389,6 +394,45 @@ harness mecanizava só o primeiro:
 
 Base: §5.2 e §5.3 do mesmo documento.
 
+### Camada 3: o olho que não implementou
+
+As camadas 1 e 2 provam que o teste passa — e o teste foi escrito pela mesma
+cabeça que escreveu o código. Nenhuma das duas pergunta se o que foi entregue é
+o que a demanda prometia. O §9.1 chama UM ponto de independência de mínimo
+obrigatório, e é este (`src/harness/blind.py`):
+
+```powershell
+harness blind package --dir .    # monta .harness/scratch/blind-package.md
+harness blind verdict --pass --evidence "conferi src/x.py:42 contra T-01"
+harness blind verdict --fail --evidence "T-01 nao cobre o caso vazio"
+```
+
+- **O pacote é montado por código** — sai do `feature_list.json`, que já é a
+  projeção limpa do contrato: `desc` (o que foi prometido), `files[]` (onde
+  olhar), `verify_cmd` (a prova). Um prompt redigido por quem acabou de
+  implementar vaza a justificativa por construção, sem má-fé nenhuma — e o
+  §9.1 é explícito que uma avaliação assim já nasce contaminada.
+- **O que fica de fora é a entrega** — `spec.md`, `.harness/progress.md`
+  (histórico de tentativas), `.harness/decisions.md`, `.harness/lessons.md` e
+  as mensagens de commit. O pacote os nomeia com o motivo, porque "não leia"
+  sem motivo é a instrução que mais se ignora.
+- **O veredito prende o hash do que julgou** — mesma mecânica da evidência de
+  camada 2. Código mudou depois → `blind_review_stale`, e o fecho cobra outro.
+  Sem isso, um "aprovado" de vinte commits atrás fecharia a demanda de hoje.
+- **Veredito novo não apaga o anterior** — reprovação que some é reprovação que
+  se re-litiga. Append, como `decisions.md`.
+- **Exit code 2 para reprovado** — veredito legítimo de parada. Gate que só
+  sabe aprovar não é gate.
+- **Quem verificou não conserta** — o veredito volta ao loop, que decide.
+  Fundir os papéis economiza uma chamada e custa a independência inteira.
+
+Limite declarado: o harness não prova que o subagente recebeu SÓ o pacote. Ele
+garante que o pacote existe em disco, foi derivado por código, e que o veredito
+está preso ao estado que julgou; a disciplina do despacho é o passo 15 do
+lifecycle. Mecanismo onde dá, prosa onde não dá.
+
+Base: §6 (camada 3) e §9.1 do mesmo documento.
+
 ## Estrutura do repo
 
 ```
@@ -398,8 +442,8 @@ harness-creator/
 │   └── marketplace.json         # auto-referência p/ instalar como marketplace local
 ├── AGENTS.md                    # 3 blocos gerenciados + prosa humana
 ├── skills/                      # preflight, init, plan, compile, audit, team
-├── src/harness/                 # 37 módulos, uma responsabilidade cada
-│   ├── cli.py                   # dispatch dos 24 subcomandos
+├── src/harness/                 # 38 módulos, uma responsabilidade cada
+│   ├── cli.py                   # dispatch dos 25 subcomandos
 │   │
 │   │                            # -- base (fonte única de cada verdade) --
 │   ├── config.py                # HarnessConfig (pydantic) — schema do yaml
@@ -431,6 +475,7 @@ harness-creator/
 │   ├── attempts.py              # rastro de tentativas: erro cru + assinatura da falha
 │   ├── regression.py            # re-prova incremental: fatia nova × fatias já provadas
 │   ├── spine.py                 # decisões e lições: append-only, vida = o projeto
+│   ├── blind.py                 # camada 3: pacote sem o racional + veredito com hash
 │   ├── budget.py                # disjuntor do loop: continue / stop_* por contagem
 │   ├── reconcile.py             # declarado × real na ABERTURA (reusa audit_closure)
 │   ├── review.py                # state machine do revisor (teto duro de iterações)
@@ -452,7 +497,7 @@ harness-creator/
 │   └── .gitignore               # a regra de ignore é do próprio produto
 ├── docs/plugin/                 # TUTORIAL, GUIDE, ARCHITECTURE, arquitetura-visual.html
 ├── docs/project/                # ROADMAP, PLAN, laudos e handoffs
-└── tests/                       # 1121 casos (sem Docker/API para compile/audit)
+└── tests/                       # 1177 casos (sem Docker/API para compile/audit)
 ```
 
 Quem decide o que entra no git é a **Seção 3** de
@@ -465,7 +510,7 @@ de compilação que carrega dado de máquina é machine-local e regenerada por
 
 ```powershell
 $env:PYTHONPATH = "src"
-python -m pytest tests -q          # unit + E2E — 1121 casos
+python -m pytest tests -q          # unit + E2E — 1177 casos
 ```
 
 A suíte E2E (`tests/e2e/`) roda inteira sobre repos sintéticos criados em

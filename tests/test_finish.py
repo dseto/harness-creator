@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from harness.blind import record_verdict
 from harness.finish import FinishError, audit_closure, sweep_disposables
 from harness.killswitch import SENTINEL_RELATIVE_PATH
 from harness.templates import install_templates
@@ -101,10 +102,15 @@ def _write_evidence(
 
 
 def _clean_closure(target: Path) -> list[str]:
-    """Fecho íntegro: contrato com tudo passando, evidência fresca, tree limpa."""
+    """Fecho íntegro: contrato com tudo passando, evidência fresca, tree limpa
+    e veredito independente sobre o estado atual.
+
+    O veredito entrou aqui no contrato `verificador-cego-do-gate`: a partir
+    dele, prova de camada 2 sem camada 3 deixou de ser fecho íntegro."""
     _make_repo(target)
     files = _write_contract(target)
     _write_evidence(target, files=files)
+    record_verdict(target, passed=True, evidence="conferi src/modulo.py:1")
     return files
 
 
@@ -250,6 +256,68 @@ def test_cli_finish_reports_the_audit_and_exits_1_with_blockers(tmp_path: Path) 
     assert proc.returncode == 1, proc.stderr
     report = json.loads(proc.stdout)
     assert "feature_not_passed" in {b["kind"] for b in report["blockers"]}
+
+
+# ---------------------------------------------------------------------------
+# REGRA (contrato `verificador-cego-do-gate`, T-04): a demanda não fecha sem um
+# veredito independente e fresco. Sem este dente, o veredito seria registro que
+# ninguém lê — o sinal de over-engineering que o §11 do design lista.
+#
+# Cada estado manda o humano fazer uma coisa diferente, então cada um tem
+# `kind` próprio: confundir "não julgou" com "julgou e reprovou" manda consertar
+# o que ninguém olhou.
+# ---------------------------------------------------------------------------
+
+def test_audit_blocks_a_closure_that_no_independent_eye_ever_looked_at(tmp_path: Path) -> None:
+    _make_repo(tmp_path)
+    files = _write_contract(tmp_path)
+    _write_evidence(tmp_path, files=files)
+
+    report = audit_closure(tmp_path)
+
+    assert "blind_review_missing" in _kinds(report)
+
+
+def test_audit_blocks_when_the_code_changed_after_the_verdict(tmp_path: Path) -> None:
+    """Mesma mecânica da evidência de camada 2, e pelo mesmo motivo: um
+    "aprovado" de vinte commits atrás não fala do código de hoje."""
+    _clean_closure(tmp_path)
+    (tmp_path / "src" / "modulo.py").write_text("x = 2  # depois do veredito\n", encoding="utf-8")
+
+    report = audit_closure(tmp_path)
+
+    assert "blind_review_stale" in _kinds(report)
+
+
+def test_audit_blocks_when_the_independent_eye_rejected_the_delivery(tmp_path: Path) -> None:
+    _make_repo(tmp_path)
+    files = _write_contract(tmp_path)
+    _write_evidence(tmp_path, files=files)
+    record_verdict(tmp_path, passed=False, evidence="T-01 nao cobre o caso vazio")
+
+    report = audit_closure(tmp_path)
+
+    assert "blind_review_failed" in _kinds(report)
+
+
+def test_the_rejection_reason_reaches_the_human_in_the_blocker(tmp_path: Path) -> None:
+    """§9.1: veredito sem o quê e onde gera re-tentativa cega. Enterrar a
+    evidência num arquivo que o fecho não mostra tem o mesmo efeito."""
+    _make_repo(tmp_path)
+    files = _write_contract(tmp_path)
+    _write_evidence(tmp_path, files=files)
+    record_verdict(tmp_path, passed=False, evidence="faltou tratar lista vazia em src/modulo.py:1")
+
+    report = audit_closure(tmp_path)
+
+    problems = " ".join(b["problem"] for b in report["blockers"])
+    assert "src/modulo.py:1" in problems
+
+
+def test_an_approved_and_fresh_verdict_does_not_block(tmp_path: Path) -> None:
+    _clean_closure(tmp_path)
+
+    assert _kinds(audit_closure(tmp_path)) == set()
 
 
 # ---------------------------------------------------------------------------

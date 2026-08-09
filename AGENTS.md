@@ -152,8 +152,11 @@ sempre exige aprovação humana.
 13. Marcar a feature concluída em `feature_list.json`.
 14. Documentar o que ficou quebrado, e anotar a fricção da sessão com
     `harness lesson` — o agente anota, quem compila é o humano.
-15. Apresentar o que será commitado — por feature: descrição funcional em
-    linguagem natural do que mudou, e link `file:line` do teste que prova.
+15. Mostrar o trabalho a quem não o escreveu: `harness blind package` →
+    despachar o pacote para um verificador com contexto limpo →
+    `harness blind verdict`. E apresentar o que será commitado — por feature,
+    descrição funcional em linguagem natural do que mudou, e link `file:line`
+    do teste que prova.
 16. Commit e push na branch do contrato, condicionados a `harness finish`
     com `blockers: []`. O PR é do humano: entregue o `harness pr-draft`.
 17. Deixar a working tree limpa.

@@ -1,6 +1,6 @@
 # Claude Progress
 
-Contrato: `spine-decisoes-e-licoes`
+Contrato: `verificador-cego-do-gate`
 
 _Demanda ENCERRADA por `harness finish`._
 
@@ -8,12 +8,11 @@ _Demanda ENCERRADA por `harness finish`._
 
 | id | desc | status |
 | --- | --- | --- |
-| T-01 | O projeto passa a ter onde guardar a razão de uma escolha e a fricção observada, com numeração e data automáticas, e nada do que já foi registrado pode ser alterado por um registro novo | done |
-| T-02 | Registrar uma decisão ou uma lição é um comando de uma linha, que o próprio hook de proteção não nega | done |
-| T-03 | Os dois registros nascem junto com a sessão compilada, e recompilar nunca apaga o que já foi anotado | done |
-| T-04 | A sessão nova já começa sabendo das decisões recentes do projeto, sem ninguém precisar procurá-las | done |
-| T-05 | Ao encerrar a demanda, o humano recebe a lista de fricções anotadas durante ela | done |
-| T-06 | O ciclo diz quando registrar uma decisão e quando registrar uma lição, e a documentação do projeto descreve os três registros da spine | done |
+| T-01 | A entrega passa a ter um pacote de julgamento montado por comando, com o que foi prometido e onde olhar, e sem nada do raciocínio de quem implementou | done |
+| T-02 | O veredito fica registrado preso ao estado que julgou, um veredito novo nunca apaga o anterior, e veredito de um código que já mudou é reportado como velho | done |
+| T-03 | Montar o pacote e registrar o veredito são comandos de uma linha, que o próprio hook de proteção não nega | done |
+| T-04 | A demanda não fecha sem um veredito independente e fresco, e cada motivo de bloqueio diz ao humano o que fazer | done |
+| T-05 | O ciclo diz quando despachar o verificador, o que mandar e o que jamais mandar, e a documentação descreve as três camadas de verificação | done |
 
 ## Última atualização
 
