@@ -37,6 +37,16 @@ concatenados em ordem determinística (`sorted(files)`). Serve para uma
 tarefa futura detectar evidência desatualizada (arquivo mudou depois da
 verificação) sem precisar reimplementar o hash — por isso
 `compute_files_hash` é exposta como função pública de módulo.
+
+Rastro de tentativas (`harness.attempts`, incremento 1 do design de loop
+engineering): além da evidência, TODA passada — verde ou vermelha — deixa uma
+linha em `.harness/attempts/<contrato>/<id>.jsonl`. A regra antiga "exit code
+!= 0 -> NADA é gravado em disco" valia para EVIDÊNCIA e continua valendo: o
+vermelho segue sem prova. O que passa a ser gravado no vermelho é o oposto de
+uma prova — o registro de que a fatia falhou, com o erro cru — sem o qual o
+disjuntor de `harness budget` não teria o que contar e a regra do padrão
+repetido só existiria como prosa no passo 10 do lifecycle. Gravar o rastro
+NUNCA muda o resultado da verificação (mesma regra do sync do `progress.md`).
 """
 
 from __future__ import annotations
@@ -53,9 +63,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TextIO
 
+from harness.attempts import open_failures, read_attempts, record_failure, record_pass
 from harness.boundary_guard import is_floor_bash_command
 from harness.contract import FEATURE_LIST_FILE
-from harness.templates import append_progress_note, update_progress_status
+from harness.templates import (
+    append_progress_note,
+    update_progress_attempts,
+    update_progress_status,
+)
 
 EVIDENCE_DIR = ".harness/evidence"
 _VERIFY_TIMEOUT_SECONDS = 600
@@ -456,6 +471,30 @@ def run_verify(
         ) from exc
 
     if returncode != 0:
+        # O rastro é gravado ANTES de levantar — a exceção é o caminho normal
+        # do vermelho, e um `raise` antes do registro deixaria justamente a
+        # tentativa que interessa fora do disjuntor. `except Exception` largo
+        # e silencioso pelo mesmo motivo de `metrics.record_event`: subproduto
+        # não derruba a operação que o produziu.
+        try:
+            record_failure(
+                target_dir,
+                contract,
+                feature_id,
+                verify_cmd=verify_cmd,
+                exit_code=returncode,
+                stdout=stdout,
+                stderr=stderr,
+                files_hash=compute_files_hash(files, target_dir),
+                recorded_at=datetime.now(timezone.utc).isoformat(),
+            )
+            update_progress_attempts(
+                target_dir,
+                feature_id,
+                open_failures(read_attempts(target_dir, contract, feature_id)),
+            )
+        except Exception:
+            pass
         raise VerifyFailedError(feature_id, returncode, stdout, stderr)
 
     evidence = {
@@ -477,6 +516,25 @@ def run_verify(
     path.write_text(
         json.dumps(evidence, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
+
+    # Marcador de verde no rastro de tentativas: fecha a sequência de falhas
+    # consecutivas que o `harness budget` conta. Reusa o `recorded_at` e o
+    # `files_hash` da evidência — nunca um relógio ou um hash novos, que
+    # descreveriam um estado sutilmente diferente do que acabou de ser provado.
+    try:
+        record_pass(
+            target_dir,
+            contract,
+            feature_id,
+            files_hash=evidence["files_hash"],
+            recorded_at=evidence["recorded_at"],
+        )
+        # Lista vazia: o verde encerrou a sequência, então a subseção de
+        # tentativas da fatia sai do progress.md. O histórico permanente
+        # continua no jsonl — o que sai é a PENDÊNCIA, não o registro.
+        update_progress_attempts(target_dir, feature_id, [])
+    except Exception:
+        pass
 
     # US-2: sincroniza o rastro legível com a prova recém-gravada — elimina o
     # passo manual 12 do lifecycle. No-op silencioso se .harness/progress.md não

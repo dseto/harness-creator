@@ -1,0 +1,15 @@
+{
+  "feature_id": "T-04",
+  "contract": "rastro-de-tentativas-e-budget",
+  "desc": "`harness budget --feature <id>` responde se o agente continua ou para (mesma falha repetida / teto de iterações), com razão legível",
+  "files": [
+    "src/harness/budget.py",
+    "src/harness/cli.py",
+    "tests/test_budget.py",
+    "src/harness/boundary_guard.py"
+  ],
+  "verify_cmd": "pytest tests/test_budget.py -q",
+  "recorded_at": "2026-08-09T04:32:03.751807+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:226eea6590a13a7c99ca0764f67a4cc85514876db9e20427b6556688d01d70c8"
+}

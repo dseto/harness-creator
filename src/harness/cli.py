@@ -273,6 +273,14 @@ def main() -> None:
     sup = sub.add_parser("supervise", help="Devolve a próxima feature pronta a trabalhar (ou null)")
     sup.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
 
+    bud = sub.add_parser(
+        "budget",
+        help="Disjuntor do loop: conta o rastro de tentativas de uma feature e "
+        "devolve continue/stop_same_failure/stop_iterations. Só leitura",
+    )
+    bud.add_argument("--feature", required=True, help="Id da feature em .harness/feature_list.json")
+    bud.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+
     aud_team = sub.add_parser("audit-team", help="Audita os artefatos de time da Fase 4 — score + findings JSON")
     aud_team.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
 
@@ -757,6 +765,21 @@ def main() -> None:
         next_feature = dispatch_next(Path(args.dir))
         print(json.dumps({"next": next_feature}, indent=2, ensure_ascii=False))
         sys.exit(0)
+
+    if args.command == "budget":
+        from harness.budget import CONTINUE, BudgetError, check_budget
+
+        try:
+            report = check_budget(Path(args.dir), args.feature)
+        except BudgetError as exc:
+            print(f"erro: {exc}", file=sys.stderr)
+            sys.exit(1)
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+        # Exit 2 no veredito de parada: um `if` de shell distingue "continua"
+        # de "para" sem parsear JSON, e 2 (não 1) porque 1 já significa erro de
+        # execução no resto da CLI — parar por budget é resultado legítimo do
+        # comando, não falha dele.
+        sys.exit(0 if report["verdict"] == CONTINUE else 2)
 
     if args.command == "finish":
         from harness.finish import audit_closure, sweep_disposables

@@ -58,10 +58,10 @@ contagem de tokens a hooks.
 |---|---|---|---|
 | **0 · Host** | Claude Code | Executa: lê `permissions`, dispara hooks, carrega skills e subagentes | — |
 | **1a · Skills** | `skills/` (7) | Conduz a conversa com o humano | Não escreve nada direto — toda escrita passa pela CLI |
-| **1b · CLI** | `cli.py` | Dispatch dos 20 subcomandos, validação de `--dir` | Não decide `allow`/`deny` em runtime |
+| **1b · CLI** | `cli.py` | Dispatch dos 21 subcomandos, validação de `--dir` | Não decide `allow`/`deny` em runtime |
 | **2 · Compiladores** | `compiler`, `contract`, `analyzer`, `session_permissions`, `lifecycle`, `templates`, `branching`, `profile_edit`, `install_command`, `autoupdate` | Transformam entrada humana em artefato. Determinísticos, zero LLM, zero rede | Não rodam no caminho da tool call |
 | **3 · Enforcement** | `boundary_guard`, `session_start`, `stop_hook` | Decidem `allow`/`ask`/`deny` a cada tool call | Não importam a biblioteca — stdlib puro |
-| **4 · Prova e controle** | `verify`, `review`, `supervisor`, `teams`, `finish`, `pr_draft` | Produzem e consomem evidência; ordenam o trabalho | Nenhum chama git de escrita |
+| **4 · Prova e controle** | `verify`, `attempts`, `budget`, `review`, `supervisor`, `teams`, `finish`, `pr_draft` | Produzem e consomem evidência; ordenam o trabalho | Nenhum chama git de escrita |
 | **5 · Diagnóstico** | `preflight`, `audit`, `runtime_audit`, `team_audit`, `doctor`, `metrics` | Emitem laudo + o comando exato de correção | Nunca corrigem sozinhos |
 | **Base** | `config`, `governance/approval`, `patterns`, `settings_paths`, `hook_launcher`, `killswitch` | Cada um é fonte **única** de uma verdade | — |
 
@@ -266,6 +266,45 @@ numa edição em massa.
 Com time `producer`+`reviewer` compilado, o lock **aperta**: exige também
 aprovação do revisor mais recente que a evidência. Aprovação obsoleta frente a
 uma evidência regravada depois dela → `deny`.
+
+### O disjuntor: a assimetria entre prova e tentativa
+
+O `verify` tinha uma regra explícita — exit code ≠ 0 e **nada** é gravado em
+disco. Ela é correta para *evidência*: prova é a moeda de "pronto", e gravar
+qualquer coisa no vermelho é como uma fatia não-pronta passa por pronta.
+
+Mas a regra estava sendo aplicada larga demais. Tentativa falha não é prova de
+nada — é o *oposto* de uma prova — e jogá-la fora custava caro em dois lugares.
+O passo 10 do lifecycle mandava autocorrigir "respeitando as stop conditions",
+que eram frases livres no frontmatter: o agente contava de cabeça. Dentro de
+uma sessão isso quase funcionava; na sessão seguinte o `progress.md` dizia
+*onde* o trabalho parou e nunca *o que já tinha falhado*, e a tentativa 1
+recomeçava de boa fé.
+
+A separação agora é por natureza do dado, não por resultado do comando:
+
+| | Vermelho | Verde |
+|---|---|---|
+| `.harness/evidence/` | nunca | prova, com `files_hash` |
+| `.harness/attempts/` | erro cru + `failure_signature` | marcador que encerra a sequência |
+
+`attempts` é append puro e o verde **não apaga** o histórico — ele só encerra a
+sequência aberta. `budget` lê esse rastro e conta duas coisas distintas:
+quantas falhas desde o último verde (o teto de iterações) e quantas seguidas
+com a mesma assinatura (`stop_same_failure`). São perguntas diferentes de
+propósito: a primeira diz que o tempo acabou, a segunda diz *o que fazer* —
+trocar de abordagem, porque insistir já provou não levar a lugar nenhum.
+
+Duas escolhas de fronteira valem registro:
+
+- **`budget` não bloqueia nada.** Ele responde; quem obedece é o lifecycle.
+  Ligar enforcement (hook `Stop` bloqueante, Fase 6) fica sendo uma decisão de
+  ativação, não uma reescrita da decisão — mesmo desenho do `supervisor`, que
+  desde sempre é leitor síncrono e não daemon.
+- **Teto ausente nunca vira "sem teto".** `harness.yaml` ilegível cai no
+  default do schema, e condição tipada com `type` desconhecido **reprova a
+  compilação** em vez de virar advisory mudo. Rebaixamento silencioso é o modo
+  de falha perigoso aqui: o contrato pareceria ter disjuntor sem ter.
 
 ---
 

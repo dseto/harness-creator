@@ -141,7 +141,8 @@ sempre exige aprovação humana.
 7. Planejar a implementação da feature escolhida.
 8. Implementar a mudança dentro do raio de impacto declarado.
 9. Rodar `verify_cmd` da tarefa.
-10. Se falhar: autocorrigir e re-rodar `verify_cmd` até passar.
+10. Se falhar: consultar `harness budget --feature <id>` e obedecer o
+    veredito — autocorrigir e re-rodar só enquanto ele disser `continue`.
 11. Registrar a prova (evidência da verificação bem-sucedida).
 12. Atualizar `.harness/progress.md` com o estado atual.
 13. Marcar a feature concluída em `feature_list.json`.

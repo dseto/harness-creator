@@ -1,0 +1,15 @@
+{
+  "feature_id": "T-05",
+  "contract": "rastro-de-tentativas-e-budget",
+  "desc": "O progress.md mostra o histórico de tentativas da fatia em andamento, gerado do rastro — e o bloco some quando a fatia fica verde",
+  "files": [
+    "src/harness/templates.py",
+    "src/harness/verify.py",
+    "tests/test_progress_attempts.py",
+    "src/harness/attempts.py"
+  ],
+  "verify_cmd": "pytest tests/test_progress_attempts.py -q",
+  "recorded_at": "2026-08-09T04:35:10.544737+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:33c2dd5b74d02ce3fae5bc44205074d8719b47695da9446b052a557b5cab9107"
+}

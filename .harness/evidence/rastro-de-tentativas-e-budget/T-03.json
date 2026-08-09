@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-03",
+  "contract": "rastro-de-tentativas-e-budget",
+  "desc": "O contrato aceita stop conditions tipadas que chegam compiladas ao feature_list.json; typo em tipo desconhecido é erro de compilação, não silêncio",
+  "files": [
+    "src/harness/contract.py",
+    "tests/test_contract_stop_conditions.py"
+  ],
+  "verify_cmd": "pytest tests/test_contract_stop_conditions.py -q",
+  "recorded_at": "2026-08-09T04:46:03.212461+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:be0e88b5c86665c88ef5bddfb1b28dcf71ac9b095b683308497dd4b5fbd23c81"
+}

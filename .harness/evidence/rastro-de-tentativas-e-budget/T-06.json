@@ -1,0 +1,17 @@
+{
+  "feature_id": "T-06",
+  "contract": "rastro-de-tentativas-e-budget",
+  "desc": "O lifecycle manda consultar o disjuntor mecânico (`harness budget`) a cada falha do loop de autocorreção, em vez de prosa solta",
+  "files": [
+    "src/harness/lifecycle.py",
+    "tests/test_lifecycle.py",
+    "README.md",
+    "docs/plugin/ARCHITECTURE.md",
+    "AGENTS.md",
+    "src/harness/branching.py"
+  ],
+  "verify_cmd": "pytest tests/test_lifecycle.py -q",
+  "recorded_at": "2026-08-09T04:47:43.290749+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:cb1c250852e3c62f6bb0d515fb848c799cb14c89fe0ab2726fe6ea04895ce0e5"
+}

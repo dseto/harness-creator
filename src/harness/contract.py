@@ -229,16 +229,99 @@ def parse_spec(spec_path: Path) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def get_stop_conditions(spec_path: Path) -> list[str]:
-    """Acessor dedicado às `stop_conditions:` do frontmatter de `spec.md`.
+    """Acessor dedicado às `stop_conditions:` ADVISORY do frontmatter.
 
     Delega o parsing a `parse_spec` (nenhuma lógica de frontmatter nova
-    aqui) e devolve a chave `stop_conditions` já normalizada para
+    aqui) e devolve as condições em forma de PROSA já normalizadas para
     `list[str]`. Lista vazia se a chave não existir ou for `None` — nunca
     levanta por ausência da chave (ela é opcional no contrato).
+
+    Condições TIPADAS (dict) não saem por aqui: a assinatura desta função é
+    `list[str]` e tem consumidor declarado (passo 10 do lifecycle). Para elas,
+    ver `parse_stop_conditions`, cujo resultado o `compile_contract` grava no
+    `feature_list.json` e o `harness budget` consome.
     """
-    data = parse_spec(spec_path)
-    raw = data.get("stop_conditions") or []
-    return [str(item) for item in raw]
+    return parse_stop_conditions(parse_spec(spec_path).get("stop_conditions"))["advisory"]
+
+
+#: Tipos de stop condition que a máquina sabe CONTAR nesta versão. Ambos são
+#: contagens sobre o rastro de `harness.attempts`:
+#:
+#: - `consecutive_verify_failures` — falhas desde o último verde. É o teto de
+#:   iterações de §4.2 do design de loop engineering.
+#: - `same_failure_signature` — falhas seguidas com a MESMA assinatura de erro.
+#:   É a regra do padrão repetido de §8.2: a abordagem está errada, não a
+#:   execução.
+#:
+#: Deliberadamente curto. `budget_usd`/`wall_clock_minutes` (Fase 6 do
+#: roadmap-autonomous) exigem um medidor que ainda não existe — aceitá-los aqui
+#: produziria contrato que declara teto sem nada que o conte, exatamente o
+#: teatro de enforcement que o projeto proíbe.
+TYPED_STOP_CONDITIONS = ("consecutive_verify_failures", "same_failure_signature")
+
+
+def parse_stop_conditions(raw: Any) -> dict[str, list[Any]]:
+    """Separa as `stop_conditions` do frontmatter em tipadas e advisory.
+
+    Devolve `{"typed": [...], "advisory": [...]}`. Item string vira advisory
+    (a forma histórica, interpretada pelo agente); item dict precisa ser uma
+    condição tipada válida — `type` em `TYPED_STOP_CONDITIONS` e `n` inteiro
+    positivo — e vira teto contável.
+
+    Levanta `ContractError` para dict malformado em vez de rebaixá-lo a
+    advisory. O rebaixamento silencioso é o modo de falha perigoso aqui:
+    `consecutive_verify_failure` (sem o "s") viraria uma frase que ninguém
+    conta, e o contrato PARECERIA ter disjuntor sem ter. Fail-closed (§2.4):
+    na dúvida o contrato não compila.
+
+    `bool` é rejeitado explicitamente como `n` porque `isinstance(True, int)`
+    é verdadeiro em Python — `n: true` passaria como teto 1 sem esta guarda.
+    """
+    if raw is None:
+        return {"typed": [], "advisory": []}
+    if not isinstance(raw, list):
+        raise ContractError(
+            "stop_conditions deve ser uma lista (cada item: string advisory ou "
+            f"dict tipado), recebido {type(raw).__name__}"
+        )
+
+    typed: list[dict[str, Any]] = []
+    advisory: list[str] = []
+
+    for item in raw:
+        if isinstance(item, (list, tuple, set)):
+            raise ContractError(
+                f"stop_conditions: item inválido ({item!r}) — cada item precisa ser "
+                "uma condição em prosa ou um dict tipado "
+                "{type: <tipo>, n: <inteiro>}, nunca uma lista aninhada"
+            )
+        if not isinstance(item, dict):
+            # Escalar não-string vira advisory por `str()`, preservando o
+            # comportamento histórico de `get_stop_conditions` (o e2e da Fase 3
+            # fixa exatamente isso com um `- 42` no frontmatter). Só o dict tem
+            # validação estrita: é a forma que a máquina CONTA, e é ali que o
+            # rebaixamento silencioso seria perigoso.
+            advisory.append(str(item))
+            continue
+
+        kind = item.get("type")
+        if kind not in TYPED_STOP_CONDITIONS:
+            raise ContractError(
+                f"stop_conditions: type '{kind}' não suportado — os tipos contáveis "
+                f"são {', '.join(TYPED_STOP_CONDITIONS)}. Condição em prosa deve ser "
+                "escrita como string, não como dict."
+            )
+
+        n = item.get("n")
+        if isinstance(n, bool) or not isinstance(n, int) or n <= 0:
+            raise ContractError(
+                f"stop_conditions: '{kind}' precisa de n inteiro positivo "
+                f"(recebido {n!r}) — é o número de repetições que dispara a parada"
+            )
+
+        typed.append({"type": kind, "n": n})
+
+    return {"typed": typed, "advisory": advisory}
 
 
 # ---------------------------------------------------------------------------
@@ -651,6 +734,10 @@ def compile_contract(target_dir: Path, slug: str, *, dry_run_verify: bool = Fals
         )
     _require_iso8601_approval(approved_at)
 
+    # Antes de qualquer escrita: condição tipada malformada reprova o contrato
+    # inteiro, na mesma postura do gate de aprovação (nada em disco).
+    stop_conditions = parse_stop_conditions(spec.get("stop_conditions"))
+
     tasks = parse_plans(plans_path)
 
     feature_list_path = target_dir / FEATURE_LIST_FILE
@@ -692,6 +779,10 @@ def compile_contract(target_dir: Path, slug: str, *, dry_run_verify: bool = Fals
         "contract": slug,
         "compiled_at": datetime.now(timezone.utc).isoformat(),
         "compiled_with_version": _HARNESS_VERSION,
+        # Sempre presente, mesmo vazio: quem lê (hoje `harness budget`) não
+        # precisa de `.get` encadeado com default em dois níveis para saber que
+        # o contrato não declarou teto.
+        "stop_conditions": stop_conditions,
         "features": features,
     }
 

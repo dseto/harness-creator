@@ -1,7 +1,15 @@
 {
   "contract": "rastro-de-tentativas-e-budget",
-  "compiled_at": "2026-08-09T04:19:12.144071+00:00",
+  "compiled_at": "2026-08-09T04:46:45.421306+00:00",
   "compiled_with_version": "0.32.0",
+  "stop_conditions": {
+    "typed": [],
+    "advisory": [
+      "3 falhas consecutivas da mesma suíte de teste",
+      "verify_cmd referenciado não existe no repo-profile",
+      "mudança exigiria alterar o runtime floor do boundary_guard"
+    ]
+  },
   "features": [
     {
       "id": "T-01",
@@ -13,7 +21,7 @@
       "verify_cmd": "pytest tests/test_attempts.py -q",
       "depends": [],
       "cwd": null,
-      "passes": false
+      "passes": true
     },
     {
       "id": "T-02",
@@ -27,7 +35,7 @@
         "T-01"
       ],
       "cwd": null,
-      "passes": false
+      "passes": true
     },
     {
       "id": "T-03",
@@ -39,7 +47,7 @@
       "verify_cmd": "pytest tests/test_contract_stop_conditions.py -q",
       "depends": [],
       "cwd": null,
-      "passes": false
+      "passes": true
     },
     {
       "id": "T-04",
@@ -47,7 +55,8 @@
       "files": [
         "src/harness/budget.py",
         "src/harness/cli.py",
-        "tests/test_budget.py"
+        "tests/test_budget.py",
+        "src/harness/boundary_guard.py"
       ],
       "verify_cmd": "pytest tests/test_budget.py -q",
       "depends": [
@@ -55,7 +64,7 @@
         "T-03"
       ],
       "cwd": null,
-      "passes": false
+      "passes": true
     },
     {
       "id": "T-05",
@@ -63,28 +72,33 @@
       "files": [
         "src/harness/templates.py",
         "src/harness/verify.py",
-        "tests/test_progress_attempts.py"
+        "tests/test_progress_attempts.py",
+        "src/harness/attempts.py"
       ],
       "verify_cmd": "pytest tests/test_progress_attempts.py -q",
       "depends": [
         "T-02"
       ],
       "cwd": null,
-      "passes": false
+      "passes": true
     },
     {
       "id": "T-06",
       "desc": "O lifecycle manda consultar o disjuntor mecânico (`harness budget`) a cada falha do loop de autocorreção, em vez de prosa solta",
       "files": [
         "src/harness/lifecycle.py",
-        "tests/test_lifecycle.py"
+        "tests/test_lifecycle.py",
+        "README.md",
+        "docs/plugin/ARCHITECTURE.md",
+        "AGENTS.md",
+        "src/harness/branching.py"
       ],
       "verify_cmd": "pytest tests/test_lifecycle.py -q",
       "depends": [
         "T-04"
       ],
       "cwd": null,
-      "passes": false
+      "passes": true
     }
   ]
 }
