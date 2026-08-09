@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-01",
+  "contract": "aviso-plugin-e-ciclo-automatico",
+  "desc": "O harness sabe dizer qual instalação de plugin ficou para trás e qual comando exato corrige",
+  "files": [
+    "src/harness/doctor.py",
+    "tests/test_doctor.py"
+  ],
+  "verify_cmd": "pytest tests/test_doctor.py -q",
+  "recorded_at": "2026-08-09T00:51:54.743472+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:3823df70ec9a79482fc93a3d3a79f1b89a9e47ace9c2ea73316321504f7e4fc9"
+}

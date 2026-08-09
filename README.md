@@ -99,6 +99,14 @@ no stderr (`harness: artefatos recompilados 0.29.0 -> 0.30.0`) e **nunca cria
 nem troca a branch de contrato**. Detalhes e limites em
 [GUIDE.md](docs/plugin/GUIDE.md#atualização-transparente-dos-artefatos).
 
+**O cache de plugin (passo 2) avisa, mas não bloqueia.** Ele não pode se
+auto-atualizar — `claude plugin update` exige rede e as skills são carregadas
+na inicialização da sessão. Quando fica atrás, a sessão do Claude Code começa
+com um aviso em destaque trazendo o comando exato e o lembrete de reiniciar.
+Nada é bloqueado: skill desatualizada não fura gate nenhum, porque o
+enforcement vive nos hooks e na CLI. As razões de não bloquear estão em
+[GUIDE.md](docs/plugin/GUIDE.md#a-camada-3-avisa-e-não-bloqueia).
+
 `harness doctor` compara a versão do pacote pip instalado, a versão gravada
 no último `harness compile` (`.harness/compiled-state.json`) e a versão no
 cache de plugin do Claude Code (`~/.claude/plugins/installed_plugins.json`);

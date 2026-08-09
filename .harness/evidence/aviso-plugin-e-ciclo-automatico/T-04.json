@@ -1,0 +1,12 @@
+{
+  "feature_id": "T-04",
+  "contract": "aviso-plugin-e-ciclo-automatico",
+  "desc": "O aviso chega ao contexto rodando o hook de verdade, sem bloquear nada",
+  "files": [
+    "tests/e2e/test_autoupdate_flow.py"
+  ],
+  "verify_cmd": "pytest tests/e2e/test_autoupdate_flow.py -q",
+  "recorded_at": "2026-08-09T00:36:41.615529+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:bb9e616d77850de6791132bf36d1b263185e41386195e012664628a3435aba36"
+}

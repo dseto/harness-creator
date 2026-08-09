@@ -894,14 +894,20 @@ def test_outcome6_lifecycle_block_idempotent_and_coexistent(tmp_path: Path) -> N
         steps = re.findall(r"^\d+\. ", block, re.MULTILINE)
         assert len(steps) == 17, f"bloco do lifecycle tem {len(steps)} passos, esperado 17"
         assert ".harness/LIFECYCLE.md" in block, "bloco fino não aponta para o detalhe"
+        # `aprovação humana` saiu da lista em `aviso-plugin-e-ciclo-automatico`:
+        # o gate do commit deixou de existir (a pré-condição passou a ser
+        # `harness finish` com blockers vazio). O que o passo 16 precisa citar
+        # agora é essa pré-condição — trocar um marcador pelo outro mantém o
+        # teste cobrindo o mesmo ponto do bloco.
         for marker in ("exatamente UMA feature pendente", ".harness/progress.md",
-                       "feature_list.json", "git log", "aprovação humana"):
+                       "feature_list.json", "git log", "harness finish"):
             assert marker in block, f"passo esperado ausente do bloco: {marker!r}"
         proof.append(
             "Bloco do lifecycle: 17 passos numerados (1 linha por passo), citando "
             "init/.harness/progress.md/feature_list.json/git log/'exatamente UMA "
-            "feature pendente'/gate de aprovação humana antes do commit, com "
-            "ponteiro de progressive disclosure para `.harness/LIFECYCLE.md`."
+            "feature pendente'/commit condicionado a `harness finish` com blockers "
+            "vazio, com ponteiro de progressive disclosure para "
+            "`.harness/LIFECYCLE.md`."
         )
 
         detail = (project / ".harness" / "LIFECYCLE.md").read_text(encoding="utf-8")

@@ -345,8 +345,29 @@ def _main(argv: list[str] | None = None) -> int:
         "installed_version": result.plan.installed_version,
         "ran": list(result.ran),
         "skipped_reason": result.skipped_reason,
+        "stale_plugins": _stale_plugins(),
     }, ensure_ascii=False))
     return 0
+
+
+def _stale_plugins() -> list[dict]:
+    """Instalações de plugin do Claude Code atrás do pacote — a camada 3, que
+    não se auto-atualiza (exige rede e reinício de sessão) e por isso só pode
+    ser AVISADA.
+
+    Independente do resultado da recompilação: um projeto em dia (camada 2)
+    pode conviver com um plugin velho (camada 3), e o opt-out
+    `HARNESS_AUTO_UPDATE=0` desliga o agir, não o informar.
+
+    Fail-safe para lista vazia: este payload é consumido pelo hook
+    `SessionStart`, e uma exceção aqui custaria o contexto inteiro da sessão
+    por causa de um aviso acessório."""
+    try:
+        from harness.doctor import stale_plugin_installs
+
+        return stale_plugin_installs(_INSTALLED_VERSION)
+    except Exception:
+        return []
 
 
 if __name__ == "__main__":

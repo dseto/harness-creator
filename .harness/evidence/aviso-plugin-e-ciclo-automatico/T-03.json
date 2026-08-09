@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-03",
+  "contract": "aviso-plugin-e-ciclo-automatico",
+  "desc": "A sessão começa com o aviso em destaque, o comando pronto para copiar e o reinício exigido",
+  "files": [
+    "src/harness/session_start.py",
+    "tests/test_session_start.py"
+  ],
+  "verify_cmd": "pytest tests/test_session_start.py -q",
+  "recorded_at": "2026-08-09T00:34:34.576804+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:eb6fdb1609e47e3306d3084ed1ab4a08cba3540d8fcac51b81c4c2fd41621796"
+}

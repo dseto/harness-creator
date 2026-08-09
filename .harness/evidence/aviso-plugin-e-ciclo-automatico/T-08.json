@@ -1,0 +1,14 @@
+{
+  "feature_id": "T-08",
+  "contract": "aviso-plugin-e-ciclo-automatico",
+  "desc": "A documentação explica a camada 3 e o gate único do ciclo",
+  "files": [
+    "docs/plugin/GUIDE.md",
+    "README.md",
+    "docs/plugin/TUTORIAL.md"
+  ],
+  "verify_cmd": "pytest tests/test_docs_enforcement_claims.py -q",
+  "recorded_at": "2026-08-09T00:44:25.411769+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:f388669b53a715758192ad02d0e6f9158bc67c4e81d981937d70c86f753bfd70"
+}

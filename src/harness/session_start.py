@@ -206,7 +206,13 @@ def _auto_update(cwd: Path) -> str | None:
         data = json.loads(proc.stdout)
     except (ValueError, TypeError):
         return None
-    if not isinstance(data, dict) or not data.get("recompiled"):
+    if not isinstance(data, dict):
+        return None
+    return data
+
+
+def _recompiled_notice(data: dict) -> str | None:
+    if not data.get("recompiled"):
         return None
     return (
         "## Artefatos do harness atualizados automaticamente\\n\\n"
@@ -218,12 +224,45 @@ def _auto_update(cwd: Path) -> str | None:
     )
 
 
+def _stale_plugin_notice(data: dict) -> str | None:
+    """Aviso da camada 3 (skills instaladas no Claude Code).
+
+    Diferente dos artefatos compilados, esta camada NAO se auto-corrige: exige
+    rede e reinicio de sessao. O aviso e a unica correcao possivel, entao ele
+    carrega tudo o que a pessoa precisa -- o que esta velho, o comando exato
+    numa linha propria para copiar, e o reinicio. E diz que nada esta
+    bloqueado, porque um aviso em caixa alta parece deny se nao disser."""
+    stale = data.get("stale_plugins")
+    if not isinstance(stale, list) or not stale:
+        return None
+    entry = stale[0]
+    if not isinstance(entry, dict):
+        return None
+    return (
+        "## ACAO NECESSARIA: as skills do harness estao desatualizadas\\n\\n"
+        "O plugin instalado no Claude Code esta na versao "
+        + str(entry.get("version")) + ", mas o pacote instalado nesta maquina e "
+        + str(entry.get("installed_version")) + ". As skills /harness-creator:* "
+        "desta sessao vem da copia ANTIGA.\\n\\n"
+        "Rode este comando no SEU terminal (fora do Claude Code):\\n\\n"
+        "    " + str(entry.get("command")) + "\\n\\n"
+        "Depois REINICIE a sessao do Claude Code. As skills sao carregadas no "
+        "inicio da sessao, entao a atualizacao NAO vale para esta sessao aqui.\\n\\n"
+        "Isto nao bloqueia nada: os hooks de protecao e a CLI ja estao na "
+        "versao nova. O que esta atrasado sao os textos das skills."
+    )
+
+
 def build_context(cwd: Path) -> str:
     parts = ["## Estado da sessao anterior (injetado pelo harness)"]
 
-    update_notice = _auto_update(cwd)
-    if update_notice:
-        parts.append(update_notice)
+    update = _auto_update(cwd)
+    if update:
+        # Plugin primeiro: e o unico dos dois que EXIGE acao da pessoa. O
+        # aviso de recompilacao e informativo (ja aconteceu).
+        for notice in (_stale_plugin_notice(update), _recompiled_notice(update)):
+            if notice:
+                parts.append(notice)
 
     parts.append(_read_feature_summary(cwd))
 

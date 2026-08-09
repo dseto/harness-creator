@@ -44,6 +44,7 @@ camada ficou pra trás e o comando exato para corrigir.
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -57,6 +58,19 @@ from harness.settings_paths import MANAGED_SETTINGS_FILE, managed_settings_path
 
 PLUGIN_NAME = "harness-creator"
 DEFAULT_INSTALLED_PLUGINS_FILE = Path.home() / ".claude" / "plugins" / "installed_plugins.json"
+
+#: Override do caminho do cache de plugin. `run_doctor` recebe `plugins_file`
+#: por parâmetro — o que basta para teste in-process, mas não atravessa
+#: fronteira de processo: o hook `SessionStart` dispara `python -m
+#: harness.autoupdate` num subprocesso, e sem este seam a única forma de
+#: exercitar o caminho real seria escrever no `~/.claude` do usuário. É o
+#: equivalente, via ambiente, ao parâmetro que já existe.
+INSTALLED_PLUGINS_ENV = "HARNESS_INSTALLED_PLUGINS_FILE"
+
+
+def _default_plugins_file() -> Path:
+    override = os.environ.get(INSTALLED_PLUGINS_ENV, "").strip()
+    return Path(override) if override else DEFAULT_INSTALLED_PLUGINS_FILE
 
 #: O comando de hook gerado tem a forma `"<interpretador>" "<script>.py" || exit 2`
 #: — o path fica entre aspas justamente porque pode conter espaço, e o padrão
@@ -176,6 +190,54 @@ def _read_plugin_installs(plugins_file: Path) -> list[dict]:
     return installs
 
 
+def plugin_update_command(plugin_id: str) -> str:
+    """Comando exato que atualiza uma instalação de plugin do Claude Code.
+
+    Fonte única da string: o laudo do `doctor` e o aviso do hook `SessionStart`
+    precisam mandar a MESMA coisa, e um comando divergente entre os dois é a
+    classe de defeito que faz o usuário rodar algo que não corrige nada."""
+    return f"claude plugin update {plugin_id}"
+
+
+def stale_plugin_installs(
+    installed_version: str,
+    plugins_file: Path | None = None,
+) -> list[dict]:
+    """Instalações de plugin ATRÁS do pacote instalado, cada uma com o comando
+    que a corrige.
+
+    Existe fora de `run_doctor` porque o hook `SessionStart` precisa da mesma
+    comparação para avisar na abertura da sessão, e não pode montar um laudo
+    inteiro para isso. Duas cópias da regra de versão divergiriam.
+
+    Silenciosa — lista vazia — em quatro situações que NÃO são defeito:
+    arquivo ausente (normal em quem usa `--plugin-dir` ou só pip), JSON
+    inválido, nenhuma instalação deste pacote, e versão ilegível de qualquer
+    um dos lados.
+
+    Plugin À FRENTE do pacote também devolve vazio: `claude plugin update` não
+    corrige cache adiantado, e mandar rodá-lo seria instrução falsa. Mesma
+    postura de `harness.autoupdate` para os artefatos compilados."""
+    from harness.autoupdate import parse_version
+
+    installed = parse_version(installed_version)
+    if installed is None:
+        return []
+
+    stale: list[dict] = []
+    for install in _read_plugin_installs(plugins_file or _default_plugins_file()):
+        cached = parse_version(install.get("version"))
+        if cached is None or cached >= installed:
+            continue
+        stale.append({
+            "id": install["id"],
+            "version": install["version"],
+            "installed_version": installed_version,
+            "command": plugin_update_command(install["id"]),
+        })
+    return stale
+
+
 def _read_managed_hooks(target_dir: Path) -> list[dict]:
     """Lista os hooks DESTE pacote registrados no settings GERENCIADO
     (`.claude/settings.local.json` — ver `harness.settings_paths`), cada um com
@@ -239,7 +301,7 @@ def run_doctor(
     plugins_file: Path | None = None,
 ) -> DoctorReport:
     compiled_version = _read_compiled_version(target_dir)
-    plugin_installs = _read_plugin_installs(plugins_file or DEFAULT_INSTALLED_PLUGINS_FILE)
+    plugin_installs = _read_plugin_installs(plugins_file or _default_plugins_file())
     hooks = _read_managed_hooks(target_dir)
 
     issues: list[str] = []
@@ -314,12 +376,31 @@ def run_doctor(
             "Claude Code (~/.claude/plugins/installed_plugins.json) — normal se você só "
             "usa a biblioteca via pip/`--plugin-dir`, sem o plugin instalado por marketplace."
         )
+    # MESMA função que o hook `SessionStart` consome para avisar na abertura da
+    # sessão. Antes desta unificação o laudo tinha a comparação própria (`!=`),
+    # e duas regras de versão são duas regras que podem divergir.
+    for stale in stale_plugin_installs(_PIP_VERSION, plugins_file=plugins_file):
+        issues.append(
+            f"o plugin `{stale['id']}` está com a versão {stale['version']} no "
+            f"cache do Claude Code, mas o pacote instalado é {_PIP_VERSION} — rode "
+            f"`{stale['command']}` e reinicie a sessão do Claude Code."
+        )
+
+    # Cache À FRENTE do pacote: `stale_plugin_installs` cala de propósito (o
+    # `claude plugin update` não corrige isso), mas o `doctor` existe para
+    # mostrar divergência — omitir aqui esconderia um estado real. Nota, e não
+    # issue, porque a correção é do outro lado e não é urgente.
+    from harness.autoupdate import parse_version
+
+    installed = parse_version(_PIP_VERSION)
     for install in plugin_installs:
-        if install["version"] != _PIP_VERSION:
-            issues.append(
-                f"o plugin `{install['id']}` está com a versão {install['version']} no "
-                f"cache do Claude Code, mas o pacote instalado é {_PIP_VERSION} — rode "
-                f"`claude plugin update {install['id']}` e reinicie a sessão do Claude Code."
+        cached = parse_version(install.get("version"))
+        if installed is not None and cached is not None and cached > installed:
+            notes.append(
+                f"o plugin `{install['id']}` está na versão {install['version']}, à "
+                f"FRENTE do pacote instalado ({_PIP_VERSION}) — `claude plugin update` "
+                f"não corrige isso; atualize o pacote com `pip install --upgrade "
+                f"harness-creator`."
             )
 
     return DoctorReport(

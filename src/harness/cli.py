@@ -303,6 +303,13 @@ def main() -> None:
     )
     doc.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
 
+    prd = sub.add_parser(
+        "pr-draft",
+        help="Monta o corpo do Pull Request a partir do contrato e imprime o comando "
+        "`gh pr create` pronto — NÃO abre PR nenhum",
+    )
+    prd.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+
     args = parser.parse_args()
 
     # Um ponto só para os 19 subcomandos que aceitam `--dir` — validar em cada
@@ -331,6 +338,22 @@ def main() -> None:
             "agents_md": str(result.agents_path),
             "hooks": [str(p) for p in hooks_written],
             "warnings": result.warnings,
+        }, indent=2, ensure_ascii=False))
+        sys.exit(0)
+
+    if args.command == "pr-draft":
+        from harness.pr_draft import PrDraftError, build_pr_draft
+
+        try:
+            draft = build_pr_draft(Path(args.dir))
+        except PrDraftError as exc:
+            print(f"erro: {exc}", file=sys.stderr)
+            sys.exit(1)
+        print(json.dumps({
+            "title": draft.title,
+            "branch": draft.branch,
+            "body": str(draft.body_path),
+            "command": draft.command,
         }, indent=2, ensure_ascii=False))
         sys.exit(0)
 

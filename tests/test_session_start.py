@@ -5,7 +5,10 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+
+import pytest
 
 from harness.session_start import (
     HOOK_FILENAME,
@@ -344,6 +347,83 @@ def test_a_broken_update_never_costs_the_session_its_context(tmp_path: Path) -> 
 
     context = _context(_run_hook_with_stub(script_path, tmp_path, stub_root))
 
+    assert "T-02" in context
+
+
+def test_a_stale_plugin_gets_a_loud_block_with_the_command_and_the_restart(
+    tmp_path: Path,
+) -> None:
+    """A camada 3 (skills) não se auto-atualiza: exige rede e reinício. O
+    aviso é a única correção possível, então ele precisa carregar TUDO que a
+    pessoa precisa — o que está velho, o comando exato e o reinício."""
+    stub_root = _write_autoupdate_stub(
+        tmp_path,
+        {
+            "recompiled": False,
+            "stale_plugins": [{
+                "id": "harness-creator@harness-creator-local",
+                "version": "0.30.0",
+                "installed_version": "0.31.0",
+                "command": "claude plugin update harness-creator@harness-creator-local",
+            }],
+        },
+    )
+    script_path = _write_hook_script(tmp_path)
+
+    context = _context(_run_hook_with_stub(script_path, tmp_path, stub_root))
+
+    assert "ACAO NECESSARIA" in context
+    assert "0.30.0" in context and "0.31.0" in context
+    assert "claude plugin update harness-creator@harness-creator-local" in context
+    assert "REINICIE" in context
+    # O aviso nao pode se passar por bloqueio: nada esta travado.
+    assert "nao bloqueia" in context
+
+
+def test_the_update_command_stands_alone_so_it_can_be_copied(tmp_path: Path) -> None:
+    """Comando embutido no meio de um parágrafo é comando que a pessoa copia
+    errado. Ele fica numa linha própria, indentada."""
+    stub_root = _write_autoupdate_stub(
+        tmp_path,
+        {"recompiled": False, "stale_plugins": [{
+            "id": "harness-creator@local", "version": "0.30.0",
+            "installed_version": "0.31.0",
+            "command": "claude plugin update harness-creator@local",
+        }]},
+    )
+    script_path = _write_hook_script(tmp_path)
+
+    context = _context(_run_hook_with_stub(script_path, tmp_path, stub_root))
+
+    assert "\n    claude plugin update harness-creator@local\n" in context
+
+
+@dataclass(frozen=True)
+class NoPluginWarningCase:
+    payload: dict
+    why: str
+
+
+NO_PLUGIN_WARNING_CASES = [
+    NoPluginWarningCase({"recompiled": False, "stale_plugins": []}, "plugin em dia"),
+    NoPluginWarningCase({"recompiled": False}, "payload sem a chave (versao antiga do modulo)"),
+    NoPluginWarningCase({"recompiled": False, "stale_plugins": "lixo"}, "chave com tipo errado"),
+]
+
+
+@pytest.mark.parametrize("case", NO_PLUGIN_WARNING_CASES, ids=lambda c: c.why)
+def test_no_plugin_block_when_there_is_nothing_to_act_on(
+    tmp_path: Path, case: NoPluginWarningCase
+) -> None:
+    stub_root = _write_autoupdate_stub(tmp_path, case.payload)
+    feature_list_path = tmp_path / ".harness" / "feature_list.json"
+    feature_list_path.parent.mkdir(parents=True, exist_ok=True)
+    feature_list_path.write_text(json.dumps(FEATURE_LIST_PENDING), encoding="utf-8")
+    script_path = _write_hook_script(tmp_path)
+
+    context = _context(_run_hook_with_stub(script_path, tmp_path, stub_root))
+
+    assert "ACAO NECESSARIA" not in context
     assert "T-02" in context
 
 
