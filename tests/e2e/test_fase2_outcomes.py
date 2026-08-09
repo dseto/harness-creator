@@ -150,17 +150,17 @@ def _profile_dict(package_manager: str = "npm") -> dict:
     }
 
 
-# Subcomandos do proprio harness liberados desde o SUBAGENTE 01 do backlog
-# de correcao de friccao (2026-07-18) — espelha _HARNESS_SUBCOMMANDS de
-# session_permissions.py/boundary_guard.py (NAO inclui "run").
-_HARNESS_SUBCOMMANDS = [
-    "compile", "audit", "audit-runtime", "analyze", "preflight",
-    "compile-contract", "compile-session", "verify", "team", "review",
-    "supervise", "audit-team",
-]
+# Subcomandos do proprio harness liberados desde o SUBAGENTE 01 do backlog de
+# correcao de friccao (2026-07-18). Era a TERCEIRA copia a mao desta lista
+# (guard, session_permissions e aqui), e tambem estava desatualizada — este
+# arquivo assertava a superficie EXATA, entao a copia velha fazia o e2e exigir
+# que o produto ficasse errado junto. Desde o contrato
+# `compilar-as-primeiras-licoes` a fonte e uma so.
+from harness.boundary_guard import HARNESS_CLI_VERBS
+
 _HARNESS_CLI_ALLOW = (
-    [f"Bash(harness {sub}*)" for sub in _HARNESS_SUBCOMMANDS]
-    + [f"Bash(python -m harness.cli {sub}*)" for sub in _HARNESS_SUBCOMMANDS]
+    [f"Bash(harness {sub}*)" for sub in HARNESS_CLI_VERBS]
+    + [f"Bash(python -m harness.cli {sub}*)" for sub in HARNESS_CLI_VERBS]
 )
 
 # Superfície EXATA esperada em permissions.allow para PLANS_TWO_TASKS +

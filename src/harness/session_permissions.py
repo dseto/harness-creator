@@ -79,6 +79,7 @@ from pathlib import Path
 from typing import Any
 
 from harness.boundary_guard import (
+    HARNESS_CLI_VERBS,
     is_floor_bash_command,
     is_floor_secret_path,
     load_extra_allowed_commands,
@@ -106,17 +107,19 @@ _GIT_LOCAL_ALLOW: list[str] = [
     "Bash(git commit*)",
 ]
 
-# Subcomandos do proprio harness: mesma liberacao do boundary_guard
-# (FIXED_HARNESS_SEQUENCES), espelhada aqui pra settings.json nao mentir
-# sobre a superficie (mesmo motivo do _GIT_LOCAL_ALLOW acima).
-_HARNESS_SUBCOMMANDS = [
-    "compile", "audit", "audit-runtime", "analyze", "preflight",
-    "compile-contract", "compile-session", "verify", "team", "review",
-    "supervise", "audit-team",
-]
+# Subcomandos do proprio harness: a MESMA liberacao do boundary_guard, para o
+# settings.json nao mentir sobre a superficie (mesmo motivo do _GIT_LOCAL_ALLOW
+# acima).
+#
+# Isto era uma copia a mao da lista do guard, com o comentario afirmando que
+# espelhava — e ficou oito verbos para tras (blind, finish, budget, reconcile,
+# decide, lesson, task, pr-draft) sem ninguem perceber, porque o efeito nao e
+# `deny`: e prompt de permissao em comando que o proprio lifecycle manda rodar.
+# Duas listas divergem; uma lista, nao. Importar e a correcao — um teste
+# comparando as duas DETECTARIA a divergencia; importar IMPEDE que ela exista.
 _HARNESS_CLI_ALLOW: list[str] = (
-    [f"Bash(harness {sub}*)" for sub in _HARNESS_SUBCOMMANDS]
-    + [f"Bash(python -m harness.cli {sub}*)" for sub in _HARNESS_SUBCOMMANDS]
+    [f"Bash(harness {sub}*)" for sub in HARNESS_CLI_VERBS]
+    + [f"Bash(python -m harness.cli {sub}*)" for sub in HARNESS_CLI_VERBS]
 )
 
 # package_manager.value (analyzer.py) -> comando de instalação real. O mapa

@@ -589,6 +589,61 @@ def mark_feature_passed(target_dir: Path, feature_id: str) -> Path:
     return _set_feature_passes(target_dir, feature_id, True)
 
 
+def restamp_evidence(
+    target_dir: Path,
+    contract: str,
+    feature: dict[str, Any],
+    *,
+    verify_cmd: str,
+    now: str | None = None,
+) -> Path | None:
+    """Atualiza o carimbo de uma evidência EXISTENTE para o estado atual.
+
+    Existe porque a re-prova incremental roda o `verify_cmd` exato da tarefa
+    acoplada contra os arquivos de agora — é a mesma execução que `run_verify`
+    faria. Sem regravar, aquela prova válida virava `evidence_stale` e o
+    `harness finish` cobrava um `harness verify` manual que reexecutava o
+    mesmo comando que acabara de passar.
+
+    **Nunca cria arquivo.** Evidência ausente devolve `None` e nada acontece:
+    fatia com `passes: true` sem prova é marcação à mão, e é o que o bloqueador
+    `evidence_missing` existe para pegar. Emitir a prova aqui apagaria a
+    detecção — recarimbo atualiza prova válida, não emite prova nova.
+
+    Preserva os campos de identidade da evidência antiga (`feature_id`,
+    `contract`) e atualiza o que a re-prova acabou de estabelecer: `files[]` e
+    `desc` do contrato ATUAL (a tarefa pode ter sido alargada por
+    `harness task add-file`), `verify_cmd`, `exit_code` 0, `recorded_at` e
+    `files_hash`.
+    """
+    feature_id = str(feature.get("id") or "")
+    path = evidence_path(target_dir, contract, feature_id)
+    if not path.is_file():
+        return None
+    try:
+        evidence = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(evidence, dict):
+        return None
+
+    files = [str(f) for f in (feature.get("files") or evidence.get("files") or [])]
+    evidence.update(
+        {
+            "desc": feature.get("desc", evidence.get("desc", "")),
+            "files": files,
+            "verify_cmd": verify_cmd,
+            "recorded_at": now or datetime.now(timezone.utc).isoformat(),
+            "exit_code": 0,
+            "files_hash": compute_files_hash(files, target_dir),
+        }
+    )
+    path.write_text(
+        json.dumps(evidence, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    return path
+
+
 def mark_feature_regressed(target_dir: Path, feature_id: str) -> Path:
     """Grava `passes: false` na feature `feature_id` — o inverso exato do acima.
 

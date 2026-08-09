@@ -1,0 +1,15 @@
+{
+  "feature_id": "T-03",
+  "contract": "compilar-as-primeiras-licoes",
+  "desc": "Nenhum número da documentação sobre o tamanho do projeto pode ficar errado sem quebrar a suíte",
+  "files": [
+    "tests/test_docs_derived_facts.py",
+    "README.md",
+    "docs/plugin/TUTORIAL.md",
+    "docs/plugin/arquitetura-visual.html"
+  ],
+  "verify_cmd": "pytest tests/test_docs_derived_facts.py -q",
+  "recorded_at": "2026-08-09T15:52:49.587165+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:af3fa2ef4e9b882a96577975bad0c608f6c15001376189eacac1a48bac021d44"
+}

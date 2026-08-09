@@ -430,3 +430,42 @@ def test_compile_session_permissions_reads_extra_allowed_commands_from_harness_y
     assert "Bash(python -m mar_committee*)" in settings["permissions"]["allow"]
 
 
+# ---------------------------------------------------------------------------
+# REGRA (contrato `compilar-as-primeiras-licoes`, T-02): todo subcomando que o
+# `boundary_guard` libera aparece no `allow` do settings.
+#
+# A lista daqui era uma CÓPIA à mão da lista do guard, com o comentário
+# afirmando que espelhava — e ficou oito verbos para trás (`blind`, `finish`,
+# `budget`, `reconcile`, `decide`, `lesson`, `task`, `pr-draft`). O efeito não é
+# `deny`, é prompt de permissão em comando que o próprio lifecycle manda rodar,
+# e um `settings.local.json` que descreve mal a superfície.
+#
+# A correção não é comparar duas listas: é não haver duas. O teste abaixo trava
+# a consequência de alguém recriar a cópia.
+# ---------------------------------------------------------------------------
+
+def test_every_verb_the_guard_allows_is_declared_in_the_settings_surface() -> None:
+    from harness.boundary_guard import HARNESS_CLI_VERBS as GUARD_VERBS
+
+    allow_text = json.dumps(render_session_permissions(FEATURE_LIST, None)["allow"])
+    missing = sorted(verb for verb in GUARD_VERBS if f"Bash(harness {verb}*)" not in allow_text)
+
+    assert not missing, (
+        f"verbos que o guard libera e o settings não declara: {missing}. "
+        "O settings passa a descrever mal a superfície, e o usuário recebe "
+        "prompt em comando que o lifecycle manda rodar."
+    )
+
+
+def test_the_surface_covers_both_ways_of_invoking_the_cli() -> None:
+    """`harness <verbo>` e `python -m harness.cli <verbo>` são a mesma coisa —
+    o guard já trata as duas formas, e declarar só uma deixaria o prompt
+    aparecer dependendo de como o comando foi escrito."""
+    from harness.boundary_guard import HARNESS_CLI_VERBS as GUARD_VERBS
+
+    allow_text = json.dumps(render_session_permissions(FEATURE_LIST, None)["allow"])
+
+    for verb in GUARD_VERBS:
+        assert f"Bash(python -m harness.cli {verb}*)" in allow_text
+
+

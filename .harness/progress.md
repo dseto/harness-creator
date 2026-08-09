@@ -1,6 +1,6 @@
 # Claude Progress
 
-Contrato: `verificador-cego-do-gate`
+Contrato: `compilar-as-primeiras-licoes`
 
 _Demanda ENCERRADA por `harness finish`._
 
@@ -8,11 +8,9 @@ _Demanda ENCERRADA por `harness finish`._
 
 | id | desc | status |
 | --- | --- | --- |
-| T-01 | A entrega passa a ter um pacote de julgamento montado por comando, com o que foi prometido e onde olhar, e sem nada do raciocínio de quem implementou | done |
-| T-02 | O veredito fica registrado preso ao estado que julgou, um veredito novo nunca apaga o anterior, e veredito de um código que já mudou é reportado como velho | done |
-| T-03 | Montar o pacote e registrar o veredito são comandos de uma linha, que o próprio hook de proteção não nega | done |
-| T-04 | A demanda não fecha sem um veredito independente e fresco, e cada motivo de bloqueio diz ao humano o que fazer | done |
-| T-05 | O ciclo diz quando despachar o verificador, o que mandar e o que jamais mandar, e a documentação descreve as três camadas de verificação | done |
+| T-01 | A re-prova que passa vale como prova: a tarefa re-provada não é mais cobrada de novo à mão, e uma tarefa sem prova nenhuma continua sendo cobrada | done |
+| T-02 | A configuração de permissões passa a acompanhar sozinha todo comando do harness que o hook libera, sem ninguém manter uma segunda lista | done |
+| T-03 | Nenhum número da documentação sobre o tamanho do projeto pode ficar errado sem quebrar a suíte | done |
 
 ## Última atualização
 

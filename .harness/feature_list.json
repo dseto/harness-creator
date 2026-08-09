@@ -1,6 +1,6 @@
 {
-  "contract": "verificador-cego-do-gate",
-  "compiled_at": "2026-08-09T14:26:07.574972+00:00",
+  "contract": "compilar-as-primeiras-licoes",
+  "compiled_at": "2026-08-09T15:57:29.314338+00:00",
   "compiled_with_version": "0.32.0",
   "stop_conditions": {
     "typed": [
@@ -14,86 +14,51 @@
       }
     ],
     "advisory": [
-      "Se o pacote cego começar a precisar de algo do `spec.md` para ser julgável: parar. Significa que o `desc` das tarefas não é critério de aceitação de verdade, e o conserto é no contrato — nunca abrir exceção no pacote para deixar passar o racional de quem implementou.",
-      "Se aparecer a necessidade de o próprio verificador CONSERTAR o que ele reprovou: parar. Fundir os dois papéis economiza uma chamada e custa a independência inteira, que é a única coisa que este incremento entrega."
+      "Se o recarimbo da re-prova precisar CRIAR evidência onde não havia nenhuma: parar. Tarefa marcada à mão sem prova é o que o bloqueador `evidence_missing` existe para pegar, e fabricar o arquivo apagaria justamente essa detecção.",
+      "Se travar um número da documentação exigir mudar o que o número SIGNIFICA (ex.: contar de um jeito no teste e de outro na prosa): parar e tirar o número do texto. Número travado contra a fonte errada é pior que número sem trava — ele passa a mentir com aval de teste."
     ]
   },
   "features": [
     {
       "id": "T-01",
-      "desc": "A entrega passa a ter um pacote de julgamento montado por comando, com o que foi prometido e onde olhar, e sem nada do raciocínio de quem implementou",
+      "desc": "A re-prova que passa vale como prova: a tarefa re-provada não é mais cobrada de novo à mão, e uma tarefa sem prova nenhuma continua sendo cobrada",
       "files": [
-        "src/harness/blind.py",
-        "tests/test_blind.py"
+        "src/harness/regression.py",
+        "src/harness/verify.py",
+        "tests/test_regression.py"
       ],
-      "verify_cmd": "pytest tests/test_blind.py -q",
+      "verify_cmd": "pytest tests/test_regression.py -q",
       "depends": [],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-02",
-      "desc": "O veredito fica registrado preso ao estado que julgou, um veredito novo nunca apaga o anterior, e veredito de um código que já mudou é reportado como velho",
+      "desc": "A configuração de permissões passa a acompanhar sozinha todo comando do harness que o hook libera, sem ninguém manter uma segunda lista",
       "files": [
-        "src/harness/blind.py",
-        "tests/test_blind.py"
+        "src/harness/session_permissions.py",
+        "tests/test_session_permissions.py",
+        "src/harness/boundary_guard.py",
+        "tests/test_boundary_guard.py",
+        "tests/e2e/test_fase2_outcomes.py",
+        "tests/e2e/evidence/fase2-outcomes-verification.md"
       ],
-      "verify_cmd": "pytest tests/test_blind.py -q",
-      "depends": [
-        "T-01"
-      ],
+      "verify_cmd": "pytest tests/test_session_permissions.py -q",
+      "depends": [],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-03",
-      "desc": "Montar o pacote e registrar o veredito são comandos de uma linha, que o próprio hook de proteção não nega",
+      "desc": "Nenhum número da documentação sobre o tamanho do projeto pode ficar errado sem quebrar a suíte",
       "files": [
-        "src/harness/cli.py",
-        "src/harness/boundary_guard.py",
-        "tests/test_cli.py",
-        "tests/test_boundary_guard.py"
-      ],
-      "verify_cmd": "pytest tests/test_cli.py tests/test_boundary_guard.py -q",
-      "depends": [
-        "T-02"
-      ],
-      "cwd": null,
-      "passes": true
-    },
-    {
-      "id": "T-04",
-      "desc": "A demanda não fecha sem um veredito independente e fresco, e cada motivo de bloqueio diz ao humano o que fazer",
-      "files": [
-        "src/harness/finish.py",
-        "tests/test_finish.py",
-        "src/harness/reconcile.py",
-        "tests/test_reconcile.py",
-        "src/harness/branching.py",
-        "tests/test_branching.py"
-      ],
-      "verify_cmd": "pytest tests/test_finish.py -q",
-      "depends": [
-        "T-02"
-      ],
-      "cwd": null,
-      "passes": true
-    },
-    {
-      "id": "T-05",
-      "desc": "O ciclo diz quando despachar o verificador, o que mandar e o que jamais mandar, e a documentação descreve as três camadas de verificação",
-      "files": [
-        "src/harness/lifecycle.py",
-        "tests/test_lifecycle.py",
+        "tests/test_docs_derived_facts.py",
         "README.md",
-        "docs/plugin/ARCHITECTURE.md",
-        "AGENTS.md"
+        "docs/plugin/TUTORIAL.md",
+        "docs/plugin/arquitetura-visual.html"
       ],
-      "verify_cmd": "pytest tests/test_lifecycle.py -q",
-      "depends": [
-        "T-03",
-        "T-04"
-      ],
+      "verify_cmd": "pytest tests/test_docs_derived_facts.py -q",
+      "depends": [],
       "cwd": null,
       "passes": true
     }

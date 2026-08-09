@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 
 from harness.attempts import open_failures, read_attempts
+from harness.verify import compute_files_hash
 from harness.regression import (
     RegressionError,
     render_reproof_report,
@@ -460,6 +461,153 @@ def test_a_proof_that_failed_without_output_does_not_leave_a_dangling_dash() -> 
 
     assert rendered is not None
     assert not any(line.rstrip().endswith("—") for line in rendered.splitlines())
+
+
+# ---------------------------------------------------------------------------
+# REGRA (contrato `compilar-as-primeiras-licoes`, T-01): a re-prova que passa
+# VALE como prova. Ela roda o `verify_cmd` exato da tarefa antiga contra os
+# arquivos de agora — é literalmente o que `harness verify` faria. Não regravar
+# a evidência jogava fora prova válida e cobrava um `harness verify` manual que
+# reexecuta o mesmo comando; aconteceu em três incrementos seguidos.
+#
+# O limite: recarimbo ATUALIZA prova existente, nunca EMITE prova nova. Fatia
+# com `passes: true` e sem arquivo de evidência é marcação à mão, e é o que o
+# bloqueador `evidence_missing` existe para pegar.
+# ---------------------------------------------------------------------------
+
+def _write_evidence(
+    target: Path, feature_id: str, *, files: list[str], verify_cmd: str
+) -> Path:
+    """Evidência com hash de um estado ANTIGO — o cenário real: a fatia foi
+    provada, e um commit posterior mexeu nos arquivos dela."""
+    path = target / ".harness" / "evidence" / "demo" / f"{feature_id}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({
+            "feature_id": feature_id,
+            "contract": "demo",
+            "desc": f"tarefa {feature_id}",
+            "files": files,
+            "verify_cmd": verify_cmd,
+            "recorded_at": "2020-01-01T00:00:00+00:00",
+            "exit_code": 0,
+            "files_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        }, indent=2),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _read_evidence(target: Path, feature_id: str) -> dict[str, Any]:
+    path = target / ".harness" / "evidence" / "demo" / f"{feature_id}.json"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_a_green_reproof_restamps_the_evidence_of_the_task_it_reproved(
+    tmp_path: Path,
+) -> None:
+    target = _repo_with_contract(tmp_path, [
+        _feature("T-01", files=["src/a.py"], verify_cmd=GREEN_CMD),
+        _feature("T-02", files=["src/a.py"], verify_cmd=RED_CMD, passes=False),
+    ])
+    (target / "src").mkdir()
+    (target / "src" / "a.py").write_text("x = 1\n", encoding="utf-8")
+    _write_evidence(target, "T-01", files=["src/a.py"], verify_cmd=GREEN_CMD)
+
+    run_reproof(target, "T-02")
+
+    evidence = _read_evidence(target, "T-01")
+    assert evidence["files_hash"] == compute_files_hash(["src/a.py"], target)
+    assert evidence["recorded_at"] != "2020-01-01T00:00:00+00:00"
+    assert evidence["exit_code"] == 0
+
+
+def test_one_green_command_restamps_every_task_it_proves(tmp_path: Path) -> None:
+    """A re-prova agrupa por comando: uma execução prova N tarefas, e todas as N
+    ficam com o carimbo novo. Recarimbar só a primeira deixaria as outras
+    `evidence_stale` sem razão."""
+    target = _repo_with_contract(tmp_path, [
+        _feature("T-01", files=["src/a.py"], verify_cmd=GREEN_CMD),
+        _feature("T-02", files=["src/a.py"], verify_cmd=GREEN_CMD),
+        _feature("T-03", files=["src/a.py"], verify_cmd=RED_CMD, passes=False),
+    ])
+    (target / "src").mkdir()
+    (target / "src" / "a.py").write_text("x = 1\n", encoding="utf-8")
+    _write_evidence(target, "T-01", files=["src/a.py"], verify_cmd=GREEN_CMD)
+    _write_evidence(target, "T-02", files=["src/a.py"], verify_cmd=GREEN_CMD)
+
+    run_reproof(target, "T-03")
+
+    for feature_id in ("T-01", "T-02"):
+        assert _read_evidence(target, feature_id)["files_hash"] == compute_files_hash(
+            ["src/a.py"], target
+        )
+
+
+def test_a_green_reproof_never_invents_evidence_that_did_not_exist(
+    tmp_path: Path,
+) -> None:
+    """Fatia marcada `passes: true` à mão, sem arquivo de prova, é o que o
+    `evidence_missing` do `harness finish` existe para pegar. Emitir a prova
+    aqui apagaria a detecção — e o recarimbo passaria a fabricar exatamente o
+    tipo de registro que o harness existe para desconfiar."""
+    target = _repo_with_contract(tmp_path, [
+        _feature("T-01", files=["src/a.py"], verify_cmd=GREEN_CMD),
+        _feature("T-02", files=["src/a.py"], verify_cmd=RED_CMD, passes=False),
+    ])
+
+    run_reproof(target, "T-02")
+
+    assert not (target / ".harness" / "evidence" / "demo" / "T-01.json").exists()
+
+
+@dataclass(frozen=True)
+class NoRestampCase:
+    why: str
+    verify_cmd: str
+
+
+NO_RESTAMP_CASES = [
+    NoRestampCase(why="prova vermelha rebaixa, e prova antiga vira registro obsoleto", verify_cmd=RED_CMD),
+    NoRestampCase(why="prova no runtime floor nao roda, logo nao ha veredito nenhum", verify_cmd=FLOOR_CMD),
+]
+
+
+@pytest.mark.parametrize("case", NO_RESTAMP_CASES, ids=lambda c: c.why)
+def test_only_a_green_reproof_restamps(tmp_path: Path, case: NoRestampCase) -> None:
+    target = _repo_with_contract(tmp_path, [
+        _feature("T-01", files=["src/a.py"], verify_cmd=case.verify_cmd),
+        _feature("T-02", files=["src/a.py"], verify_cmd=GREEN_CMD, passes=False),
+    ])
+    _write_evidence(target, "T-01", files=["src/a.py"], verify_cmd=case.verify_cmd)
+
+    run_reproof(target, "T-02")
+
+    assert _read_evidence(target, "T-01")["recorded_at"] == "2020-01-01T00:00:00+00:00"
+
+
+def test_a_failed_restamp_never_breaks_the_reproof(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mesma degradação do `_demote`: o veredito da re-prova é o produto, e
+    perdê-lo por causa de um arquivo de prova que não pôde ser escrito trocaria
+    um incômodo por uma cegueira."""
+    target = _repo_with_contract(tmp_path, [
+        _feature("T-01", files=["src/a.py"], verify_cmd=GREEN_CMD),
+        _feature("T-02", files=["src/a.py"], verify_cmd=RED_CMD, passes=False),
+    ])
+    _write_evidence(target, "T-01", files=["src/a.py"], verify_cmd=GREEN_CMD)
+
+    import harness.regression as regression_module
+
+    def _boom(*args: Any, **kwargs: Any) -> None:
+        raise OSError("disco cheio")
+
+    monkeypatch.setattr(regression_module, "restamp_evidence", _boom)
+
+    report = run_reproof(target, "T-02")
+
+    assert [entry["status"] for entry in report["checked"]] == ["green"]
 
 
 def test_an_environment_error_is_rendered_without_claiming_regression() -> None:

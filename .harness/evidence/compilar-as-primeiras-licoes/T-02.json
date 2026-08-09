@@ -1,0 +1,17 @@
+{
+  "feature_id": "T-02",
+  "contract": "compilar-as-primeiras-licoes",
+  "desc": "A configuração de permissões passa a acompanhar sozinha todo comando do harness que o hook libera, sem ninguém manter uma segunda lista",
+  "files": [
+    "src/harness/session_permissions.py",
+    "tests/test_session_permissions.py",
+    "src/harness/boundary_guard.py",
+    "tests/test_boundary_guard.py",
+    "tests/e2e/test_fase2_outcomes.py",
+    "tests/e2e/evidence/fase2-outcomes-verification.md"
+  ],
+  "verify_cmd": "pytest tests/test_session_permissions.py -q",
+  "recorded_at": "2026-08-09T15:57:38.633238+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:bcbc0894f529438731905cf8c6e2e55262ae1e5767e69ab6e07fab97a1bf9d33"
+}

@@ -6,7 +6,7 @@ Gerado por `tests/e2e/test_fase2_outcomes.py` (repos sintéticos em tmp_path via
 
 Veredito: **ATINGIDO**
 
-`compile-session` num settings virgem compilou `permissions.allow` EXATAMENTE igual à superfície enumerada (47 regras: Edit/Write dos files[] das 2 tarefas sem duplicar `src/app.py`, os 2 verify_cmd distintos, lint/typecheck/build do profile, `npm ci` do package_manager, git local do ritual). Nenhum wildcard genérico.
+`compile-session` num settings virgem compilou `permissions.allow` EXATAMENTE igual à superfície enumerada (73 regras: Edit/Write dos files[] das 2 tarefas sem duplicar `src/app.py`, os 2 verify_cmd distintos, lint/typecheck/build do profile, `npm ci` do package_manager, git local do ritual). Nenhum wildcard genérico.
 
 ```json
 [
@@ -45,6 +45,19 @@ Veredito: **ATINGIDO**
   "Bash(harness review*)",
   "Bash(harness supervise*)",
   "Bash(harness audit-team*)",
+  "Bash(harness task*)",
+  "Bash(harness finish*)",
+  "Bash(harness budget*)",
+  "Bash(harness pr-draft*)",
+  "Bash(harness reconcile*)",
+  "Bash(harness decide*)",
+  "Bash(harness lesson*)",
+  "Bash(harness blind*)",
+  "Bash(harness doctor*)",
+  "Bash(harness status*)",
+  "Bash(harness --help*)",
+  "Bash(harness -h*)",
+  "Bash(harness --version*)",
   "Bash(python -m harness.cli compile*)",
   "Bash(python -m harness.cli audit*)",
   "Bash(python -m harness.cli audit-runtime*)",
@@ -56,7 +69,20 @@ Veredito: **ATINGIDO**
   "Bash(python -m harness.cli team*)",
   "Bash(python -m harness.cli review*)",
   "Bash(python -m harness.cli supervise*)",
-  "Bash(python -m harness.cli audit-team*)"
+  "Bash(python -m harness.cli audit-team*)",
+  "Bash(python -m harness.cli task*)",
+  "Bash(python -m harness.cli finish*)",
+  "Bash(python -m harness.cli budget*)",
+  "Bash(python -m harness.cli pr-draft*)",
+  "Bash(python -m harness.cli reconcile*)",
+  "Bash(python -m harness.cli decide*)",
+  "Bash(python -m harness.cli lesson*)",
+  "Bash(python -m harness.cli blind*)",
+  "Bash(python -m harness.cli doctor*)",
+  "Bash(python -m harness.cli status*)",
+  "Bash(python -m harness.cli --help*)",
+  "Bash(python -m harness.cli -h*)",
+  "Bash(python -m harness.cli --version*)"
 ]
 ```
 Merge não-destrutivo: regra manual `Bash(echo regra-manual)` sobreviveu à recompilação; nenhuma regra duplicada (idempotência).

@@ -18,3 +18,11 @@ Porquê: Granularidades e ciclos de vida diferentes: review.py e por FEATURE, co
 ## D-004 — O que se mecaniza na camada 3 e a ausencia (2026-08-09)
 Decisão: O pacote do verificador e montado por codigo a partir do feature_list.json; o agente que implementou nunca redige esse prompt
 Porquê: O julgamento nao da para mecanizar, mas a contaminacao da entrada da. Prompt escrito por quem acabou de implementar vaza a justificativa por construcao, sem ma-fe -- e o paragrafo 9.1 do design diz que avaliacao assim ja nasce contaminada. Descartado embutir o diff no pacote: o verificador le os arquivos sozinho, e o diff traria as mensagens de commit junto. Limite declarado: nao da para provar que o subagente recebeu SO o pacote; garante-se que o pacote existe, saiu de codigo, e que o veredito esta preso ao hash do estado julgado.
+
+## D-005 — Recarimbo atualiza prova existente, nunca cria (2026-08-09)
+Decisão: restamp_evidence devolve None quando nao ha arquivo de evidencia; a re-prova verde so regrava o que ja existia
+Porquê: Fatia com passes:true e sem arquivo de prova e marcacao a mao, e e o que o bloqueador evidence_missing do harness finish existe para pegar. Emitir a prova no recarimbo apagaria a deteccao -- o mecanismo passaria a fabricar exatamente o tipo de registro que o harness existe para desconfiar. Descartado criar a evidencia por conveniencia.
+
+## D-006 — Importar a lista, nao comparar duas listas (2026-08-09)
+Decisão: HARNESS_CLI_VERBS vira constante de modulo em boundary_guard.py; o hook gerado recebe bakeada por json.dumps e session_permissions e o e2e importam a mesma
+Porquê: A lista estava em TRES copias a mao (guard, session_permissions, tests/e2e/test_fase2_outcomes) e duas estavam desatualizadas -- a do e2e assertava a superficie EXATA, entao a copia velha exigia que o produto ficasse errado junto. Descartado o teste que compara as listas: comparar DETECTA a divergencia depois de ela existir; importar IMPEDE que exista. Bakear com json.dumps e nao repr porque aspas duplas mantem o estilo do hook gerado e ha teste que procura o verbo entre aspas duplas nesse texto.
