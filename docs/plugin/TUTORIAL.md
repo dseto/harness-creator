@@ -202,10 +202,10 @@ Isso instala a biblioteca e o CLI `harness`. Confira:
 
 ```powershell
 harness --help
-# deve listar 19 subcomandos: compile, audit, audit-runtime, analyze,
+# deve listar 20 subcomandos: compile, audit, audit-runtime, analyze,
 #   preflight, compile-contract, task, profile, compile-session, verify,
 #   team, review, supervise, audit-team, finish, disable, enable, status,
-#   doctor
+#   doctor, pr-draft
 ```
 
 ## A.2 Abrir o Claude Code com o plugin, dentro do projeto-alvo

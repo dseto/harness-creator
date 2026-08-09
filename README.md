@@ -129,7 +129,7 @@ automática: ele existe para mostrar o estado real, não para corrigi-lo.
 Detalhe completo do preflight (tabela de checks, contrato do JSON, decisões de
 arquitetura): [docs/preflight.md](docs/preflight.md).
 
-## CLI — os 19 subcomandos
+## CLI — os 21 subcomandos
 
 Todos aceitam `--dir <alvo>` (default `.`) e só operam sobre um diretório que
 já existe: um `--dir` com erro de digitação sai com código 2 sem escrever nada.
@@ -145,7 +145,9 @@ já existe: um `--dir` com erro de digitação sai com código 2 sem escrever na
 | `harness compile-session` | Fase 2 — branch `contract/<slug>`, permissions enumeradas do raio de impacto, `boundary_guard.py`, lifecycle de 17 passos, templates e os hooks SessionStart/Stop |
 | `harness verify <id>` | Fase 3 — roda o `verify_cmd` real e grava `.harness/evidence/<contrato>/<id>.json`. Marca `passes:true` por padrão desde a v0.23.0 |
 | `harness supervise` | Devolve a próxima feature pronta respeitando `depends[]`. Leitura síncrona, não daemon |
+| `harness budget --feature <id>` | Disjuntor do loop: conta o rastro de tentativas e devolve `continue`/`stop_same_failure`/`stop_iterations`. Só leitura; exit 2 quando manda parar |
 | `harness finish` | Encerra a demanda: audita o fecho e, só se aprovado, varre os descartáveis do `.harness/`. **Nunca toca git** |
+| `harness pr-draft` | Monta o PR a partir do contrato: grava `.harness/scratch/pr-body.md` e imprime o `gh pr create` exato. **O agente nunca abre o PR** |
 
 ### Ajustes sem reabrir o gate de aprovação
 
@@ -258,6 +260,40 @@ para trabalhar o contrato, com revisão de qualidade independente já embutida
 - **Audit de time** (`harness audit-team`) — papel órfão, papel sem agente
   gerado, ferramenta além do mínimo do catálogo, drift do bloco gerenciado.
 
+### Disjuntor do loop de autocorreção
+
+Antes, o passo 10 do lifecycle mandava autocorrigir "respeitando as stop
+conditions" — frases livres no frontmatter do `spec.md`, contadas de cabeça
+pelo agente e esquecidas na sessão seguinte. Um disjuntor que depende de
+alguém lembrar de contar não é disjuntor.
+
+- **Rastro de tentativas** (`src/harness/attempts.py`) — toda passada de
+  `harness verify` deixa linha em `.harness/attempts/<contrato>/<id>.jsonl`:
+  no vermelho, o erro CRU + `failure_signature` (sha da primeira linha do
+  erro); no verde, o marcador que encerra a sequência. O arquivo nunca é
+  apagado — o histórico é o produto, e é o que a próxima sessão lê para não
+  repetir a tentativa 1 de boa fé. Evidência continua proibida no vermelho.
+- **Contagem** (`harness budget --feature <id>`) — só leitura. `continue`
+  enquanto há folga; `stop_same_failure` quando a MESMA assinatura se repetiu
+  até o teto (a abordagem é que está errada, não a execução);
+  `stop_iterations` quando as falhas desde o último verde estouraram o teto.
+- **Tetos** — `stop_conditions:` do `spec.md` aceita forma TIPADA
+  (`{type: consecutive_verify_failures, n: 3}`,
+  `{type: same_failure_signature, n: 3}`), compilada para o
+  `feature_list.json`; sem ela, vale
+  `governance.budget.max_green_iterations` do `harness.yaml` — que deixou de
+  ser texto de orientação e passou a ter consumidor. Condição em prosa
+  continua valendo como advisory (é ela que cobre o sinal de
+  impossibilidade). Tipo desconhecido não vira advisory mudo: **reprova a
+  compilação**.
+- **Rastro legível** — o `.harness/progress.md` ganha a região gerenciada
+  `### Tentativas — <id>` enquanto a fatia está vermelha, e ela some sozinha
+  no verde.
+
+Base de projeto: [docs/reference/loop-engineering-design.md](docs/reference/loop-engineering-design.md),
+§4.2 (budget mecânico), §5.1 (histórico de tentativas), §8.2 (padrão
+repetido).
+
 ## Estrutura do repo
 
 ```
@@ -267,8 +303,8 @@ harness-creator/
 │   └── marketplace.json         # auto-referência p/ instalar como marketplace local
 ├── AGENTS.md                    # 3 blocos gerenciados + prosa humana
 ├── skills/                      # preflight, init, plan, compile, audit, team
-├── src/harness/                 # 30 módulos, uma responsabilidade cada
-│   ├── cli.py                   # dispatch dos 19 subcomandos
+├── src/harness/                 # 34 módulos, uma responsabilidade cada
+│   ├── cli.py                   # dispatch dos 21 subcomandos
 │   │
 │   │                            # -- base (fonte única de cada verdade) --
 │   ├── config.py                # HarnessConfig (pydantic) — schema do yaml
@@ -288,6 +324,7 @@ harness-creator/
 │   ├── branching.py             # fluxo branch-first: contract/<slug>
 │   ├── profile_edit.py          # harness profile set + reconciliação do test_glob
 │   ├── install_command.py       # comando de instalação a partir do package manager
+│   ├── autoupdate.py            # decide e dispara a recompilação de artefato atrasado
 │   │
 │   │                            # -- enforcement em runtime (hooks gerados) --
 │   ├── boundary_guard.py        # dispatcher único: raio de impacto + runtime floor
@@ -296,10 +333,13 @@ harness-creator/
 │   │
 │   │                            # -- prova e controle --
 │   ├── verify.py                # roda verify_cmd e grava a evidência
+│   ├── attempts.py              # rastro de tentativas: erro cru + assinatura da falha
+│   ├── budget.py                # disjuntor do loop: continue / stop_* por contagem
 │   ├── review.py                # state machine do revisor (teto duro de iterações)
 │   ├── supervisor.py            # próxima feature pronta, respeitando depends[]
 │   ├── teams.py                 # catálogo de 6 padrões + análise de domínio
 │   ├── finish.py                # encerra a demanda: audita o fecho e varre
+│   ├── pr_draft.py              # contrato + evidência -> corpo do PR e comando gh
 │   │
 │   │                            # -- diagnóstico (read-only) --
 │   ├── preflight.py             # laudo de prontidão do repo cru
@@ -314,7 +354,7 @@ harness-creator/
 │   └── .gitignore               # a regra de ignore é do próprio produto
 ├── docs/plugin/                 # TUTORIAL, GUIDE, ARCHITECTURE, arquitetura-visual.html
 ├── docs/project/                # ROADMAP, PLAN, laudos e handoffs
-└── tests/                       # 724 casos (sem Docker/API para compile/audit)
+└── tests/                       # 1035 casos (sem Docker/API para compile/audit)
 ```
 
 Quem decide o que entra no git é a **Seção 3** de
@@ -327,7 +367,7 @@ de compilação que carrega dado de máquina é machine-local e regenerada por
 
 ```powershell
 $env:PYTHONPATH = "src"
-python -m pytest tests -q          # unit + E2E — 724 casos
+python -m pytest tests -q          # unit + E2E — 1035 casos
 ```
 
 A suíte E2E (`tests/e2e/`) roda inteira sobre repos sintéticos criados em
@@ -338,7 +378,8 @@ externo ao plugin.
 **Convenção da suíte (v0.26.0):** um teste = uma REGRA, com tabela de casos
 (`Case` + `_expect`), nunca um `def` por caso. A suíte tinha chegado a 1008
 casos e caiu para 724 sem perder uma asserção — o que sobrou é o piso
-mecânico, não gordura restante.
+mecânico, não gordura restante. O crescimento desde então (908) é regra nova
+coberta, não a gordura voltando.
 
 Achado que a suíte documenta (via `harness.cli` chamado com
 `--output-format json`, mesmo padrão usado pelo `claude -p` real): uma ação

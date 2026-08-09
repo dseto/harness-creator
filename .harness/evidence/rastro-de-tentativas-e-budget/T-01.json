@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-01",
+  "contract": "rastro-de-tentativas-e-budget",
+  "desc": "Toda falha de verificação pode deixar registro estruturado consultável, com assinatura que identifica falha repetida",
+  "files": [
+    "src/harness/attempts.py",
+    "tests/test_attempts.py"
+  ],
+  "verify_cmd": "pytest tests/test_attempts.py -q",
+  "recorded_at": "2026-08-09T04:35:12.509428+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:e194ea816b98796f1cd78872afdea35387485c6e3adb35177e7bbd01d270f023"
+}

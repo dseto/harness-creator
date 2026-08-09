@@ -43,16 +43,44 @@ aprovado e só devolve o controle ao humano em estado retomável.
    contrato (build, lint, suíte de teste) — a prova executável de que a
    implementação funciona.
 
-10. **Se falhar: autocorrigir e re-rodar `verify_cmd` até passar.** Loop de
+10. **Se falhar: consultar o disjuntor e obedecer o veredito.** Loop de
     autocorreção (Fase 3): o agente conserta a própria falha e testa de
-    novo, sem envolver o humano, respeitando as stop conditions (N falhas
-    consecutivas ou sinal de impossibilidade interrompe o loop). A fonte
-    dessas stop conditions é explícita: o campo `stop_conditions:` do
-    frontmatter do `spec.md` ativo (`.harness/work/<slug>/spec.md`),
-    acessível via `harness.contract.get_stop_conditions` — esse campo é o
-    disjuntor do loop. Satisfazer QUALQUER uma das condições listadas ali
-    interrompe a autocorreção, registra o estado em `.harness/progress.md` e
-    devolve o controle ao humano junto com o diagnóstico da falha.
+    novo, sem envolver o humano — mas não indefinidamente, e não por
+    julgamento próprio sobre quando desistir.
+
+    Toda falha de `harness verify` já grava a tentativa em
+    `.harness/attempts/<contrato>/<id>.jsonl` (erro cru, exit code,
+    assinatura da falha). A cada vermelho, rode:
+
+        harness budget --feature <id>
+
+    e siga o `verdict`:
+
+    - `continue` — corrija e re-rode o `verify_cmd`.
+    - `stop_same_failure` — a MESMA falha se repetiu até o teto. O que está
+      errado é a abordagem, não a execução: **mude de estratégia** (e diga
+      qual, e por quê, ao reportar) ou escale. Insistir aqui é queimar o
+      budget repetindo o que já não funcionou.
+    - `stop_iterations` — o teto de tentativas desde o último verde
+      estourou. Pare, registre o estado em `.harness/progress.md` e devolva
+      o controle ao humano.
+
+    Os tetos vêm, nesta ordem, das `stop_conditions:` TIPADAS do frontmatter
+    do `spec.md` ativo (`{type: consecutive_verify_failures, n: 3}`,
+    `{type: same_failure_signature, n: 3}`) e, na ausência delas, de
+    `governance.budget.max_green_iterations` do `.harness/harness.yaml`.
+
+    As `stop_conditions:` escritas em PROSA continuam valendo como condição
+    adicional — elas cobrem o que nenhuma contagem pega, como o sinal de
+    impossibilidade ("a dependência não existe", "o requisito é
+    contraditório"). Essas são lidas por
+    `harness.contract.get_stop_conditions` e interpretadas por você; parar
+    por uma delas é acerto, não desistência, e não precisa esperar teto
+    nenhum.
+
+    Em qualquer parada, o que vai para o humano é DIAGNÓSTICO, não sintoma:
+    o que estava sendo tentado, as abordagens em ordem, o último erro cru
+    (está no `reason` e no rastro), e a sugestão de próximo passo.
 
 11. **Registrar a prova (evidência da verificação bem-sucedida).** Grava a
     evidência de que `verify_cmd` passou (timestamp, comando, hash) — é o

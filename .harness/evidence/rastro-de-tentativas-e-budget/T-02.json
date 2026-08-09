@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-02",
+  "contract": "rastro-de-tentativas-e-budget",
+  "desc": "`harness verify` grava a tentativa falha no vermelho e o marcador de sucesso no verde, sem mudar o resultado da verificação",
+  "files": [
+    "src/harness/verify.py",
+    "tests/test_verify_attempts.py"
+  ],
+  "verify_cmd": "pytest tests/test_verify_attempts.py -q",
+  "recorded_at": "2026-08-09T04:45:57.275888+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:a52fbca0eabdfae7f7bff0b583074467c4b2ee988a40e271e766a7304472f7de"
+}

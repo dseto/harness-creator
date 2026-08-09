@@ -2177,7 +2177,7 @@ FIXED_GIT_SEQUENCES = [
 _HARNESS_SUBCOMMANDS = [
     "compile", "audit", "audit-runtime", "analyze", "preflight",
     "compile-contract", "compile-session", "verify", "team", "review",
-    "supervise", "audit-team", "task", "finish",
+    "supervise", "audit-team", "task", "finish", "budget", "pr-draft",
     # Formas de invocacao read-only: negar `harness --help` deixava o agente
     # sem sequer descobrir os subcomandos disponiveis (relatado ao vivo no
     # deadlock de bootstrap). 'doctor'/'status' sao read-only; 'enable' e

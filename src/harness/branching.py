@@ -42,10 +42,21 @@ CONTRACT_BRANCH_PREFIX = "contract/"
 #: o conteúdo viaja para a branch de contrato, que é exatamente onde ele deve
 #: ser commitado. Nada aqui é descartado. Sujeira de qualquer arquivo FORA
 #: deste conjunto continua abortando com a mesma mensagem.
+#:
+#: `.harness/LIFECYCLE.md` entrou pelo mesmo deadlock, encontrado no dogfood do
+#: contrato `rastro-de-tentativas-e-budget`: `compile-session` o REGENERA a
+#: partir de `lifecycle.py`, então mudar o texto do lifecycle deixa o arquivo
+#: tracked-sujo por construção. O `finish` o acusava como `tree_residue` e
+#: mandava resolver com `harness task add-file` — que recusa o mesmo path por
+#: ser plano de controle ("declará-los seria auto-ampliação de superfície").
+#: Duas mensagens do harness apontando uma para a outra, sem saída. Ele é
+#: artefato GERADO, nunca editado à mão, e por isso pertence a esta lista e não
+#: à superfície de nenhuma tarefa.
 HARNESS_MANAGED_PATHS = frozenset({
     ".harness/feature_list.json",
     ".harness/repo-profile.json",
     ".harness/progress.md",
+    ".harness/LIFECYCLE.md",
 })
 
 #: Mesma isenção, para as árvores inteiras que o harness gerencia. A evidência

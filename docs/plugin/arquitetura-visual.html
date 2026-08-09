@@ -330,11 +330,11 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
   sem chave de API, sem confiar em "o agente vai obedecer".</p>
   <div class="formula"><b>Agente</b> <span>=</span> <i>Modelo</i> <span>+</span> <b>Harness</b></div>
   <div class="kpis">
-    <div class="kpi"><div class="n">30</div><div class="l">módulos Python</div></div>
+    <div class="kpi"><div class="n">32</div><div class="l">módulos Python</div></div>
     <div class="kpi"><div class="n">7</div><div class="l">skills</div></div>
-    <div class="kpi"><div class="n">19</div><div class="l">subcomandos CLI</div></div>
+    <div class="kpi"><div class="n">20</div><div class="l">subcomandos CLI</div></div>
     <div class="kpi"><div class="n">5</div><div class="l">hooks gerados</div></div>
-    <div class="kpi"><div class="n">724</div><div class="l">testes</div></div>
+    <div class="kpi"><div class="n">908</div><div class="l">testes</div></div>
     <div class="kpi"><div class="n">17</div><div class="l">passos do ciclo</div></div>
   </div>
 </div>
@@ -636,13 +636,13 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
   <h3>Catálogo completo <span class="lvmark">filtrável</span></h3>
   <div class="filter">
     <input id="modfilter" placeholder="Filtrar por nome, camada ou responsabilidade… (ex.: floor, evidência, hook)">
-    <span class="pill" id="modcount">30 módulos</span>
+    <span class="pill" id="modcount">32 módulos</span>
   </div>
   <div class="tbl-wrap">
   <table id="modtable">
     <thead><tr><th style="width:20%">Módulo</th><th style="width:11%">Camada</th><th>Responsabilidade</th></tr></thead>
     <tbody>
-      <tr><td><code>cli.py</code></td><td>Superfície</td><td>Dispatch dos 19 subcomandos; valida <code>--dir</code> num ponto só; força UTF-8 em stdout e stderr para não corromper JSON acentuado em console cp1252.</td></tr>
+      <tr><td><code>cli.py</code></td><td>Superfície</td><td>Dispatch dos 20 subcomandos; valida <code>--dir</code> num ponto só; força UTF-8 em stdout e stderr para não corromper JSON acentuado em console cp1252.</td></tr>
       <tr><td><code>config.py</code></td><td>Base</td><td>Schema pydantic do <code>harness.yaml</code>: política de aprovação, orçamento, comandos extras, branch por contrato, branches protegidas, TDD.</td></tr>
       <tr><td><code>compiler.py</code></td><td>Compilação</td><td>Coração do modo plugin: yaml → permissions + hooks TDD + bloco do AGENTS.md. Merge não-destrutivo via <code>compiled-state.json</code>.</td></tr>
       <tr><td><code>contract.py</code></td><td>Compilação</td><td>spec.md + Plans.md → <code>feature_list.json</code>. Gate de aprovação: sem <code>approved_by</code>, não escreve nada. Preserva <code>passes</code> só se a identidade da tarefa não mudou.</td></tr>
@@ -656,7 +656,8 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
       <tr><td><code>verify.py</code></td><td>Prova</td><td>Roda o <code>verify_cmd</code> real e grava evidência com <code>exit_code</code>, <code>recorded_at</code> e <code>files_hash</code> sha256. Marca <code>passes:true</code> por padrão desde a v0.23.</td></tr>
       <tr><td><code>review.py</code></td><td>Prova</td><td>State machine do revisor: pending → in_review → rejected|approved. Teto duro de iterações; estourou, escala ao humano em vez de aprovar sozinho.</td></tr>
       <tr><td><code>supervisor.py</code></td><td>Prova</td><td>Devolve a próxima feature pronta respeitando <code>depends[]</code>. Chamada síncrona, não daemon.</td></tr>
-      <tr><td><code>finish.py</code></td><td>Prova</td><td>Encerra a demanda: audita o fecho (read-only) e só então varre descartáveis. Nunca chama git.</td></tr>
+      <tr><td><code>finish.py</code></td><td>Prova</td><td>Encerra a demanda: audita o fecho (read-only) e só então varre descartáveis. Nunca chama git. <code>blockers: []</code> é o que autoriza o commit — substituiu o antigo gate humano do diff.</td></tr>
+      <tr><td><code>pr_draft.py</code></td><td>Prova</td><td>Contrato + evidência → <code>.harness/scratch/pr-body.md</code> e o <code>gh pr create</code> exato. Usa <code>--body-file</code>, nunca <code>--body</code> inline: acentuação em linha de comando no PowerShell 5.1 corrompe multi-byte. Abrir o PR continua sendo do humano.</td></tr>
       <tr><td><code>teams.py</code></td><td>Compilação</td><td>Catálogo de 6 padrões de time + análise de domínio e recomendação. Papéis de revisão nunca recebem Edit/Write.</td></tr>
       <tr><td><code>team_audit.py</code></td><td>Diagnóstico</td><td>Papel órfão, papel sem agente gerado, ferramenta além do mínimo, drift do bloco gerenciado.</td></tr>
       <tr><td><code>audit.py</code></td><td>Diagnóstico</td><td>Score 0-100 + findings. Dogfooding: recompila em memória e compara com o disco — divergência é drift.</td></tr>
@@ -671,6 +672,7 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
       <tr><td><code>profile_edit.py</code></td><td>Compilação</td><td>Correção pontual do perfil (enumeração fechada de chaves) e reconciliação do <code>test_glob</code> entre yaml e perfil.</td></tr>
       <tr><td><code>metrics.py</code></td><td>Diagnóstico</td><td>Conta ciclos de fricção (disable / enable / compile-session). Instrumentação nunca quebra o comando que instrumenta.</td></tr>
       <tr><td><code>install_command.py</code></td><td>Compilação</td><td>Deriva o comando de instalação de dependências a partir do package manager detectado.</td></tr>
+      <tr><td><code>autoupdate.py</code></td><td>Compilação</td><td>Regenera o <code>.harness/</code> que ficou atrás do pacote pip, disparado por qualquer subcomando ou pela abertura de sessão. Decisão pura (<code>plan_update</code>, tupla semver) separada da execução: artefato à frente só avisa, nunca regride. Falha aberto, não toca git (<code>--no-branch</code>), respeita o kill-switch.</td></tr>
       <tr><td><code>governance/approval.py</code></td><td>Base</td><td>Matriz de política: quais classes de risco cada modo gateia, e o conjunto sempre gateado (rede).</td></tr>
     </tbody>
   </table>
@@ -1212,7 +1214,10 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
     <div class="card"><h5><code>harness doctor</code> <span class="tag t-no">falha silenciosa</span></h5>
       <p>Compara as três camadas de distribuição — pacote pip, <code>.harness/</code> compilado,
       cache de plugin do Claude Code — e detecta hook registrado que não roda. São falhas onde
-      nada quebra: o Claude Code apenas roda <em>menos governança</em> do que o repositório aparenta ter.</p></div>
+      nada quebra: o Claude Code apenas roda <em>menos governança</em> do que o repositório aparenta ter.
+      É o único comando isento da atualização automática: existe para mostrar o estado real, não para corrigi-lo.
+      O aviso de plugin velho da abertura de sessão lê a <b>mesma</b> função que ele, <code>stale_plugin_installs()</code> —
+      um diagnóstico que discordasse do aviso seria a duplicação de tabela que este desenho existe para prevenir.</p></div>
   </div>
 
   <div class="figure lv-arch">
@@ -1225,18 +1230,18 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
       <rect x="322" y="40" width="250" height="82" rx="11" fill="var(--panel2)" stroke="var(--line2)"/>
       <text x="447" y="68" class="sv-tx" text-anchor="middle">2 · .harness/ compilado</text>
       <text x="447" y="88" class="sv-mono" text-anchor="middle">compiled-state.json</text>
-      <text x="447" y="108" class="sv-tx3" text-anchor="middle">harness compile --dir &lt;alvo&gt;</text>
+      <text x="447" y="108" class="sv-tx3" text-anchor="middle">automático · recompila sozinho</text>
 
       <rect x="624" y="40" width="250" height="82" rx="11" fill="var(--panel2)" stroke="var(--line2)"/>
       <text x="749" y="68" class="sv-tx" text-anchor="middle">3 · cache do plugin</text>
       <text x="749" y="88" class="sv-mono" text-anchor="middle">installed_plugins.json</text>
-      <text x="749" y="108" class="sv-tx3" text-anchor="middle">claude plugin update</text>
+      <text x="749" y="108" class="sv-tx3" text-anchor="middle">claude plugin update · avisa</text>
 
       <path d="M20,150 L874,150" class="sv-ln" stroke="var(--warn)" stroke-width="1.4" stroke-dasharray="5 4"/>
-      <text x="447" y="176" class="sv-tx2" text-anchor="middle">atualizar só uma camada deixa as outras presas na versão antiga — sem sinal nenhum</text>
+      <text x="447" y="176" class="sv-tx2" text-anchor="middle">só a camada 1 continua manual e silenciosa — a 2 se recompila sozinha, a 3 avisa na abertura da sessão</text>
       <text x="447" y="196" class="sv-tx3" text-anchor="middle">o comportamento observado reflete sempre a camada mais atrasada · harness doctor aponta qual é</text>
     </svg>
-    <div class="figcap">Fig. 7 — Três ciclos de atualização independentes. A causa nº 1 de "atualizei e continua com comportamento antigo".</div>
+    <div class="figcap">Fig. 7 — Três ciclos de atualização independentes. Era a causa nº 1 de "atualizei e continua com comportamento antigo"; desde a v0.31/v0.32 só a camada 1 fica em silêncio.</div>
   </div>
 </section>
 
@@ -1271,7 +1276,7 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
         <text x="770" y="150">Driver</text><text x="770" y="164">de loop</text>
         <text x="890" y="150">Sinais por</text><text x="890" y="164">máquina</text>
       </g>
-      <text x="275" y="212" class="sv-tx2" text-anchor="middle">ENTREGUE · v0.11 → v0.26</text>
+      <text x="275" y="212" class="sv-tx2" text-anchor="middle">ENTREGUE · v0.11 → v0.32</text>
       <text x="770" y="212" class="sv-tx2" text-anchor="middle">BACKLOG · rumo à autonomia total</text>
       <rect x="40" y="228" width="880" height="56" rx="10" fill="var(--bg2)" stroke="var(--line2)" stroke-dasharray="5 4"/>
       <text x="60" y="252" class="sv-tx3">Objetivo final: o humano fornece uma demanda complexa + critérios de qualidade; o agente executa</text>
@@ -1333,7 +1338,7 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
   <code>src/harness/</code>, <code>docs/</code> e <code>.harness/</code> ·
   fontes primárias: <code>README.md</code>, <code>docs/plugin/GUIDE.md</code>,
   <code>.harness/LIFECYCLE.md</code>, <code>docs/roadmap-autonomous.md</code> e os docstrings
-  dos 30 módulos.
+  dos 32 módulos.
 </footer>
 
 <script>
@@ -1381,20 +1386,20 @@ const LAYERS={
     "É quem realmente executa: lê <code>permissions</code>, dispara hooks <code>PreToolUse</code>/<code>SessionStart</code>/<code>Stop</code>, carrega skills e subagentes.",
     "<b>Não é responsabilidade do harness:</b> rodar o modelo, gerenciar tokens ou orquestrar sessões. O harness só produz o que esta camada consome."],
   skills:["Camada 1a — Skills",
-    "Seis skills conversacionais: <code>preflight</code> (o repo está pronto?), <code>init</code> (criar o harness), <code>plan</code> (demanda → contrato), <code>compile</code> (recompilar após editar o yaml), <code>audit</code> (score + findings), <code>team</code> (montar time de agentes).",
+    "Sete skills conversacionais: <code>preflight</code> (o repo está pronto?), <code>init</code> (criar o harness), <code>assess</code> (a demanda cabe aqui?), <code>plan</code> (demanda → contrato), <code>compile</code> (recompilar após editar o yaml), <code>audit</code> (score + findings), <code>team</code> (montar time de agentes).",
     "<b>Não decidem nada sozinhas:</b> toda escrita passa por um comando da CLI, que é determinístico e testável. A skill conduz a conversa; o mecanismo mora no Python."],
   cli:["Camada 1b — CLI <code>harness</code>",
-    "Dezenove subcomandos. Os de compilação escrevem artefatos; os de auditoria só leem; <code>verify</code> executa o comando real da tarefa; <code>disable</code>/<code>enable</code> são o kill-switch do humano.",
+    "Vinte subcomandos. Os de compilação escrevem artefatos; os de auditoria só leem; <code>verify</code> executa o comando real da tarefa; <code>pr-draft</code> monta o PR a partir do contrato; <code>disable</code>/<code>enable</code> são o kill-switch do humano.",
     "<b>Detalhe deliberado:</b> <code>enable</code>/<code>disable</code> ficam FORA da allowlist do agente — é o que impede o <code>finish</code> ou qualquer outro subcomando de virar bypass do floor."],
   compile:["Camada 2 — Compiladores",
-    "Transformam entrada humana em artefato: <code>compiler</code> (yaml → permissions/hooks/AGENTS.md), <code>contract</code> (spec+Plans → feature_list), <code>session_permissions</code> (contrato → superfície enumerada), <code>analyzer</code> (repo → perfil com evidência), <code>branching</code> (branch do contrato), <code>lifecycle</code> e <code>templates</code>.",
+    "Transformam entrada humana em artefato: <code>compiler</code> (yaml → permissions/hooks/AGENTS.md), <code>contract</code> (spec+Plans → feature_list), <code>session_permissions</code> (contrato → superfície enumerada), <code>analyzer</code> (repo → perfil com evidência), <code>branching</code> (branch do contrato), <code>autoupdate</code> (recompila o que ficou atrás do pacote), <code>lifecycle</code> e <code>templates</code>.",
     "<b>Invariante:</b> zero LLM, zero rede. Mesma entrada, mesma saída — é o que torna o <code>audit</code> capaz de detectar drift recompilando em memória."],
   guard:["Camada 3 — Enforcement em runtime",
     "Scripts autocontidos gerados pelos compiladores, rodando fora do pacote instalado a cada tool call. <code>boundary_guard.py</code> é o dispatcher único: cobre Edit, Write, MultiEdit, NotebookEdit, PowerShell e Bash num só processo.",
     "<b>Fail-closed por dentro, fail-closed por fora:</b> qualquer exceção na avaliação vira <code>deny</code>; e o comando registrado leva <code>|| exit 2</code> para o caso de o Python nem iniciar."],
   prova:["Camada 4 — Prova e controle",
-    "<code>verify</code> executa e grava evidência; <code>review</code> mantém a state machine do revisor; <code>supervisor</code> devolve a próxima feature respeitando dependências; <code>finish</code> encerra a demanda com auditoria antes da limpeza.",
-    "<b>Nenhum deles chama git de escrita.</b> Commit e push continuam sendo decisão explícita — do humano no passo 15, ou do floor no caso do push."],
+    "<code>verify</code> executa e grava evidência; <code>review</code> mantém a state machine do revisor; <code>supervisor</code> devolve a próxima feature respeitando dependências; <code>finish</code> encerra a demanda com auditoria antes da limpeza; <code>pr_draft</code> lê contrato e evidência e devolve o corpo do PR pronto.",
+    "<b>Nenhum deles chama git de escrita.</b> Quem autoriza o commit é <code>finish</code> com <code>blockers: []</code> — condição de máquina sobre evidência fresca, não aprovação de conversa. O push segue restrito pelo floor à branch do contrato, e abrir o PR continua sendo ação do humano."],
   diag:["Camada 5 — Diagnóstico",
     "<code>preflight</code> (repo cru), <code>audit</code> (drift da compilação), <code>runtime_audit</code> (invariantes do que muda), <code>team_audit</code> (papéis e ferramentas), <code>doctor</code> (3 camadas de distribuição), <code>metrics</code> (ciclos de fricção).",
     "<b>Todos read-only.</b> Emitem laudo e o comando exato para corrigir — nunca corrigem por conta própria, porque um diagnóstico que também age não é auditável."],

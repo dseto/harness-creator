@@ -151,6 +151,129 @@ def render_progress_template(feature_list: dict[str, Any]) -> str:
 # init.sh / init.ps1
 # ---------------------------------------------------------------------------
 
+#: Delimitadores da região gerenciada de tentativas dentro do `progress.md`.
+#: Mesma técnica dos blocos do `AGENTS.md` (`compiler.py`, `lifecycle.py`) e
+#: pelo mesmo motivo: o `progress.md` é arquivo do AGENTE — ele escreve texto
+#: livre ali —, então o harness só pode mandar dentro de uma faixa que ele
+#: mesmo abriu e fecha.
+ATTEMPTS_BEGIN = "<!-- harness:attempts:begin -->"
+ATTEMPTS_END = "<!-- harness:attempts:end -->"
+
+_ATTEMPTS_REGION_RE = re.compile(
+    re.escape(ATTEMPTS_BEGIN) + r".*?" + re.escape(ATTEMPTS_END), re.DOTALL
+)
+
+
+def _attempts_heading(feature_id: str) -> str:
+    return f"### Tentativas — {feature_id}"
+
+
+def render_attempts_section(feature_id: str, failures: list[dict[str, Any]]) -> str:
+    """Subseção legível das tentativas AINDA EM ABERTO de uma feature.
+
+    Uma linha por tentativa, na ordem em que aconteceram:
+
+        ### Tentativas — T-01
+
+        1. exit 1 — E   assert 1 == 2 (sig 9f2b1c4d5e6f)
+        2. exit 1 — E   assert 1 == 2 (sig 9f2b1c4d5e6f)
+
+    A assinatura vai na linha de propósito: duas linhas com o mesmo `sig` são
+    o padrão repetido de §8.2 visível a olho nu, antes mesmo de alguém rodar
+    `harness budget`. O que entra aqui é a linha de erro CRUA registrada no
+    rastro — resumir na renderização jogaria fora o mesmo sinal que o §3 do
+    design manda preservar.
+    """
+    lines = [_attempts_heading(feature_id), ""]
+    for number, failure in enumerate(failures, start=1):
+        line = failure.get("failure_line") or "(sem mensagem)"
+        lines.append(
+            f"{number}. exit {failure.get('exit_code')} — {line} "
+            f"(sig {failure.get('failure_signature')})"
+        )
+    return "\n".join(lines)
+
+
+def _split_sections(region_body: str) -> dict[str, str]:
+    """Corpo da região -> `{feature_id: texto da subseção}`, preservando ordem
+    de inserção (dict do Python 3.7+). Texto fora de qualquer `### Tentativas
+    — <id>` é descartado: a região inteira é gerada, nunca editada à mão."""
+    sections: dict[str, str] = {}
+    current: str | None = None
+    buffer: list[str] = []
+    for line in region_body.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("### Tentativas — "):
+            if current is not None:
+                sections[current] = "\n".join(buffer).strip("\n")
+            current = stripped[len("### Tentativas — "):].strip()
+            buffer = [line]
+        elif current is not None:
+            buffer.append(line)
+    if current is not None:
+        sections[current] = "\n".join(buffer).strip("\n")
+    return sections
+
+
+def update_progress_attempts(
+    target_dir: Path, feature_id: str, failures: list[dict[str, Any]]
+) -> bool:
+    """Sincroniza a subseção de `feature_id` na região gerenciada do
+    `.harness/progress.md`. Retorna `True` se o arquivo foi reescrito.
+
+    `failures` são as tentativas em aberto (ver `attempts.open_failures`):
+    lista com itens -> a subseção é criada ou substituída; lista vazia -> a
+    subseção é REMOVIDA, e a região some junto se ficar sem nenhuma. A remoção
+    no verde é o ponto: a fatia deixou de estar "em andamento", o histórico
+    permanente é o jsonl, e deixar o bloco faria a próxima sessão ler pendência
+    onde existe prova.
+
+    NO-OP silencioso (retorna `False`, nunca levanta) quando o arquivo não
+    existe — mesma regra de `update_progress_status`/`append_progress_note`,
+    e pelo mesmo motivo: quem chama é o `run_verify`, no meio de uma
+    verificação, e sincronizar o rastro legível jamais pode ser o que faz uma
+    verificação mudar de resultado.
+    """
+    progress_path = Path(target_dir) / PROGRESS_FILE
+    if not progress_path.is_file():
+        return False
+
+    text = progress_path.read_text(encoding="utf-8")
+
+    match = _ATTEMPTS_REGION_RE.search(text)
+    if match:
+        body = match.group(0)[len(ATTEMPTS_BEGIN):-len(ATTEMPTS_END)]
+        sections = _split_sections(body)
+    else:
+        sections = {}
+
+    if failures:
+        sections[feature_id] = render_attempts_section(feature_id, failures)
+    else:
+        sections.pop(feature_id, None)
+
+    if sections:
+        region = "\n\n".join([ATTEMPTS_BEGIN, *sections.values(), ATTEMPTS_END])
+    else:
+        region = ""
+
+    if match:
+        updated = text[: match.start()] + region + text[match.end():]
+        # Região removida: sobra o par de quebras que a cercava. Colapsa para
+        # não acumular linha em branco a cada ciclo vermelho-verde.
+        if not region:
+            updated = updated.replace("\n\n\n\n", "\n\n").rstrip("\n") + "\n"
+    else:
+        if not region:
+            return False
+        updated = text.rstrip("\n") + "\n\n" + region + "\n"
+
+    if updated == text:
+        return False
+    progress_path.write_text(updated, encoding="utf-8")
+    return True
+
+
 def render_init_scripts(profile: dict[str, Any]) -> tuple[str, str]:
     """Gera `(init_sh, init_ps1)` a partir do `repo-profile.json`: instalação
     de dependências (por `package_manager.value`) seguida do health check

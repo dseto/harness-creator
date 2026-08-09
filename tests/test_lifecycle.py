@@ -9,6 +9,7 @@ from pathlib import Path
 from harness.compiler import AGENTS_BEGIN, AGENTS_END
 from harness.lifecycle import (
     LIFECYCLE_BEGIN,
+    LIFECYCLE_DETAIL_PATH,
     LIFECYCLE_END,
     install_lifecycle,
     render_lifecycle_block,
@@ -63,6 +64,49 @@ def test_the_lifecycle_detail_covers_every_step_and_names_its_sources() -> None:
     assert "stop_conditions" in detail
     assert "spec.md" in detail
     assert "harness.contract.get_stop_conditions" in detail
+
+
+def test_the_generated_lifecycle_detail_is_a_managed_artifact_not_residue() -> None:
+    """`.harness/LIFECYCLE.md` é gerado por `install_lifecycle` a cada
+    `compile-session`. Mudar o texto do lifecycle (como fez o passo 10 deste
+    contrato) o deixa tracked-sujo por construção — e ele caía num deadlock:
+    `harness finish` o acusava de `tree_residue` mandando usar
+    `harness task add-file`, que recusa o mesmo path por ser plano de controle.
+    Duas mensagens do harness apontando uma para a outra.
+
+    Artefato gerado pertence a `HARNESS_MANAGED_PATHS`, nunca à superfície de
+    uma tarefa: declará-lo numa tarefa seria auto-ampliação de superfície, que
+    é exatamente o que o guard existe para impedir."""
+    from harness.branching import HARNESS_MANAGED_PATHS, unmanaged_dirty_paths
+
+    assert LIFECYCLE_DETAIL_PATH in HARNESS_MANAGED_PATHS
+    assert unmanaged_dirty_paths(f" M {LIFECYCLE_DETAIL_PATH}\n") == []
+
+
+def test_step_ten_points_at_the_mechanical_breaker_not_at_prose() -> None:
+    """Passo 10 do contrato `rastro-de-tentativas-e-budget` (§4.2/§8.2 do
+    design de loop engineering).
+
+    O texto anterior mandava autocorrigir "respeitando as stop conditions", que
+    eram frases livres no frontmatter — um disjuntor que só existe se o agente
+    lembrar de contar não é disjuntor, é sugestão. Agora existe contagem por
+    máquina (`harness budget`), e o passo precisa mandar CONSULTAR e OBEDECER;
+    caso contrário o mecanismo fica em disco sem ninguém acionar, que é a
+    forma mais cara de não ter mecanismo nenhum.
+
+    Os dois vereditos de parada são citados por nome porque cada um pede uma
+    reação diferente: `stop_same_failure` manda trocar de abordagem,
+    `stop_iterations` manda escalar."""
+    block = render_lifecycle_block()
+    detail = render_lifecycle_detail()
+
+    assert "harness budget" in block
+    assert "harness budget" in detail
+    for verdict in ("stop_same_failure", "stop_iterations"):
+        assert verdict in detail
+    # O rastro que alimenta a contagem precisa estar nomeado: sem saber onde
+    # ele mora, o humano que recebe a escalada não tem o que abrir.
+    assert ".harness/attempts/" in detail
 
 
 # ---------------- install_lifecycle ----------------
