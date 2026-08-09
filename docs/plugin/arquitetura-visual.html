@@ -636,13 +636,13 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
   <h3>Catálogo completo <span class="lvmark">filtrável</span></h3>
   <div class="filter">
     <input id="modfilter" placeholder="Filtrar por nome, camada ou responsabilidade… (ex.: floor, evidência, hook)">
-    <span class="pill" id="modcount">32 módulos</span>
+    <span class="pill" id="modcount">38 módulos</span>
   </div>
   <div class="tbl-wrap">
   <table id="modtable">
     <thead><tr><th style="width:20%">Módulo</th><th style="width:11%">Camada</th><th>Responsabilidade</th></tr></thead>
     <tbody>
-      <tr><td><code>cli.py</code></td><td>Superfície</td><td>Dispatch dos 20 subcomandos; valida <code>--dir</code> num ponto só; força UTF-8 em stdout e stderr para não corromper JSON acentuado em console cp1252.</td></tr>
+      <tr><td><code>cli.py</code></td><td>Superfície</td><td>Dispatch dos 25 subcomandos; valida <code>--dir</code> num ponto só; força UTF-8 em stdout e stderr para não corromper JSON acentuado em console cp1252.</td></tr>
       <tr><td><code>config.py</code></td><td>Base</td><td>Schema pydantic do <code>harness.yaml</code>: política de aprovação, orçamento, comandos extras, branch por contrato, branches protegidas, TDD.</td></tr>
       <tr><td><code>compiler.py</code></td><td>Compilação</td><td>Coração do modo plugin: yaml → permissions + hooks TDD + bloco do AGENTS.md. Merge não-destrutivo via <code>compiled-state.json</code>.</td></tr>
       <tr><td><code>contract.py</code></td><td>Compilação</td><td>spec.md + Plans.md → <code>feature_list.json</code>. Gate de aprovação: sem <code>approved_by</code>, não escreve nada. Preserva <code>passes</code> só se a identidade da tarefa não mudou.</td></tr>
@@ -1338,7 +1338,7 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
   <code>src/harness/</code>, <code>docs/</code> e <code>.harness/</code> ·
   fontes primárias: <code>README.md</code>, <code>docs/plugin/GUIDE.md</code>,
   <code>.harness/LIFECYCLE.md</code>, <code>docs/roadmap-autonomous.md</code> e os docstrings
-  dos 32 módulos.
+  dos 38 módulos.
 </footer>
 
 <script>

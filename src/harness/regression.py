@@ -55,6 +55,7 @@ from harness.verify import (
     compute_files_hash,
     mark_feature_regressed,
     normalize_command_head,
+    restamp_evidence,
 )
 
 
@@ -164,7 +165,12 @@ def run_reproof(
     Cada item de `checked` traz `verify_cmd`, `cwd`, `feature_ids` (as tarefas
     que aquele comando prova) e um `status`:
 
-    - ``green``     — a prova continua passando; nada muda.
+    - ``green``     — a prova continua passando. A evidência de cada tarefa que
+      aquele comando prova é RECARIMBADA para o estado atual (`restamp_evidence`):
+      a execução foi a mesma que `harness verify` faria, e deixar o hash antigo
+      ali produzia um `evidence_stale` que cobrava, à mão, o comando que acabou
+      de passar. Evidência inexistente NÃO é criada — `passes: true` sem prova é
+      marcação à mão, e `evidence_missing` existe para pegá-la.
     - ``regressed`` — a prova falhou: TODAS as `feature_ids` voltam a
       `passes: false`, com tentativa registrada e `progress.md` sincronizado.
     - ``error``     — não foi possível julgar (timeout, prova no runtime floor).
@@ -235,6 +241,24 @@ def run_reproof(
 
         entry["exit_code"] = returncode
         if returncode == 0:
+            # A prova acabou de rodar verde contra os arquivos de AGORA — é a
+            # mesma execução que `harness verify` faria. Sem este recarimbo, a
+            # evidência daquela tarefa continuava com o hash antigo, o `finish`
+            # acusava `evidence_stale`, e o humano rodava à mão o comando que
+            # tinha acabado de passar. Degrada em silêncio (try/except) pelo
+            # mesmo motivo do `_demote`: o veredito da re-prova é o produto, e
+            # perdê-lo por causa de um arquivo que não pôde ser escrito trocaria
+            # um incômodo por uma cegueira.
+            for proved_id in target.feature_ids:
+                try:
+                    restamp_evidence(
+                        target_dir,
+                        contract,
+                        by_id.get(proved_id, {"id": proved_id}),
+                        verify_cmd=target.verify_cmd,
+                    )
+                except Exception:
+                    pass
             continue
 
         entry["status"] = "regressed"

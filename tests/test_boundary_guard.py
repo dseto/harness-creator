@@ -3238,21 +3238,26 @@ def test_every_cli_verb_is_either_allowed_or_deliberately_denied(monkeypatch, ca
     sozinho — e excluir um verbo passa a exigir escrever a razão em
     `DELIBERATELY_DENIED_VERBS`.
     """
-    from harness.boundary_guard import render_boundary_guard
+    from harness.boundary_guard import HARNESS_CLI_VERBS, render_boundary_guard
 
     verbs = _cli_verbs(monkeypatch, capsys)
     assert {"verify", "finish", "budget", "reconcile"} <= verbs, (
         "âncora: a leitura do parser quebrou, não a lista do guard"
     )
 
-    generated = render_boundary_guard()
-    missing = sorted(
-        verb for verb in verbs - DELIBERATELY_DENIED_VERBS
-        if f'"{verb}"' not in generated
-    )
+    # Contra a CONSTANTE: desde o contrato `compilar-as-primeiras-licoes` ela é
+    # a fonte única (o hook a recebe bakeada, o settings a importa). O texto
+    # gerado é consequência dela, e tem âncora própria logo abaixo.
+    missing = sorted(verbs - DELIBERATELY_DENIED_VERBS - set(HARNESS_CLI_VERBS))
     assert not missing, (
         f"verbos que a CLI aceita e o guard nega: {missing}. "
-        "Ou entram em `_HARNESS_SUBCOMMANDS`, ou entram em "
+        "Ou entram em `HARNESS_CLI_VERBS`, ou entram em "
         "DELIBERATELY_DENIED_VERBS com a razão escrita."
+    )
+
+    generated = render_boundary_guard()
+    assert json.dumps(list(HARNESS_CLI_VERBS)) in generated, (
+        "a constante existe mas não chegou ao hook gerado — o hook é "
+        "stdlib-only e depende da lista BAKEADA para liberar qualquer verbo"
     )
 

@@ -166,6 +166,52 @@ def _has_sequence(tokens: list[str], seq: list[str]) -> bool:
 # hoje já atravessa o floor e morre no default-deny da allowlist) um comando
 # efetivamente liberado, transformando um furo latente em furo alcançável.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Subcomandos do proprio harness que o guard libera. FONTE UNICA: o hook gerado
+# recebe esta lista bakeada (ele e stdlib-only e nao consegue importar
+# `harness`), e `harness.session_permissions` a importa daqui para declarar a
+# MESMA superficie no settings.local.json.
+#
+# Ela morava so dentro do texto do hook gerado, e o settings mantinha uma copia
+# a mao "espelhando" — que ficou oito verbos para tras (blind, finish, budget,
+# reconcile, decide, lesson, task, pr-draft) sem ninguem perceber, porque o
+# efeito nao e deny: e prompt de permissao em comando que o proprio lifecycle
+# manda rodar. Duas listas divergem; uma lista, nao.
+#
+# NAO inclui 'run' (orquestrador da era congelada, chama a API Anthropic — rede
+# fora do floor). 'enable'/'disable' tambem ficam de fora: o agente nao mexe no
+# kill-switch. 'harness' sozinho idem, senao viraria prefixo de 'run'.
+# ---------------------------------------------------------------------------
+HARNESS_CLI_VERBS: tuple[str, ...] = (
+    "compile", "audit", "audit-runtime", "analyze", "preflight",
+    "compile-contract", "compile-session", "verify", "team", "review",
+    "supervise", "audit-team",
+    # 'task' e o escape oficial documentado na skill plan
+    # (harness task add-file) para ampliar a superficie de uma tarefa — sem ele,
+    # o guard fechava a porta E escondia a chave (o proprio deny message
+    # apontava um comando que o guard negava).
+    "task",
+    "finish", "budget", "pr-draft",
+    # 'reconcile' e read-only e o passo 5 do lifecycle manda roda-lo na ABERTURA
+    # de toda sessao: fora desta lista, o primeiro comando do ciclo seria negado
+    # pelo hook que o proprio ciclo instalou.
+    "reconcile",
+    # 'decide' e 'lesson' escrevem em .harness/decisions.md e .harness/lessons.md
+    # -- justamente os arquivos que ESTE guard proibe editar direto (plano de
+    # controle nao se auto-amplia). Ou o verbo passa, ou os dois registros da
+    # spine nunca sao escritos por ninguem. Superficie estreita: os dois so
+    # acrescentam linha no fim do arquivo, nunca reescrevem.
+    "decide", "lesson",
+    # 'blind' e a camada 3 (secao 6 do design): monta o pacote em
+    # .harness/scratch/ e grava o veredito em .harness/blind-review/ -- de novo
+    # dentro de .harness/**, de novo pelo mesmo motivo.
+    "blind",
+    # Formas de invocacao read-only: negar `harness --help` deixava o agente sem
+    # sequer descobrir os subcomandos disponiveis (relatado ao vivo no deadlock
+    # de bootstrap). 'doctor'/'status' sao read-only.
+    "doctor", "status", "--help", "-h", "--version",
+)
+
 VENV_DIR_NAMES = (".venv", "venv")
 VENV_BIN_DIR_NAMES = ("scripts", "bin")
 PYTHON_MODULE_HEADS = ("python", "python3", "py")
@@ -2167,45 +2213,18 @@ FIXED_GIT_SEQUENCES = [
 # ativo: a ferramenta que GERENCIA o contrato nao pode ficar presa no
 # guard que ela mesma gerou. Cobre as duas formas de invocacao
 # documentadas nas skills (python -m harness.cli) e o console-script real
-# (harness). NAO inclui 'run' (orquestrador da era congelada, chama a
-# API Anthropic — rede fora do floor — e nao estava na fricao relatada).
-# 'task' entrou na correcao do issue 3 do dogfood venv-Windows: e o
-# escape oficial documentado na skill plan (harness task add-file) para
-# ampliar a superficie de uma tarefa — sem ele aqui, o guard fechava a
-# porta E escondia a chave (o proprio deny message apontava um comando
-# que o guard negava).
-_HARNESS_SUBCOMMANDS = [
-    "compile", "audit", "audit-runtime", "analyze", "preflight",
-    "compile-contract", "compile-session", "verify", "team", "review",
-    "supervise", "audit-team", "task", "finish", "budget", "pr-draft",
-    # 'reconcile' e read-only e o passo 5 do lifecycle manda roda-lo na
-    # ABERTURA de toda sessao: fora desta lista, o primeiro comando do ciclo
-    # seria negado pelo hook que o proprio ciclo instalou.
-    "reconcile",
-    # 'decide' e 'lesson' escrevem em .harness/decisions.md e
-    # .harness/lessons.md -- justamente os arquivos que ESTE guard proibe editar
-    # direto (plano de controle nao se auto-amplia). Ou o verbo passa, ou os dois
-    # registros da spine nunca sao escritos por ninguem. Superficie estreita: os
-    # dois so acrescentam linha no fim do arquivo, nunca reescrevem.
-    "decide", "lesson",
-    # 'blind' e a camada 3 (§6): monta o pacote em .harness/scratch/ e grava o
-    # veredito em .harness/blind-review/ -- de novo dentro de .harness/**, de
-    # novo pelo mesmo motivo. Negar aqui seria mandar o passo 15 do lifecycle
-    # rodar um comando barrado, que e exatamente a classe de erro que o teste
-    # derivado do parser existe para pegar.
-    "blind",
-    # Formas de invocacao read-only: negar `harness --help` deixava o agente
-    # sem sequer descobrir os subcomandos disponiveis (relatado ao vivo no
-    # deadlock de bootstrap). 'doctor'/'status' sao read-only; 'enable' e
-    # 'disable' NAO entram (floor - o agente nao mexe no kill-switch), e
-    # 'harness' sozinho tambem nao, senao viraria prefixo de 'run' (API).
-    "doctor", "status", "--help", "-h", "--version",
-]
+# (harness). A lista e BAKEADA de harness.boundary_guard.HARNESS_CLI_VERBS
+# (este hook e stdlib-only e nao consegue importar `harness`) -- la estao os
+# motivos de cada verbo, e la o session_permissions le a MESMA lista para
+# declarar a superficie no settings.local.json. Uma lista, nao duas.
+# Emitida por json.dumps, e nao por repr: as aspas duplas mantem o estilo do
+# resto do hook gerado, e ha teste que procura `"verbo"` neste texto.
+''' + f"""_HARNESS_SUBCOMMANDS = {json.dumps(list(HARNESS_CLI_VERBS))}
 FIXED_HARNESS_SEQUENCES = (
     [["harness", sub] for sub in _HARNESS_SUBCOMMANDS]
     + [["python", "-m", "harness.cli", sub] for sub in _HARNESS_SUBCOMMANDS]
 )
-''' + f"""
+
 # --- comandos extras declarados em governance.extra_allowed_commands
 # (.harness/harness.yaml): NAO ha constante bakeada aqui. Item 3 do backlog do
 # dogfood venv-Windows — a lista e lida do YAML a cada tool call por

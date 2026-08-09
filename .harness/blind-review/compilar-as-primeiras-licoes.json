@@ -1,0 +1,17 @@
+{
+  "contract": "compilar-as-primeiras-licoes",
+  "verdicts": [
+    {
+      "verdict": "fail",
+      "evidence": "T-03 nao entrega o que promete: tests/test_docs_derived_facts.py:31-32 ancora a conferencia so no README.md, e com a suite verde continuam errados docs/plugin/TUTORIAL.md:205 (20 subcomandos, o parser lista 25), docs/plugin/arquitetura-visual.html:639,1341 (32 modulos, sao 38) e :645 (20 subcomandos), alem de README.md:524 que escapa do regex. T-01 e T-02 conferem.",
+      "files_hash": "sha256:1c0f515eb7234d0dc9519aa4670ba2cb9f1d26ba414e3c37fe1fc44ad857b54c",
+      "recorded_at": "2026-08-09T15:50:31.796148+00:00"
+    },
+    {
+      "verdict": "pass",
+      "evidence": "tests/test_docs_derived_facts.py:38-44 varre os cinco documentos e a deteccao alcanca os nao-README (_wrong forcado devolve TUTORIAL.md, ARCHITECTURE.md e arquitetura-visual.html). Numeros corretos contra a fonte: 25 subcomandos em docs/plugin/TUTORIAL.md:204-208 com enumeracao identica ao argparse, 38 modulos em arquitetura-visual.html:639,1341, 25 em :645, README.md:524 virou 1189 casos capturado pelo padrao. T-01 e T-02 mantidos: regression.py:243-262 + verify.py:619-644 vs finish.py:223-243; HARNESS_CLI_VERBS em boundary_guard.py:185 importado por session_permissions.py:82,120-123 e bakeado em :2222. Suite 1188 passed, 1 skipped (skip e condicional de plataforma em test_verify.py:438).",
+      "files_hash": "sha256:b6d224170231252a21bddcb74cd9fb7559941718930738050d35a0467ebd78ae",
+      "recorded_at": "2026-08-09T16:01:52.306329+00:00"
+    }
+  ]
+}

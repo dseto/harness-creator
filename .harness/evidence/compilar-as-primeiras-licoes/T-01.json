@@ -1,0 +1,14 @@
+{
+  "feature_id": "T-01",
+  "contract": "compilar-as-primeiras-licoes",
+  "desc": "A re-prova que passa vale como prova: a tarefa re-provada não é mais cobrada de novo à mão, e uma tarefa sem prova nenhuma continua sendo cobrada",
+  "files": [
+    "src/harness/regression.py",
+    "src/harness/verify.py",
+    "tests/test_regression.py"
+  ],
+  "verify_cmd": "pytest tests/test_regression.py -q",
+  "recorded_at": "2026-08-09T15:27:37.027881+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:5011508960cb325432129842322fb9b816ad132afbb5b5e36277bd458885865a"
+}
