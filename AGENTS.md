@@ -146,10 +146,10 @@ sempre exige aprovação humana.
 12. Atualizar `.harness/progress.md` com o estado atual.
 13. Marcar a feature concluída em `feature_list.json`.
 14. Documentar o que ficou quebrado, se houver.
-15. Parar e pedir aprovação humana explícita antes do commit — a mensagem
-    DEVE conter, por feature: descrição funcional em linguagem natural do
-    que mudou, e link `file:line` do teste que prova.
-16. Só após aprovação: commit em estado retomável.
+15. Apresentar o que será commitado — por feature: descrição funcional em
+    linguagem natural do que mudou, e link `file:line` do teste que prova.
+16. Commit e push na branch do contrato, condicionados a `harness finish`
+    com `blockers: []`. O PR é do humano: entregue o `harness pr-draft`.
 17. Deixar a working tree limpa.
 
 Detalhe de cada passo: ver `.harness/LIFECYCLE.md`.

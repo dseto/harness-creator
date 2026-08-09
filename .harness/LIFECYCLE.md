@@ -70,24 +70,40 @@ aprovado e só devolve o controle ao humano em estado retomável.
     ficou incompleto ou quebrado, isso é registrado explicitamente — nunca
     escondido atrás de um commit "limpo".
 
-15. **Parar e pedir aprovação humana explícita antes do commit.** Gate
-    obrigatório: o agente NUNCA commita sem sinal verde do humano. A sessão
-    reporta, em mensagem clara e direta (não sub-entendida em log), que o
-    trabalho terminou e passou pela verificação. Mostrar só o identificador
-    da feature (`T-01`) e o JSON cru do `verify_cmd` **não é suficiente** —
-    ninguém entende o que está aprovando só com isso. Por feature, a
-    mensagem PRECISA conter: (a) descrição funcional em linguagem natural
-    do comportamento que mudou (não o nome do arquivo, não o comando — o
-    que o teste efetivamente cobre), e (b) link direto `file:line` do
-    teste que prova o critério, para o humano abrir e ler sem caçar. Além
-    disso: o que ficou quebrado se houver (passo 14), e um pedido explícito
-    de OK para commitar. Só avança para o passo 16 com essa aprovação
-    recebida na conversa.
+15. **Apresentar o que será commitado.** Este passo deixou de ser um gate: o
+    ciclo tem UM pedido humano, a aprovação do contrato, e ela já autoriza o
+    trabalho até o push. O que o passo continua exigindo é VISIBILIDADE — a
+    sessão reporta, em mensagem clara e direta (não sub-entendida em log), o
+    que mudou. Mostrar só o identificador da feature (`T-01`) e o JSON cru do
+    `verify_cmd` **não é suficiente** — ninguém acompanha o que foi feito só
+    com isso. Por feature, a mensagem PRECISA conter: (a) descrição funcional
+    em linguagem natural do comportamento que mudou (não o nome do arquivo,
+    não o comando — o que o teste efetivamente cobre), e (b) link direto
+    `file:line` do teste que prova o critério, para o humano abrir e ler sem
+    caçar. Além disso: o que ficou quebrado, se houver (passo 14).
 
-16. **Só após aprovação: commit em estado retomável.** O commit local
-    (`git add`/`git commit`) só acontece depois do sinal verde do passo 15,
-    e apenas quando o repositório está em um estado que a próxima sessão
-    (ou o humano) consegue retomar sem arqueologia.
+16. **Commit e push na branch do contrato.** O commit local (`git add`/`git
+    commit`) e o `git push` da branch do contrato acontecem sem pedir
+    autorização — mas NÃO incondicionalmente. As duas pré-condições abaixo
+    são o que substitui o antigo gate humano, e sem elas o agente para e
+    chama a pessoa:
+
+    - `harness finish` sai com `blockers: []` — o que já implica toda tarefa
+      com `passes: true` e evidência cujo `files_hash` bate com o arquivo
+      atual, isto é, prova que descreve o código que está sendo commitado;
+    - nenhum `verify_cmd` vermelho.
+
+    O push é só da branch do contrato (`contract/<slug>`) para ela mesma: o
+    runtime floor do `boundary_guard` já restringe exatamente a isso — sem
+    `--force`, sem refspec explícito, nunca a partir de branch protegida.
+    Commit em `main` continua barrado, e o `chore` de versão/CHANGELOG segue
+    sendo do humano, no terminal dele.
+
+    **O agente NUNCA abre, aprova ou mergeia Pull Request.** Expor o trabalho
+    para revisão e merge é decisão humana deliberada. O que o agente entrega é
+    o trabalho pronto para isso: rode `harness pr-draft`, que monta o corpo do
+    PR a partir do contrato e imprime o comando `gh pr create` exato, e
+    repasse os dois ao humano.
 
 17. **Deixar a working tree limpa.** Fim de sessão: nenhuma mudança solta
     fora de commit, nenhum arquivo temporário esquecido — o handoff para a
