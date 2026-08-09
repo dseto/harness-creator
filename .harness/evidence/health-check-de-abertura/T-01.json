@@ -1,0 +1,21 @@
+{
+  "feature_id": "T-01",
+  "contract": "health-check-de-abertura",
+  "desc": "A sessão passa a saber quais ferramentas exigidas pelo contrato não respondem, sem precisar rodar nenhum comando do contrato para descobrir",
+  "files": [
+    "src/harness/health.py",
+    "tests/test_health.py",
+    "src/harness/cli.py",
+    "tests/test_cli.py",
+    "src/harness/boundary_guard.py",
+    "README.md",
+    "docs/plugin/TUTORIAL.md",
+    "docs/plugin/arquitetura-visual.html",
+    "docs/plugin/ARCHITECTURE.md",
+    "tests/e2e/evidence/fase2-outcomes-verification.md"
+  ],
+  "verify_cmd": "pytest tests/test_health.py -q",
+  "recorded_at": "2026-08-09T18:15:15.191291+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:6068f3bf64132e7d4f3a5a0c0f4de2bdcd5c20960755abd22eb66a48beaf0205"
+}

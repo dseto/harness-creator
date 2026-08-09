@@ -296,16 +296,22 @@ def _read_managed_hooks(target_dir: Path) -> list[dict]:
     return found
 
 
-def run_doctor(
-    target_dir: Path,
-    plugins_file: Path | None = None,
-) -> DoctorReport:
-    compiled_version = _read_compiled_version(target_dir)
-    plugin_installs = _read_plugin_installs(plugins_file or _default_plugins_file())
-    hooks = _read_managed_hooks(target_dir)
+def repo_issues(target_dir: Path) -> list[str]:
+    """Só as issues sobre ESTE repositório: governança compilada, hooks e
+    versão do `.harness/`.
 
+    Existe fora de `run_doctor` porque o health check de abertura (§7.2, ver
+    `harness.health`) precisa exatamente destas e não das do cache de plugin
+    do Claude Code. O cache não é deste repositório, já tem aviso próprio na
+    abertura, e esse aviso declara em texto que **não bloqueia nada** — somá-lo
+    ao veredito de abertura faria a sessão mandar parar por uma coisa que não
+    impede trabalhar.
+
+    Reusada por `run_doctor`, e não copiada: o laudo completo é este conjunto
+    MAIS os do plugin. Duas listas de regras de saúde divergiriam, que é a
+    lição que o contrato `compilar-as-primeiras-licoes` compilou.
+    """
     issues: list[str] = []
-    notes: list[str] = []
 
     # --- compilação ausente / apontando para o lugar errado ---
     # Gatear em `harness.yaml` é o que distingue "clone de projeto governado"
@@ -314,17 +320,6 @@ def run_doctor(
     # ruído. Ver Seção 3 do laudo de footprint.
     governed = (target_dir / HARNESS_YAML).is_file()
     settings_path = managed_settings_path(target_dir)
-
-    # Issue #72: repositório com sessão compilada (`feature_list.json`) mas
-    # sem `harness.yaml` nunca rodou `/harness-creator:init` — TDD e política
-    # de aprovação ficaram de fora, e sem este aviso ninguém percebe. Nota
-    # (não issue): `compile-session` funciona de propósito sem o yaml (ver
-    # `session_permissions.missing_harness_yaml_warning`), então isso não é
-    # um erro que bloqueia `doctor`.
-    if not governed and (target_dir / FEATURE_LIST_FILE).is_file():
-        warning = missing_harness_yaml_warning(target_dir)
-        if warning:
-            notes.append(warning)
 
     if governed and not settings_path.is_file():
         issues.append(
@@ -342,7 +337,7 @@ def run_doctor(
                 "no caminho atual."
             )
 
-    for hook in hooks:
+    for hook in _read_managed_hooks(target_dir):
         if hook["problem"]:
             issues.append(f"hook `{hook['event']}`: {hook['problem']}")
 
@@ -359,15 +354,47 @@ def run_doctor(
         if grammar_problem:
             issues.append(grammar_problem)
 
+    compiled_version = _read_compiled_version(target_dir)
+    if compiled_version is not None and compiled_version != _PIP_VERSION:
+        issues.append(
+            f"`.harness/` foi compilado com a versão {compiled_version}, mas o pacote "
+            f"instalado é {_PIP_VERSION} — rode `harness compile` de novo."
+        )
+
+    return issues
+
+
+def run_doctor(
+    target_dir: Path,
+    plugins_file: Path | None = None,
+) -> DoctorReport:
+    compiled_version = _read_compiled_version(target_dir)
+    plugin_installs = _read_plugin_installs(plugins_file or _default_plugins_file())
+    hooks = _read_managed_hooks(target_dir)
+
+    # O laudo completo é o do repositório MAIS o do cache de plugin. A parte do
+    # repositório mora em `repo_issues` porque o health check de abertura
+    # consome só ela — ver o docstring de lá.
+    issues: list[str] = list(repo_issues(target_dir))
+    notes: list[str] = []
+
+    governed = (target_dir / HARNESS_YAML).is_file()
+
+    # Issue #72: repositório com sessão compilada (`feature_list.json`) mas
+    # sem `harness.yaml` nunca rodou `/harness-creator:init` — TDD e política
+    # de aprovação ficaram de fora, e sem este aviso ninguém percebe. Nota
+    # (não issue): `compile-session` funciona de propósito sem o yaml (ver
+    # `session_permissions.missing_harness_yaml_warning`), então isso não é
+    # um erro que bloqueia `doctor`.
+    if not governed and (target_dir / FEATURE_LIST_FILE).is_file():
+        warning = missing_harness_yaml_warning(target_dir)
+        if warning:
+            notes.append(warning)
+
     if compiled_version is None:
         notes.append(
             "`.harness/` ainda não foi compilado neste projeto — rode `harness compile` "
             "se este projeto usa o harness."
-        )
-    elif compiled_version != _PIP_VERSION:
-        issues.append(
-            f"`.harness/` foi compilado com a versão {compiled_version}, mas o pacote "
-            f"instalado é {_PIP_VERSION} — rode `harness compile` de novo."
         )
 
     if not plugin_installs:

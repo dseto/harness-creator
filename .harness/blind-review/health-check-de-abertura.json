@@ -1,0 +1,17 @@
+{
+  "contract": "health-check-de-abertura",
+  "verdicts": [
+    {
+      "verdict": "fail",
+      "evidence": "src/harness/health.py:164-167 -- _resolve_executable aplica a busca no workspace tambem a nome NU (pytest, python), e so testa is_file(): arquivo de texto chamado 'ferramenta-que-nao-existe-xyz' na raiz do alvo faz run_health devolver ok=True para ferramenta que nao existe em lugar nenhum (falso verde, inverte a promessa de T-01); e um arquivo chamado 'python' na arvore passa a decidir qual binario o hook SessionStart lanca (argv capturado: ['...\\python', '-c', 'import pytest']). tests/test_health.py:269-272 so cobre token COM separador de caminho, entao a suite fica verde",
+      "files_hash": "sha256:ac1099ecd04ae08af0df596ae81315695e6644d3e643b2b8bc01db78e070fc05",
+      "recorded_at": "2026-08-09T17:47:16.466362+00:00"
+    },
+    {
+      "verdict": "pass",
+      "evidence": "reprovou duas vezes e as duas correcoes foram medidas por execucao propria: (1) src/harness/health.py:170 -- busca na arvore so com separador de caminho; os dois repros de shadowing morreram (which resolve o python do PATH, ferramenta ausente volta a tool_missing) e tools/run.bat com e sem cwd segue verde, alem de bater com o que cmd.exe faz de verdade (nome nu ausente do PATH = 'nao e reconhecido'); (2) src/harness/health.py:78,119 -- _MODULE_NAME_RE; o repro da SENTINELA nao escreve mais nada, 13 payloads rejeitados e 13 nomes de modulo legitimos aceitos. Auditou todos os run() do modulo e do hook: nenhum shell=True, cwd do contrato nunca vai ao subprocesso. T-01/T-02/T-03 conferem em tests/test_health.py, tests/test_cli.py:1369-1404 e tests/test_session_start.py:721-790",
+      "files_hash": "sha256:97e2c1a78c09cbfeb70dbefb3b6cf0b622720e2646baf963a5f7b60c5cd38382",
+      "recorded_at": "2026-08-09T18:21:04.200150+00:00"
+    }
+  ]
+}

@@ -306,6 +306,12 @@ def main() -> None:
     )
     blind_verdict.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
 
+    health = sub.add_parser(
+        "health",
+        help="Health check de abertura (§7.2): as ferramentas do contrato respondem?",
+    )
+    health.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+
     team = sub.add_parser("team", help="Team-Architecture Factory (Fase 4): design/generate de times de agentes")
     team_sub = team.add_subparsers(dest="team_command", required=True)
 
@@ -999,6 +1005,24 @@ def main() -> None:
         # 2 como em `budget`/`reconcile`/re-prova: veredito legítimo de parada,
         # não falha de execução. Reprovar é resultado normal deste passo.
         sys.exit(0 if args.passed else 2)
+
+    if args.command == "health":
+        from harness.health import render_session_section, run_health
+
+        report = run_health(Path(args.dir))
+        # MESMO payload que o hook `SessionStart` consome (`python -m
+        # harness.health`): duas saídas para um laudo só é como o canal que a
+        # prosa manda rodar à mão — o passo 2 do lifecycle e o próprio "rode de
+        # novo" do aviso — acaba sendo o mais pobre dos dois.
+        section = render_session_section(report)
+        print(json.dumps({**report, "section": section}, indent=2, ensure_ascii=False))
+        # E legível no terminal, em stderr, para quem rodou o comando não
+        # precisar ler JSON para descobrir que a resposta é parar.
+        if section:
+            print(section, file=sys.stderr)
+        # 2 como em `budget`/`reconcile`/`blind`: ambiente quebrado é veredito
+        # legítimo de PARADA (§8.3), não falha de execução deste comando.
+        sys.exit(0 if report["ok"] else 2)
 
     if args.command == "audit-team":
         from harness.team_audit import audit_team

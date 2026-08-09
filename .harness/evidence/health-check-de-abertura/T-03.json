@@ -1,0 +1,16 @@
+{
+  "feature_id": "T-03",
+  "contract": "health-check-de-abertura",
+  "desc": "A abertura da sessão entrega o veredito de ambiente sozinha, antes de qualquer coisa que dependa dele, sem ninguém precisar lembrar de pedir",
+  "files": [
+    "src/harness/session_start.py",
+    "tests/test_session_start.py",
+    "src/harness/lifecycle.py",
+    "tests/test_lifecycle.py",
+    "AGENTS.md"
+  ],
+  "verify_cmd": "pytest tests/test_session_start.py -q",
+  "recorded_at": "2026-08-09T18:16:06.927890+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:c7aca5a88196d858ead321fc55e4c0f6fa7e17ea8f4318812870d9736ebeb1c3"
+}

@@ -133,7 +133,9 @@ sempre exige aprovação humana.
 ## Agent Session Lifecycle (gerado — 17 passos, docs/project/ROADMAP.md Fase 2)
 
 1. Ler `AGENTS.md`.
-2. Rodar `.harness/init.sh`/`.harness/init.ps1` (deps + health check do profile).
+2. Rodar `harness health` e parar se o ambiente não responder — é falha de
+   infraestrutura (§8.3), não teste vermelho: não melhora tentando de novo.
+   Dependência faltando se instala com `.harness/init.sh`/`.harness/init.ps1`.
 3. Ler `.harness/progress.md`.
 4. Ler `feature_list.json`.
 5. Rodar `harness reconcile` e resolver toda divergência antes de seguir —

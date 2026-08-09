@@ -330,11 +330,11 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
   sem chave de API, sem confiar em "o agente vai obedecer".</p>
   <div class="formula"><b>Agente</b> <span>=</span> <i>Modelo</i> <span>+</span> <b>Harness</b></div>
   <div class="kpis">
-    <div class="kpi"><div class="n">32</div><div class="l">módulos Python</div></div>
+    <div class="kpi"><div class="n">39</div><div class="l">módulos Python</div></div>
     <div class="kpi"><div class="n">7</div><div class="l">skills</div></div>
-    <div class="kpi"><div class="n">20</div><div class="l">subcomandos CLI</div></div>
+    <div class="kpi"><div class="n">26</div><div class="l">subcomandos CLI</div></div>
     <div class="kpi"><div class="n">5</div><div class="l">hooks gerados</div></div>
-    <div class="kpi"><div class="n">908</div><div class="l">testes</div></div>
+    <div class="kpi"><div class="n">1232</div><div class="l">testes</div></div>
     <div class="kpi"><div class="n">17</div><div class="l">passos do ciclo</div></div>
   </div>
 </div>
@@ -566,7 +566,7 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
       <g class="layerbox" data-layer="diag">
         <rect x="490" y="344" width="450" height="72" rx="11" fill="var(--panel2)" stroke="var(--warn)" stroke-width="1.4"/>
         <text x="510" y="369" class="sv-tx">CAMADA 5 · DIAGNÓSTICO</text>
-        <text x="510" y="389" class="sv-mono">preflight · audit · runtime_audit · team_audit · doctor · metrics</text>
+        <text x="510" y="389" class="sv-mono">preflight · audit · runtime_audit · team_audit · doctor · health · metrics</text>
         <text x="510" y="407" class="sv-tx3">read-only; nunca corrige por conta própria</text>
       </g>
       <!-- transversal -->
@@ -636,13 +636,13 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
   <h3>Catálogo completo <span class="lvmark">filtrável</span></h3>
   <div class="filter">
     <input id="modfilter" placeholder="Filtrar por nome, camada ou responsabilidade… (ex.: floor, evidência, hook)">
-    <span class="pill" id="modcount">38 módulos</span>
+    <span class="pill" id="modcount">39 módulos</span>
   </div>
   <div class="tbl-wrap">
   <table id="modtable">
     <thead><tr><th style="width:20%">Módulo</th><th style="width:11%">Camada</th><th>Responsabilidade</th></tr></thead>
     <tbody>
-      <tr><td><code>cli.py</code></td><td>Superfície</td><td>Dispatch dos 25 subcomandos; valida <code>--dir</code> num ponto só; força UTF-8 em stdout e stderr para não corromper JSON acentuado em console cp1252.</td></tr>
+      <tr><td><code>cli.py</code></td><td>Superfície</td><td>Dispatch dos 26 subcomandos; valida <code>--dir</code> num ponto só; força UTF-8 em stdout e stderr para não corromper JSON acentuado em console cp1252.</td></tr>
       <tr><td><code>config.py</code></td><td>Base</td><td>Schema pydantic do <code>harness.yaml</code>: política de aprovação, orçamento, comandos extras, branch por contrato, branches protegidas, TDD.</td></tr>
       <tr><td><code>compiler.py</code></td><td>Compilação</td><td>Coração do modo plugin: yaml → permissions + hooks TDD + bloco do AGENTS.md. Merge não-destrutivo via <code>compiled-state.json</code>.</td></tr>
       <tr><td><code>contract.py</code></td><td>Compilação</td><td>spec.md + Plans.md → <code>feature_list.json</code>. Gate de aprovação: sem <code>approved_by</code>, não escreve nada. Preserva <code>passes</code> só se a identidade da tarefa não mudou.</td></tr>
@@ -1338,7 +1338,7 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
   <code>src/harness/</code>, <code>docs/</code> e <code>.harness/</code> ·
   fontes primárias: <code>README.md</code>, <code>docs/plugin/GUIDE.md</code>,
   <code>.harness/LIFECYCLE.md</code>, <code>docs/roadmap-autonomous.md</code> e os docstrings
-  dos 38 módulos.
+  dos 39 módulos.
 </footer>
 
 <script>
@@ -1389,7 +1389,7 @@ const LAYERS={
     "Sete skills conversacionais: <code>preflight</code> (o repo está pronto?), <code>init</code> (criar o harness), <code>assess</code> (a demanda cabe aqui?), <code>plan</code> (demanda → contrato), <code>compile</code> (recompilar após editar o yaml), <code>audit</code> (score + findings), <code>team</code> (montar time de agentes).",
     "<b>Não decidem nada sozinhas:</b> toda escrita passa por um comando da CLI, que é determinístico e testável. A skill conduz a conversa; o mecanismo mora no Python."],
   cli:["Camada 1b — CLI <code>harness</code>",
-    "Vinte subcomandos. Os de compilação escrevem artefatos; os de auditoria só leem; <code>verify</code> executa o comando real da tarefa; <code>pr-draft</code> monta o PR a partir do contrato; <code>disable</code>/<code>enable</code> são o kill-switch do humano.",
+    "Vinte e seis subcomandos. Os de compilação escrevem artefatos; os de auditoria só leem; <code>verify</code> executa o comando real da tarefa; <code>health</code> pergunta se o ambiente responde sem executar nada; <code>pr-draft</code> monta o PR a partir do contrato; <code>disable</code>/<code>enable</code> são o kill-switch do humano.",
     "<b>Detalhe deliberado:</b> <code>enable</code>/<code>disable</code> ficam FORA da allowlist do agente — é o que impede o <code>finish</code> ou qualquer outro subcomando de virar bypass do floor."],
   compile:["Camada 2 — Compiladores",
     "Transformam entrada humana em artefato: <code>compiler</code> (yaml → permissions/hooks/AGENTS.md), <code>contract</code> (spec+Plans → feature_list), <code>session_permissions</code> (contrato → superfície enumerada), <code>analyzer</code> (repo → perfil com evidência), <code>branching</code> (branch do contrato), <code>autoupdate</code> (recompila o que ficou atrás do pacote), <code>lifecycle</code> e <code>templates</code>.",
@@ -1401,7 +1401,7 @@ const LAYERS={
     "<code>verify</code> executa e grava evidência; <code>review</code> mantém a state machine do revisor; <code>supervisor</code> devolve a próxima feature respeitando dependências; <code>finish</code> encerra a demanda com auditoria antes da limpeza; <code>pr_draft</code> lê contrato e evidência e devolve o corpo do PR pronto.",
     "<b>Nenhum deles chama git de escrita.</b> Quem autoriza o commit é <code>finish</code> com <code>blockers: []</code> — condição de máquina sobre evidência fresca, não aprovação de conversa. O push segue restrito pelo floor à branch do contrato, e abrir o PR continua sendo ação do humano."],
   diag:["Camada 5 — Diagnóstico",
-    "<code>preflight</code> (repo cru), <code>audit</code> (drift da compilação), <code>runtime_audit</code> (invariantes do que muda), <code>team_audit</code> (papéis e ferramentas), <code>doctor</code> (3 camadas de distribuição), <code>metrics</code> (ciclos de fricção).",
+    "<code>preflight</code> (repo cru), <code>audit</code> (drift da compilação), <code>runtime_audit</code> (invariantes do que muda), <code>team_audit</code> (papéis e ferramentas), <code>doctor</code> (3 camadas de distribuição), <code>health</code> (o ambiente responde? — §7.2, na abertura da sessão), <code>metrics</code> (ciclos de fricção).",
     "<b>Todos read-only.</b> Emitem laudo e o comando exato para corrigir — nunca corrigem por conta própria, porque um diagnóstico que também age não é auditável."],
   base:["Transversal — Base",
     "<code>config</code> (schema pydantic), <code>patterns</code> (glob→regex), <code>settings_paths</code> (fronteira machine-local), <code>hook_launcher</code> (comando fail-closed), <code>killswitch</code> (sentinel + snippet embutido), <code>governance/approval</code> (matriz de política).",

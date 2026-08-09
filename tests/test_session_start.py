@@ -692,6 +692,104 @@ def test_a_project_without_decisions_gets_no_section(tmp_path: Path) -> None:
     assert "Decisões do projeto" not in context
 
 
+# ---------------------------------------------------------------------------
+# Health check de abertura injetado no contexto (contrato
+# `health-check-de-abertura`, T-03)
+#
+# §7.2 põe o health check ANTES da spine e da reconciliação, e o §8.3 explica
+# por quê: esta é a família de falha que não gera feedback, gera silêncio. O
+# passo 2 do lifecycle já mandava rodar `.harness/init.ps1` — e ninguém roda,
+# porque ele instala dependências e roda a suíte inteira. Depender de alguém
+# lembrar de um passo caro é o mesmo erro que a reconciliação já corrigiu.
+# ---------------------------------------------------------------------------
+
+def _write_contract_needing(tmp_path: Path, verify_cmd: str) -> None:
+    harness_dir = tmp_path / ".harness"
+    harness_dir.mkdir(parents=True, exist_ok=True)
+    (harness_dir / "feature_list.json").write_text(
+        json.dumps({
+            "contract": "exemplo-feature",
+            "features": [
+                {"id": "T-02", "desc": "Ainda pendente", "files": [],
+                 "verify_cmd": verify_cmd, "passes": False},
+            ],
+        }),
+        encoding="utf-8",
+    )
+
+
+def test_the_session_is_warned_when_a_tool_it_needs_does_not_answer(tmp_path: Path) -> None:
+    _write_contract_needing(tmp_path, "binario-inexistente-xyz tests/ -q")
+
+    context = _context(_run_hook(_write_hook_script(tmp_path), tmp_path))
+
+    assert "binario-inexistente-xyz" in context
+    assert "INFRAESTRUTURA" in context
+    # O resto do contexto continua vindo: o aviso ACRESCENTA, não substitui.
+    assert "T-02" in context
+
+
+def test_the_environment_verdict_comes_before_the_reconciliation(tmp_path: Path) -> None:
+    """Ordem do §7.2: health check antes da spine e da reconciliação. Não é
+    estética — a reconciliação manda CORRIGIR o registro, e corrigir registro
+    num ambiente que não responde é trabalho que não dá para verificar."""
+    _write_contract_needing(tmp_path, "binario-inexistente-xyz tests/ -q")
+    (tmp_path / ".harness" / "progress.md").write_text(
+        "# Claude Progress\n\nContrato: " + chr(96) + "demanda-antiga" + chr(96) + "\n",
+        encoding="utf-8",
+    )
+
+    context = _context(_run_hook(_write_hook_script(tmp_path), tmp_path))
+
+    assert "AVISO: o estado declarado" in context, "ancora: a reconciliacao tambem falou"
+    assert context.index("ACAO NECESSARIA: o ambiente") < context.index("AVISO: o estado declarado")
+
+
+def test_a_repository_whose_tools_answer_gets_no_health_noise(tmp_path: Path) -> None:
+    _write_contract_needing(tmp_path, f"{sys.executable} -m json.tool")
+
+    context = _context(_run_hook(_write_hook_script(tmp_path), tmp_path))
+
+    assert "ACAO NECESSARIA: o ambiente" not in context
+    assert "T-02" in context
+
+
+def test_a_broken_health_check_costs_the_warning_never_the_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mesma degradação do `_reconcile_section`: uma sessão sem o aviso trabalha
+    pior; uma sessão sem contexto nenhum não trabalha."""
+    namespace: dict = {}
+    exec(compile(render_session_start_hook(), "session_start_gerado", "exec"), namespace)
+
+    def _explode(*_args, **_kwargs):
+        raise OSError("python sumiu do PATH")
+
+    monkeypatch.setattr(namespace["subprocess"], "run", _explode)
+
+    assert namespace["_health_section"](tmp_path) is None
+
+
+def test_the_health_payload_carries_the_rendered_section_not_raw_problems(
+    tmp_path: Path,
+) -> None:
+    """Mesma razão do payload da reconciliação: o script gerado roda com `-S` e
+    não importa `harness`, então quem formata é o módulo — dentro da suíte."""
+    _write_contract_needing(tmp_path, "binario-inexistente-xyz tests/ -q")
+
+    proc = subprocess.run(
+        [sys.executable, "-m", "harness.health", "--dir", str(tmp_path)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert proc.returncode == 2, proc.stderr
+    payload = json.loads(proc.stdout)
+    assert payload["problems"]
+    assert "ACAO NECESSARIA: o ambiente" in payload["section"]
+
+
 def test_lessons_never_reach_the_session_context(tmp_path: Path) -> None:
     """§5.3 é explícito: lições não bloqueiam retomada, são consumidas pelo
     HUMANO em cadência dele. Injetá-las aqui transformaria a lista de fricções
