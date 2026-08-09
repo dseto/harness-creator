@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from harness.compiler import AGENTS_BEGIN, AGENTS_END
 from harness.lifecycle import (
     LIFECYCLE_BEGIN,
@@ -292,3 +294,55 @@ def test_opening_the_pull_request_is_never_the_agents_job() -> None:
     assert "harness pr-draft" in detail
     assert "NUNCA abre" in detail or "nunca abre" in detail
     assert "pr-draft" in block
+
+
+# ---------------------------------------------------------------------------
+# REGRA (contrato `verificador-cego-do-gate`, T-05): o passo 15 despacha a
+# camada 3. Ele já era o passo de "mostrar antes de commitar" para o humano;
+# o §12 do design junta as duas coisas no MESMO item de checklist ("verificador
+# separado, em avaliação CEGA + relato em linguagem natural com link para a
+# prova"), porque são a mesma ideia com dois destinatários: antes de commitar,
+# o trabalho é mostrado a quem não o escreveu.
+# ---------------------------------------------------------------------------
+
+def _passo15() -> str:
+    detail = render_lifecycle_detail()
+    return detail[detail.index("15."):detail.index("16.")]
+
+
+@pytest.mark.parametrize(
+    "expected",
+    [
+        "harness blind package",
+        "harness blind verdict",
+        "contexto limpo",
+    ],
+    ids=["monta o pacote", "registra o veredito", "o verificador nao e quem implementou"],
+)
+def test_the_cycle_says_how_to_dispatch_the_independent_verifier(expected: str) -> None:
+    assert expected in _passo15()
+
+
+@pytest.mark.parametrize(
+    "forbidden",
+    [".harness/progress.md", ".harness/decisions.md", "git log"],
+    ids=["historico de tentativas", "porque das escolhas", "mensagens de commit"],
+)
+def test_the_cycle_names_what_must_never_reach_the_verifier(forbidden: str) -> None:
+    """A instrução que importa é a da AUSÊNCIA. Sem ela escrita aqui, o
+    despacho vira "resumi o contexto pro subagente", que é exatamente a
+    contaminação que a camada 3 existe para evitar."""
+    assert forbidden in _passo15()
+
+
+def test_the_verifier_never_fixes_what_it_rejected() -> None:
+    """§9.1: quem verificou devolve o veredito ao loop, que decide. Fundir os
+    papéis economiza uma chamada e custa a independência inteira."""
+    passo15 = _passo15()
+    assert "não conserta" in passo15 or "nao conserta" in passo15
+
+
+def test_the_short_block_carries_the_dispatch_too() -> None:
+    """Quem lê o AGENTS.md em sessão de trabalho lê o bloco curto — passo que
+    só existe no detalhe é passo que não acontece."""
+    assert "harness blind" in render_lifecycle_block()

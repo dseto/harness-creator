@@ -11,11 +11,13 @@ descobre a divergência tarde — ou não descobre.
 Este módulo não reimplementa o julgamento: chama `audit_closure` e traduz. A
 tradução existe porque abertura e fecho não fazem a mesma pergunta.
 
-**O que sai** (`OPENING_IGNORED_KINDS`): `feature_not_passed` e `no_contract`.
-Tarefa pendente é bloqueador no fecho e é o estado NORMAL de quem está
-começando; repo sem `feature_list.json` é bootstrap, não repositório mentindo.
-Se esses dois entrassem, toda abertura de sessão sairia com "divergência" e o
-aviso morreria de ser ruído — o modo de falha que faz humano desligar alerta.
+**O que sai** (`OPENING_IGNORED_KINDS`): `feature_not_passed`, `no_contract` e
+os três da camada 3 (`blind_review_*`). Tarefa pendente é bloqueador no fecho e
+é o estado NORMAL de quem está começando; repo sem `feature_list.json` é
+bootstrap, não repositório mentindo; e a verificação independente acontece no
+FIM da demanda, então na abertura ela nunca existe ainda. Se esses entrassem,
+toda abertura de sessão sairia com "divergência" e o aviso morreria de ser
+ruído — o modo de falha que faz humano desligar alerta.
 
 **O que entra** (`progress_contract_mismatch`): `.harness/progress.md`
 descrevendo um contrato diferente do `.harness/feature_list.json`. `finish` não
@@ -51,7 +53,22 @@ from harness.templates import _extract_progress_contract
 #: do módulo: são os dois estados em que o repositório está normal e apenas
 #: incompleto, e listá-los aqui é o que mantém `divergences: []` significando
 #: alguma coisa.
-OPENING_IGNORED_KINDS = frozenset({"feature_not_passed", "no_contract"})
+OPENING_IGNORED_KINDS = frozenset(
+    {
+        "feature_not_passed",
+        "no_contract",
+        # A camada 3 (§6/§9.1) é assunto do FECHO, e por isso os três saem aqui.
+        # "Ninguém verificou ainda" é o estado normal de quem está começando —
+        # a demanda inteira acontece antes do veredito existir. Se entrassem,
+        # TODA abertura sairia com divergência, que é a mesma morte por ruído
+        # que os dois acima evitam. E `blind_review_failed` também sai: uma
+        # reprovação legítima paralisaria a abertura da sessão que veio
+        # justamente para consertar o que ela apontou.
+        "blind_review_missing",
+        "blind_review_stale",
+        "blind_review_failed",
+    }
+)
 
 PROGRESS_MISMATCH = "progress_contract_mismatch"
 

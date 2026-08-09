@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-02",
+  "contract": "verificador-cego-do-gate",
+  "desc": "O veredito fica registrado preso ao estado que julgou, um veredito novo nunca apaga o anterior, e veredito de um código que já mudou é reportado como velho",
+  "files": [
+    "src/harness/blind.py",
+    "tests/test_blind.py"
+  ],
+  "verify_cmd": "pytest tests/test_blind.py -q",
+  "recorded_at": "2026-08-09T13:55:34.091245+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:fc0e8b7957a5591d823afd53042a797d905fba6cb437372f740ba26f764d8b9c"
+}

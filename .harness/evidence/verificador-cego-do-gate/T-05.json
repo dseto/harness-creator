@@ -1,0 +1,16 @@
+{
+  "feature_id": "T-05",
+  "contract": "verificador-cego-do-gate",
+  "desc": "O ciclo diz quando despachar o verificador, o que mandar e o que jamais mandar, e a documentação descreve as três camadas de verificação",
+  "files": [
+    "src/harness/lifecycle.py",
+    "tests/test_lifecycle.py",
+    "README.md",
+    "docs/plugin/ARCHITECTURE.md",
+    "AGENTS.md"
+  ],
+  "verify_cmd": "pytest tests/test_lifecycle.py -q",
+  "recorded_at": "2026-08-09T14:39:37.534271+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:b2b18a2366b11b82c01f920ee8b293f30934d845681d78fe63ab05cd78b24fad"
+}

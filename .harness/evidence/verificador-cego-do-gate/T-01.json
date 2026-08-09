@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-01",
+  "contract": "verificador-cego-do-gate",
+  "desc": "A entrega passa a ter um pacote de julgamento montado por comando, com o que foi prometido e onde olhar, e sem nada do raciocínio de quem implementou",
+  "files": [
+    "src/harness/blind.py",
+    "tests/test_blind.py"
+  ],
+  "verify_cmd": "pytest tests/test_blind.py -q",
+  "recorded_at": "2026-08-09T14:24:59.895887+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:fc0e8b7957a5591d823afd53042a797d905fba6cb437372f740ba26f764d8b9c"
+}

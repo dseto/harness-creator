@@ -52,8 +52,11 @@ def render_lifecycle_block() -> str:
 13. Marcar a feature concluída em `feature_list.json`.
 14. Documentar o que ficou quebrado, e anotar a fricção da sessão com
     `harness lesson` — o agente anota, quem compila é o humano.
-15. Apresentar o que será commitado — por feature: descrição funcional em
-    linguagem natural do que mudou, e link `file:line` do teste que prova.
+15. Mostrar o trabalho a quem não o escreveu: `harness blind package` →
+    despachar o pacote para um verificador com contexto limpo →
+    `harness blind verdict`. E apresentar o que será commitado — por feature,
+    descrição funcional em linguagem natural do que mudou, e link `file:line`
+    do teste que prova.
 16. Commit e push na branch do contrato, condicionados a `harness finish`
     com `blockers: []`. O PR é do humano: entregue o `harness pr-draft`.
 17. Deixar a working tree limpa.
@@ -231,7 +234,37 @@ aprovado e só devolve o controle ao humano em estado retomável.
     do design e não vale o risco. As lições em aberto aparecem no
     `harness finish` (campo `open_lessons`) — é ali que a pessoa as encontra.
 
-15. **Apresentar o que será commitado.** Este passo deixou de ser um gate: o
+15. **Mostrar o trabalho a quem não o escreveu.** Duas metades, e o §12 do
+    design de loop engineering as junta no mesmo item de checklist porque são
+    a mesma ideia com dois destinatários: antes de commitar, a entrega é
+    olhada por alguém que não a produziu.
+
+    **(a) A verificação independente — camada 3 (§6/§9.1).** As camadas 1 e 2
+    provam que o teste passa; o teste foi escrito pela mesma cabeça que
+    escreveu o código. Aqui entra o único ponto de independência que o design
+    chama de obrigatório:
+
+    1. `harness blind package` monta `.harness/scratch/blind-package.md` a
+       partir do contrato — `desc`, `files[]` e `verify_cmd` de cada tarefa.
+    2. Despache **esse arquivo, como está**, para um subagente novo — um
+       verificador com contexto limpo, que não implementou nada disto.
+       NÃO resuma a conversa, NÃO explique o que você
+       fez, NÃO mande `.harness/work/<slug>/spec.md`, `.harness/progress.md`,
+       `.harness/decisions.md`, `.harness/lessons.md` nem o `git log`: são o
+       raciocínio de quem implementou, e o verificador que os lê valida as
+       mesmas suposições que produziram o erro. O pacote é montado por código
+       exatamente para você não precisar redigir esse prompt.
+    3. O veredito volta com `harness blind verdict --pass|--fail --evidence
+       "<o quê e onde>"`. Exit 2 é veredito de reprovação — resultado legítimo
+       do passo, não falha.
+
+    Reprovado: **o verificador não conserta**. O veredito volta ao loop, que
+    decide o que fazer; quem corrige é quem implementa, e depois disso um
+    veredito novo é registrado (o anterior fica no histórico). O `harness
+    finish` do passo 16 bloqueia sem veredito, com veredito reprovado, e com
+    veredito anterior ao código atual.
+
+    **(b) A apresentação ao humano.** Este passo deixou de ser um gate: o
     ciclo tem UM pedido humano, a aprovação do contrato, e ela já autoriza o
     trabalho até o push. O que o passo continua exigindo é VISIBILIDADE — a
     sessão reporta, em mensagem clara e direta (não sub-entendida em log), o

@@ -1,6 +1,6 @@
 {
-  "contract": "spine-decisoes-e-licoes",
-  "compiled_at": "2026-08-09T13:10:34.870072+00:00",
+  "contract": "verificador-cego-do-gate",
+  "compiled_at": "2026-08-09T14:26:07.574972+00:00",
   "compiled_with_version": "0.32.0",
   "stop_conditions": {
     "typed": [
@@ -14,33 +14,31 @@
       }
     ],
     "advisory": [
-      "Se a injeção das decisões na abertura da sessão começar a competir por espaço com o aviso de reconciliação e o resumo de progresso: parar e replanejar o corte. Contexto de abertura que vira parede de texto é lido na diagonal, e aí os três registros perdem junto.",
-      "Se aparecer qualquer necessidade de o agente EDITAR uma decisão antiga (e não acrescentar uma nova que a supersede): parar. Append-only é a garantia inteira deste contrato; um arquivo que pode ser reescrito não prova que a razão registrada é a razão original."
+      "Se o pacote cego começar a precisar de algo do `spec.md` para ser julgável: parar. Significa que o `desc` das tarefas não é critério de aceitação de verdade, e o conserto é no contrato — nunca abrir exceção no pacote para deixar passar o racional de quem implementou.",
+      "Se aparecer a necessidade de o próprio verificador CONSERTAR o que ele reprovou: parar. Fundir os dois papéis economiza uma chamada e custa a independência inteira, que é a única coisa que este incremento entrega."
     ]
   },
   "features": [
     {
       "id": "T-01",
-      "desc": "O projeto passa a ter onde guardar a razão de uma escolha e a fricção observada, com numeração e data automáticas, e nada do que já foi registrado pode ser alterado por um registro novo",
+      "desc": "A entrega passa a ter um pacote de julgamento montado por comando, com o que foi prometido e onde olhar, e sem nada do raciocínio de quem implementou",
       "files": [
-        "src/harness/spine.py",
-        "tests/test_spine.py"
+        "src/harness/blind.py",
+        "tests/test_blind.py"
       ],
-      "verify_cmd": "pytest tests/test_spine.py -q",
+      "verify_cmd": "pytest tests/test_blind.py -q",
       "depends": [],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-02",
-      "desc": "Registrar uma decisão ou uma lição é um comando de uma linha, que o próprio hook de proteção não nega",
+      "desc": "O veredito fica registrado preso ao estado que julgou, um veredito novo nunca apaga o anterior, e veredito de um código que já mudou é reportado como velho",
       "files": [
-        "src/harness/cli.py",
-        "tests/test_cli.py",
-        "src/harness/boundary_guard.py",
-        "tests/test_boundary_guard.py"
+        "src/harness/blind.py",
+        "tests/test_blind.py"
       ],
-      "verify_cmd": "pytest tests/test_cli.py tests/test_boundary_guard.py -q",
+      "verify_cmd": "pytest tests/test_blind.py -q",
       "depends": [
         "T-01"
       ],
@@ -49,41 +47,14 @@
     },
     {
       "id": "T-03",
-      "desc": "Os dois registros nascem junto com a sessão compilada, e recompilar nunca apaga o que já foi anotado",
-      "files": [
-        "src/harness/templates.py",
-        "tests/test_templates.py"
-      ],
-      "verify_cmd": "pytest tests/test_templates.py -q",
-      "depends": [
-        "T-01"
-      ],
-      "cwd": null,
-      "passes": true
-    },
-    {
-      "id": "T-04",
-      "desc": "A sessão nova já começa sabendo das decisões recentes do projeto, sem ninguém precisar procurá-las",
-      "files": [
-        "src/harness/session_start.py",
-        "tests/test_session_start.py",
-        "src/harness/spine.py"
-      ],
-      "verify_cmd": "pytest tests/test_session_start.py -q",
-      "depends": [
-        "T-01"
-      ],
-      "cwd": null,
-      "passes": true
-    },
-    {
-      "id": "T-05",
-      "desc": "Ao encerrar a demanda, o humano recebe a lista de fricções anotadas durante ela",
+      "desc": "Montar o pacote e registrar o veredito são comandos de uma linha, que o próprio hook de proteção não nega",
       "files": [
         "src/harness/cli.py",
-        "tests/test_cli.py"
+        "src/harness/boundary_guard.py",
+        "tests/test_cli.py",
+        "tests/test_boundary_guard.py"
       ],
-      "verify_cmd": "pytest tests/test_cli.py -q",
+      "verify_cmd": "pytest tests/test_cli.py tests/test_boundary_guard.py -q",
       "depends": [
         "T-02"
       ],
@@ -91,8 +62,26 @@
       "passes": true
     },
     {
-      "id": "T-06",
-      "desc": "O ciclo diz quando registrar uma decisão e quando registrar uma lição, e a documentação do projeto descreve os três registros da spine",
+      "id": "T-04",
+      "desc": "A demanda não fecha sem um veredito independente e fresco, e cada motivo de bloqueio diz ao humano o que fazer",
+      "files": [
+        "src/harness/finish.py",
+        "tests/test_finish.py",
+        "src/harness/reconcile.py",
+        "tests/test_reconcile.py",
+        "src/harness/branching.py",
+        "tests/test_branching.py"
+      ],
+      "verify_cmd": "pytest tests/test_finish.py -q",
+      "depends": [
+        "T-02"
+      ],
+      "cwd": null,
+      "passes": true
+    },
+    {
+      "id": "T-05",
+      "desc": "O ciclo diz quando despachar o verificador, o que mandar e o que jamais mandar, e a documentação descreve as três camadas de verificação",
       "files": [
         "src/harness/lifecycle.py",
         "tests/test_lifecycle.py",
@@ -102,9 +91,8 @@
       ],
       "verify_cmd": "pytest tests/test_lifecycle.py -q",
       "depends": [
-        "T-02",
-        "T-04",
-        "T-05"
+        "T-03",
+        "T-04"
       ],
       "cwd": null,
       "passes": true

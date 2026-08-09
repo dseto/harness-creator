@@ -2188,6 +2188,12 @@ _HARNESS_SUBCOMMANDS = [
     # registros da spine nunca sao escritos por ninguem. Superficie estreita: os
     # dois so acrescentam linha no fim do arquivo, nunca reescrevem.
     "decide", "lesson",
+    # 'blind' e a camada 3 (§6): monta o pacote em .harness/scratch/ e grava o
+    # veredito em .harness/blind-review/ -- de novo dentro de .harness/**, de
+    # novo pelo mesmo motivo. Negar aqui seria mandar o passo 15 do lifecycle
+    # rodar um comando barrado, que e exatamente a classe de erro que o teste
+    # derivado do parser existe para pegar.
+    "blind",
     # Formas de invocacao read-only: negar `harness --help` deixava o agente
     # sem sequer descobrir os subcomandos disponiveis (relatado ao vivo no
     # deadlock de bootstrap). 'doctor'/'status' sao read-only; 'enable' e

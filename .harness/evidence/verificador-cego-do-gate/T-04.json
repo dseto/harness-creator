@@ -1,0 +1,17 @@
+{
+  "feature_id": "T-04",
+  "contract": "verificador-cego-do-gate",
+  "desc": "A demanda não fecha sem um veredito independente e fresco, e cada motivo de bloqueio diz ao humano o que fazer",
+  "files": [
+    "src/harness/finish.py",
+    "tests/test_finish.py",
+    "src/harness/reconcile.py",
+    "tests/test_reconcile.py",
+    "src/harness/branching.py",
+    "tests/test_branching.py"
+  ],
+  "verify_cmd": "pytest tests/test_finish.py -q",
+  "recorded_at": "2026-08-09T14:34:53.751344+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:ace677618ff258caebb20a5aa4e064b8a2ed2a1c5d3ce074d9da9d7f7f05aebe"
+}
