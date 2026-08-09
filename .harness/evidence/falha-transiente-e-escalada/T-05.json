@@ -1,0 +1,15 @@
+{
+  "feature_id": "T-05",
+  "contract": "falha-transiente-e-escalada",
+  "desc": "O passo 10 do lifecycle documenta o retry transiente e manda usar o bloco de escalada gerado em vez de escrever a mensagem à mão",
+  "files": [
+    "src/harness/lifecycle.py",
+    "tests/test_lifecycle.py",
+    "README.md",
+    "docs/plugin/arquitetura-visual.html"
+  ],
+  "verify_cmd": "pytest tests/test_lifecycle.py -q",
+  "recorded_at": "2026-08-09T20:57:46.532638+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:6c6899d5d807660b54e5b8ca1fdcc7c129aeb1cdaa9a516524d7b566d3a6ce7f"
+}

@@ -1,6 +1,6 @@
 # Claude Progress
 
-Contrato: `health-check-de-abertura`
+Contrato: `falha-transiente-e-escalada`
 
 _Demanda ENCERRADA por `harness finish`._
 
@@ -8,9 +8,11 @@ _Demanda ENCERRADA por `harness finish`._
 
 | id | desc | status |
 | --- | --- | --- |
-| T-01 | A sessão passa a saber quais ferramentas exigidas pelo contrato não respondem, sem precisar rodar nenhum comando do contrato para descobrir | done |
-| T-02 | Um laudo só responde pelas três formas de o harness estar desprotegido em silêncio — ferramenta ausente, governança desalinhada e proteção desligada — e diz que a resposta é parar, não consertar | done |
-| T-03 | A abertura da sessão entrega o veredito de ambiente sozinha, antes de qualquer coisa que dependa dele, sem ninguém precisar lembrar de pedir | done |
+| T-01 | O rastro de tentativas sabe distinguir falha transiente de falha estrutural, e o disjuntor conta só as estruturais | done |
+| T-02 | `verify_cmd` com sinal transiente tenta de novo sozinho até 3× com pausa, sem gastar orçamento de correção; sinal não-transiente nunca tenta de novo | done |
+| T-03 | Falha transiente que insiste 3× vira veredito próprio do disjuntor — parada de ambiente, não padrão repetido nem teto de iterações | done |
+| T-04 | Todo veredito de parada do disjuntor vem com o bloco de escalada nas seis partes que o §8 exige, pronto para copiar ao humano | done |
+| T-05 | O passo 10 do lifecycle documenta o retry transiente e manda usar o bloco de escalada gerado em vez de escrever a mensagem à mão | done |
 
 ## Última atualização
 

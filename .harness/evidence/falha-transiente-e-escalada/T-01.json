@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-01",
+  "contract": "falha-transiente-e-escalada",
+  "desc": "O rastro de tentativas sabe distinguir falha transiente de falha estrutural, e o disjuntor conta só as estruturais",
+  "files": [
+    "src/harness/attempts.py",
+    "tests/test_attempts.py"
+  ],
+  "verify_cmd": "pytest tests/test_attempts.py -q",
+  "recorded_at": "2026-08-09T20:38:53.883132+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:484e4b3b61f65b9ebe0dffe4f4b422fe441f4e950e97246bd28c0c57a6533790"
+}

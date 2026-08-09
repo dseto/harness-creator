@@ -1,0 +1,11 @@
+{
+  "contract": "falha-transiente-e-escalada",
+  "verdicts": [
+    {
+      "verdict": "pass",
+      "evidence": "T-02: src/harness/verify.py:507-515 timeout do proprio processo (_VERIFY_TIMEOUT_SECONDS) levanta VerifyError direto no except TimeoutExpired, fora do loop de retry; verify.py:520-534 so entra no retry quando classify_failure==transient E attempt<3, com sleep(backoff) via 1,2s (linha 102); verify.py:543-563 grava record_failure so na falha TERMINAL (estrutural de primeira, ou transiente que esgotou os 3), nunca nos retries intermediarios -- confirmado por teste tests/test_verify.py:192-211 (retry 2x com sucesso na 3a, sleeps==[1,2], attempts so tem [pass], nenhum fail gravado) e tests/test_verify.py:214-230 (3x transiente, attempts tem exatamente 1 registro fail com classification transient). T-01/T-03: src/harness/attempts.py:108-129 classify_failure usa regex de padroes reconheciveis (timeout, ECONNRESET, 502/503/504 etc), risco documentado e aceitavel (falso positivo custa so 3 retries rapidos, falso negativo trata como estrutural normal -- nao ha caminho perigoso). budget.py:200-208 STOP_TRANSIENT_EXHAUSTED e checado ANTES de streak/consecutive (primeiro if do bloco de decisao), confirmado por tests/test_budget.py:201-224 (stops immediately without waiting for any threshold / wins even when structural thresholds also trip). T-04: escalation.py tem uma unica chamada subprocess (linha 103, git status --porcelain -uno, so-leitura) -- grep confirma nenhuma outra chamada subprocess no arquivo; render_escalation:142-158 monta as seis partes sempre (O que estava sendo tentado / O que foi tentado / Ultimo erro / Classificacao / Estado da spine / Sugestao de proximo passo), confirmado por tests/test_escalation.py:73-89 (ordem das seis secoes) e EscalationError levantado se veredito for continue (escalation.py:129-132). Suite completa das provas declaradas rodou verde: pytest tests/test_attempts.py tests/test_verify.py tests/test_budget.py tests/test_escalation.py tests/test_cli.py tests/test_lifecycle.py -q => 274 passed, 1 skipped.",
+      "files_hash": "sha256:56f2487da82a4b0364ff3be286b5daebdd3d7033e9819c2803296b70f502bfad",
+      "recorded_at": "2026-08-09T20:59:34.753590+00:00"
+    }
+  ]
+}

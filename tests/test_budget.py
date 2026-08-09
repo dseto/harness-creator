@@ -23,9 +23,10 @@ from pathlib import Path
 
 import pytest
 
-from harness.attempts import attempts_path, failure_signature
+from harness.attempts import CLASSIFICATION_TRANSIENT, attempts_path, failure_signature
 from harness.budget import (
     DEFAULT_SAME_SIGNATURE_LIMIT,
+    STOP_TRANSIENT_EXHAUSTED,
     BudgetError,
     check_budget,
 )
@@ -163,6 +164,75 @@ def test_same_failure_wins_when_both_limits_trip(tmp_path: Path) -> None:
     _write_trail(tmp_path, ["a", "a"])
 
     assert check_budget(tmp_path, "T-01")["verdict"] == "stop_same_failure"
+
+
+# ---------------------------------------------------------------------------
+# REGRA 1.5 — falha transiente esgotada (§8.1) vence QUALQUER outro veredito
+#
+# "Mesmo erro transiente 3× → reclassificar como infra (§8.3)": o único jeito
+# de existir um registro `classification: "transient"` no rastro é
+# `verify.run_verify` já ter esgotado os retries — então não espera acumular
+# teto nenhum, e não compete com o loop de correção normal do §8.2.
+# ---------------------------------------------------------------------------
+
+def _write_trail_ending_transient(
+    tmp_path: Path,
+    structural_sequence: list[str],
+    transient_line: str,
+    contract: str = "exemplo",
+) -> None:
+    lines = []
+    for token in structural_sequence:
+        lines.append(json.dumps({
+            "result": "fail", "contract": contract, "feature_id": "T-01",
+            "recorded_at": "t", "verify_cmd": "pytest -q", "exit_code": 1,
+            "failure_line": token, "failure_signature": failure_signature(token),
+            "files_hash": "h", "classification": "structural",
+        }))
+    lines.append(json.dumps({
+        "result": "fail", "contract": contract, "feature_id": "T-01",
+        "recorded_at": "t", "verify_cmd": "pytest -q", "exit_code": 1,
+        "failure_line": transient_line, "failure_signature": failure_signature(transient_line),
+        "files_hash": "h", "classification": CLASSIFICATION_TRANSIENT,
+    }))
+    _write(attempts_path(tmp_path, contract, "T-01"), "\n".join(lines) + "\n")
+
+
+def test_transient_exhausted_stops_immediately_without_waiting_for_any_threshold(
+    tmp_path: Path,
+) -> None:
+    _write_feature_list(tmp_path)
+    _write_yaml(tmp_path, 12)
+    _write_trail_ending_transient(tmp_path, [], "Connection refused")
+
+    report = check_budget(tmp_path, "T-01")
+    assert report["verdict"] == STOP_TRANSIENT_EXHAUSTED
+
+
+def test_transient_exhausted_wins_even_when_structural_thresholds_also_trip(
+    tmp_path: Path,
+) -> None:
+    """Uma sequência estrutural que já bateria `stop_same_failure` sozinha,
+    seguida do esgotamento transiente: o veredito é o transiente — §8.3 vence
+    §8.2, do mesmo jeito que `health.py` prioriza proteção sobre ferramenta."""
+    _write_feature_list(tmp_path, typed=[{"type": "same_failure_signature", "n": 2}])
+    _write_yaml(tmp_path, 12)
+    _write_trail_ending_transient(tmp_path, ["a", "a"], "Read timed out")
+
+    report = check_budget(tmp_path, "T-01")
+    assert report["verdict"] == STOP_TRANSIENT_EXHAUSTED
+
+
+def test_transient_exhausted_reason_names_the_environment_not_the_approach(
+    tmp_path: Path,
+) -> None:
+    _write_feature_list(tmp_path)
+    _write_yaml(tmp_path, 12)
+    _write_trail_ending_transient(tmp_path, [], "Connection refused")
+
+    reason = check_budget(tmp_path, "T-01")["reason"]
+    assert "Connection refused" in reason
+    assert "abordagem" not in reason
 
 
 # ---------------------------------------------------------------------------

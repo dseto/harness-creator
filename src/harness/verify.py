@@ -59,11 +59,20 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, Callable, TextIO
 
-from harness.attempts import open_failures, read_attempts, record_failure, record_pass
+from harness.attempts import (
+    CLASSIFICATION_TRANSIENT,
+    classify_failure,
+    extract_failure_line,
+    open_failures,
+    read_attempts,
+    record_failure,
+    record_pass,
+)
 from harness.boundary_guard import is_floor_bash_command
 from harness.contract import FEATURE_LIST_FILE
 from harness.templates import (
@@ -74,6 +83,23 @@ from harness.templates import (
 
 EVIDENCE_DIR = ".harness/evidence"
 _VERIFY_TIMEOUT_SECONDS = 600
+
+#: §8.1: "retry direto, com limite próprio (2-3)". 3 tentativas NO TOTAL
+#: (a primeira + 2 retries) — o mesmo número que a regra do padrão repetido
+#: (§8.2) usa para "insistir não adianta mais", por consistência de leitura.
+#: Cobre só o caminho de exit code != 0 (processo terminou, saiu com erro
+#: transiente reconhecível) — o timeout do PRÓPRIO processo do `verify_cmd`
+#: (`_VERIFY_TIMEOUT_SECONDS`) fica de fora por desenho: reexecutar
+#: automaticamente um comando que já levou minutos para estourar, até 3×,
+#: prenderia a sessão em silêncio por muito mais tempo do que o "backoff
+#: simples" do §8.1 tem em mente (ver Não-objetivos do spec.md do contrato
+#: `falha-transiente-e-escalada`).
+_TRANSIENT_RETRY_LIMIT = 3
+
+#: Backoff simples entre tentativas transientes — índice 0 é a pausa ANTES da
+#: 2ª tentativa, índice 1 antes da 3ª. Curto de propósito: é retry de "a rede
+#: caiu por um instante", não uma espera longa.
+_TRANSIENT_BACKOFF_SECONDS = (1, 2)
 
 #: Subdiretório usado quando o `feature_list.json` não declara `contract`
 #: (contrato compilado por versão antiga, ou fixture de teste). Nome inválido
@@ -413,6 +439,7 @@ def run_verify(
     *,
     timeout_seconds: int = _VERIFY_TIMEOUT_SECONDS,
     stream: bool = False,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> Path:
     """Roda o `verify_cmd` da feature `feature_id` e, se exit code == 0, grava evidência.
 
@@ -431,6 +458,18 @@ def run_verify(
     configurável por chamada, sem mudar o default. `stream` (CLI
     `--stream`): tee do stdout/stderr em tempo real, opt-in — ver
     `_run_verify_cmd` para o porquê de NÃO ser default.
+
+    Retry transiente (§8.1, contrato `falha-transiente-e-escalada`): quando o
+    `verify_cmd` roda até o fim e sai com código != 0 numa mensagem
+    reconhecidamente transiente (`attempts.classify_failure`), a passada
+    tenta de novo sozinha — até `_TRANSIENT_RETRY_LIMIT` tentativas no total,
+    com `_TRANSIENT_BACKOFF_SECONDS` de pausa entre elas — SEM gravar nada no
+    rastro enquanto ainda houver tentativa sobrando: "não conta como
+    tentativa de correção, nada foi corrigido, só repetido". Só a última
+    tentativa (a que sucede, ou a que esgota o limite ainda transiente) tem
+    efeito observável. `sleep` é injetável para teste (nunca dorme de
+    verdade fora de produção); falha ESTRUTURAL nunca entra nesse laço — vai
+    direto para o registro de sempre, no primeiro exit code != 0.
     """
     target_dir = target_dir.resolve()
     feature, contract = _load_feature(target_dir, feature_id)
@@ -458,24 +497,49 @@ def run_verify(
     # — ver `normalize_command_head` para o porquê de só o head mudar.
     exec_cmd = normalize_command_head(verify_cmd)
 
-    try:
-        returncode, stdout, stderr = _run_verify_cmd(
-            exec_cmd, verify_cwd, timeout_seconds, stream
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise VerifyError(
-            f"feature '{feature_id}': verify_cmd '{verify_cmd}' excedeu o "
-            f"timeout de {timeout_seconds}s — árvore de processos encerrada "
-            "(taskkill /T no Windows, killpg no POSIX; best-effort). Suíte "
-            "legitimamente mais lenta que isso? use --timeout <segundos>"
-        ) from exc
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            returncode, stdout, stderr = _run_verify_cmd(
+                exec_cmd, verify_cwd, timeout_seconds, stream
+            )
+        except subprocess.TimeoutExpired as exc:
+            # Timeout do PRÓPRIO processo fica fora do retry (ver docstring):
+            # comando que já estourou o teto não é reexecutado automaticamente.
+            raise VerifyError(
+                f"feature '{feature_id}': verify_cmd '{verify_cmd}' excedeu o "
+                f"timeout de {timeout_seconds}s — árvore de processos encerrada "
+                "(taskkill /T no Windows, killpg no POSIX; best-effort). Suíte "
+                "legitimamente mais lenta que isso? use --timeout <segundos>"
+            ) from exc
 
-    if returncode != 0:
-        # O rastro é gravado ANTES de levantar — a exceção é o caminho normal
-        # do vermelho, e um `raise` antes do registro deixaria justamente a
-        # tentativa que interessa fora do disjuntor. `except Exception` largo
-        # e silencioso pelo mesmo motivo de `metrics.record_event`: subproduto
-        # não derruba a operação que o produziu.
+        if returncode == 0:
+            break
+
+        failure_line = extract_failure_line(stdout, stderr)
+        classification = classify_failure(failure_line)
+        if classification == CLASSIFICATION_TRANSIENT and attempt < _TRANSIENT_RETRY_LIMIT:
+            backoff = _TRANSIENT_BACKOFF_SECONDS[
+                min(attempt - 1, len(_TRANSIENT_BACKOFF_SECONDS) - 1)
+            ]
+            print(
+                f"verify_cmd de '{feature_id}' falhou com sinal transiente "
+                f"(tentativa {attempt}/{_TRANSIENT_RETRY_LIMIT}): "
+                f"{failure_line or '(sem mensagem)'} — retry em {backoff}s, "
+                "não conta como tentativa de correção (§8.1)",
+                file=sys.stderr,
+            )
+            sleep(backoff)
+            continue
+
+        # Falha TERMINAL desta passada — estrutural de primeira, ou
+        # transiente que esgotou os retries. O rastro é gravado ANTES de
+        # levantar — a exceção é o caminho normal do vermelho, e um `raise`
+        # antes do registro deixaria justamente a tentativa que interessa
+        # fora do disjuntor. `except Exception` largo e silencioso pelo
+        # mesmo motivo de `metrics.record_event`: subproduto não derruba a
+        # operação que o produziu.
         try:
             record_failure(
                 target_dir,
@@ -487,6 +551,7 @@ def run_verify(
                 stderr=stderr,
                 files_hash=compute_files_hash(files, target_dir),
                 recorded_at=datetime.now(timezone.utc).isoformat(),
+                classification=classification,
             )
             update_progress_attempts(
                 target_dir,

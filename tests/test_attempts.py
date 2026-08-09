@@ -22,8 +22,11 @@ import pytest
 
 from harness.attempts import (
     ATTEMPTS_DIR,
+    CLASSIFICATION_STRUCTURAL,
+    CLASSIFICATION_TRANSIENT,
     UNSCOPED_ATTEMPTS_DIR,
     attempts_path,
+    classify_failure,
     extract_failure_line,
     failure_signature,
     read_attempts,
@@ -116,6 +119,49 @@ def test_failure_signature_is_short_stable_hex() -> None:
 
 
 # ---------------------------------------------------------------------------
+# REGRA 2.5 — o sinal transiente do §8.1: timeout de aplicação e erro de rede
+#
+# Cobre só a manifestação RECONHECÍVEL (§8.1: "timeout, rede, flake" — flake
+# genérico fica fora, ver Não-objetivos do spec.md deste contrato). Um erro de
+# lógica comum (AssertionError, ModuleNotFoundError, teste vermelho normal)
+# nunca casa — é o que garante que a maioria das falhas continua indo direto
+# para o caminho estrutural de sempre, sem retry.
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class ClassifyCase:
+    failure_line: str
+    expect: str
+    why: str
+
+
+CLASSIFY_CASES = [
+    ClassifyCase("requests.exceptions.ConnectTimeout: Connection to x timed out", CLASSIFICATION_TRANSIENT, "timeout de conexão"),
+    ClassifyCase("socket.timeout: timed out", CLASSIFICATION_TRANSIENT, "timeout de socket"),
+    ClassifyCase("ConnectionRefusedError: [Errno 111] Connection refused", CLASSIFICATION_TRANSIENT, "conexão recusada"),
+    ClassifyCase("requests.exceptions.ConnectionError: Connection reset by peer", CLASSIFICATION_TRANSIENT, "conexão resetada"),
+    ClassifyCase("urllib3.exceptions.MaxRetryError: Max retries exceeded with url: /x", CLASSIFICATION_TRANSIENT, "retries do cliente http esgotados"),
+    ClassifyCase("socket.gaierror: [Errno -3] Temporary failure in name resolution", CLASSIFICATION_TRANSIENT, "DNS instável"),
+    ClassifyCase("HTTPError: 503 Service Unavailable", CLASSIFICATION_TRANSIENT, "503 do servidor"),
+    ClassifyCase("HTTPError: 504 Gateway Timeout", CLASSIFICATION_TRANSIENT, "504 do gateway"),
+    ClassifyCase("TIMEOUT waiting for response", CLASSIFICATION_TRANSIENT, "caixa alta não impede o casamento"),
+    ClassifyCase("E   assert 1 == 2", CLASSIFICATION_STRUCTURAL, "assert comum não é transiente"),
+    ClassifyCase("ModuleNotFoundError: No module named 'x'", CLASSIFICATION_STRUCTURAL, "import quebrado é estrutural"),
+    ClassifyCase("", CLASSIFICATION_STRUCTURAL, "linha vazia não é transiente"),
+    ClassifyCase(
+        "AssertionError: expected timeout=30 got timeout=10", CLASSIFICATION_TRANSIENT,
+        "falso positivo aceito por desenho: a palavra timeout aparece só como VALOR de teste, "
+        "e o padrão é largo de propósito (ver docstring de classify_failure)",
+    ),
+]
+
+
+@pytest.mark.parametrize("case", CLASSIFY_CASES, ids=lambda c: c.why)
+def test_classify_failure_recognizes_timeout_and_network_signals(case: ClassifyCase) -> None:
+    assert classify_failure(case.failure_line) == case.expect
+
+
+# ---------------------------------------------------------------------------
 # REGRA 3 — a linha da falha vem do erro cru, stderr primeiro
 #
 # §3 do design: "erro entra cru no próximo ciclo — resumir erro é jogar fora o
@@ -184,6 +230,7 @@ def test_record_failure_writes_the_full_schema(tmp_path: Path) -> None:
         "failure_line": "E assert 1 == 2",
         "failure_signature": failure_signature("E assert 1 == 2"),
         "files_hash": "sha256:abc",
+        "classification": CLASSIFICATION_STRUCTURAL,
     }
 
 
@@ -294,11 +341,19 @@ SUMMARY_CASES = [
 
 
 def _write_sequence(tmp_path: Path, sequence: list[str]) -> None:
+    """Tokens: `"P"` = verde, `"T:<x>"` = falha TRANSIENTE de assinatura `<x>`,
+    qualquer outro token = falha ESTRUTURAL (default — mesma sequência de
+    sempre continua sem prefixo)."""
     lines = []
     for token in sequence:
         if token == "P":
             lines.append(json.dumps({"result": "pass", "recorded_at": "t", "files_hash": "h"}))
         else:
+            classification = CLASSIFICATION_STRUCTURAL
+            failure_line = token
+            if token.startswith("T:"):
+                classification = CLASSIFICATION_TRANSIENT
+                failure_line = token[2:]
             lines.append(json.dumps({
                 "result": "fail",
                 "contract": "c",
@@ -306,9 +361,10 @@ def _write_sequence(tmp_path: Path, sequence: list[str]) -> None:
                 "recorded_at": "t",
                 "verify_cmd": "pytest",
                 "exit_code": 1,
-                "failure_line": token,
-                "failure_signature": failure_signature(token),
+                "failure_line": failure_line,
+                "failure_signature": failure_signature(failure_line),
                 "files_hash": "h",
+                "classification": classification,
             }))
     _write(attempts_path(tmp_path, "c", "T-01"), "\n".join(lines) + ("\n" if lines else ""))
 
@@ -339,3 +395,65 @@ def test_summarize_has_no_last_failure_after_a_green(tmp_path: Path) -> None:
     summary = summarize(read_attempts(tmp_path, "c", "T-01"))
     assert summary["last_failure_line"] is None
     assert summary["last_failure_signature"] is None
+
+
+# ---------------------------------------------------------------------------
+# REGRA 7 — falha transiente não conta no orçamento de correção (§8.1)
+#
+# "Não conta como tentativa de correção: nada foi corrigido, só repetido." O
+# único registro transiente que chega a existir no rastro (T-02 nunca grava os
+# retries que ainda vão tentar de novo, só o esgotamento final) fica de fora
+# das duas contagens que o disjuntor usa para o loop de correção normal — ele
+# dispara um veredito PRÓPRIO (T-03), não empresta orçamento do §8.2.
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class ClassifiedSummaryCase:
+    sequence: list[str]
+    consecutive: int
+    streak: int
+    last_classification: str | None
+    why: str
+
+
+CLASSIFIED_SUMMARY_CASES = [
+    ClassifiedSummaryCase(["T:x"], 0, 0, CLASSIFICATION_TRANSIENT, "só transiente: não conta como correção"),
+    ClassifiedSummaryCase(["a", "T:x"], 1, 1, CLASSIFICATION_TRANSIENT, "transiente no fim não soma ao estrutural"),
+    ClassifiedSummaryCase(["T:x", "a"], 1, 1, CLASSIFICATION_STRUCTURAL, "transiente no meio some da contagem, estrutural que veio depois é que conta"),
+    ClassifiedSummaryCase(["a", "a", "T:x", "a"], 3, 3, CLASSIFICATION_STRUCTURAL, "streak estrutural atravessa um transiente no meio sem quebrar"),
+    ClassifiedSummaryCase(["a", "T:x", "T:y"], 1, 1, CLASSIFICATION_TRANSIENT, "dois transientes seguidos continuam fora da contagem estrutural"),
+]
+
+
+@pytest.mark.parametrize("case", CLASSIFIED_SUMMARY_CASES, ids=lambda c: c.why)
+def test_summarize_excludes_transient_from_the_correction_budget(
+    tmp_path: Path, case: ClassifiedSummaryCase
+) -> None:
+    _write_sequence(tmp_path, case.sequence)
+    summary = summarize(read_attempts(tmp_path, "c", "T-01"))
+    assert summary["consecutive_failures"] == case.consecutive
+    assert summary["same_signature_streak"] == case.streak
+    assert summary["last_classification"] == case.last_classification
+
+
+def test_summarize_defaults_missing_classification_to_structural(tmp_path: Path) -> None:
+    """Registro gravado antes deste incremento não tem o campo `classification`
+    — precisa continuar contando como estrutural, senão o disjuntor de um
+    contrato em andamento perderia contagem no meio da demanda."""
+    _write(
+        attempts_path(tmp_path, "c", "T-01"),
+        json.dumps({
+            "result": "fail", "contract": "c", "feature_id": "T-01", "recorded_at": "t",
+            "verify_cmd": "pytest", "exit_code": 1, "failure_line": "a",
+            "failure_signature": failure_signature("a"), "files_hash": "h",
+        }) + "\n",
+    )
+    summary = summarize(read_attempts(tmp_path, "c", "T-01"))
+    assert summary["consecutive_failures"] == 1
+    assert summary["last_classification"] == CLASSIFICATION_STRUCTURAL
+
+
+def test_summarize_last_classification_is_none_after_a_green(tmp_path: Path) -> None:
+    _write_sequence(tmp_path, ["T:x", "P"])
+    summary = summarize(read_attempts(tmp_path, "c", "T-01"))
+    assert summary["last_classification"] is None

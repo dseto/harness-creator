@@ -1404,6 +1404,72 @@ def test_health_verb_is_silent_about_what_answers(
     assert captured.err == ""
 
 
+# ---------------------------------------------------------------------------
+# REGRA: `harness budget` devolve o bloco de escalada do §8 sempre que o
+# veredito não for `continue` — mesmo padrão de dois canais de `harness
+# health` (campo `escalation` no JSON + impresso em stderr para quem está
+# rodando no terminal).
+# ---------------------------------------------------------------------------
+
+def _write_budget_fixture(tmp_path: Path, sequence: list[str]) -> None:
+    harness_dir = tmp_path / ".harness"
+    harness_dir.mkdir(parents=True, exist_ok=True)
+    (harness_dir / "feature_list.json").write_text(
+        json.dumps({
+            "contract": "x",
+            "stop_conditions": {"typed": [], "advisory": []},
+            "features": [{
+                "id": "T-01", "desc": "Fazer algo", "files": [], "verify_cmd": "pytest -q",
+                "depends": [], "passes": False,
+            }],
+        }),
+        encoding="utf-8",
+    )
+    lines = [
+        json.dumps({
+            "result": "fail", "contract": "x", "feature_id": "T-01", "recorded_at": "t",
+            "verify_cmd": "pytest -q", "exit_code": 1, "failure_line": line,
+            "failure_signature": line, "files_hash": "h", "classification": "structural",
+        })
+        for line in sequence
+    ]
+    attempts_dir = harness_dir / "attempts" / "x"
+    attempts_dir.mkdir(parents=True, exist_ok=True)
+    (attempts_dir / "T-01.jsonl").write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+
+
+def test_budget_verb_carries_the_escalation_block_on_a_stop_verdict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_budget_fixture(tmp_path, ["a", "a", "a"])
+
+    code = _run(monkeypatch, "budget", "--feature", "T-01", "--dir", str(tmp_path))
+
+    captured = capsys.readouterr()
+    assert code == 2
+    payload = json.loads(captured.out)
+    assert payload["verdict"] == "stop_same_failure"
+    assert "O que estava sendo tentado" in payload["escalation"]
+    assert "Fazer algo" in payload["escalation"]
+    # E legível para quem rodou no terminal, sem precisar ler JSON.
+    assert "O que estava sendo tentado" in captured.err
+
+
+def test_budget_verb_is_silent_about_escalation_when_continuing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_budget_fixture(tmp_path, [])
+
+    code = _run(monkeypatch, "budget", "--feature", "T-01", "--dir", str(tmp_path))
+
+    captured = capsys.readouterr()
+    assert code == 0
+    payload = json.loads(captured.out)
+    assert payload["verdict"] == "continue"
+    assert payload["escalation"] is None
+    assert captured.err == ""
+
+
 def test_every_dir_taking_subcommand_refuses_a_nonexistent_dir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

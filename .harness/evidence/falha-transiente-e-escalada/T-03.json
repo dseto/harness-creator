@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-03",
+  "contract": "falha-transiente-e-escalada",
+  "desc": "Falha transiente que insiste 3× vira veredito próprio do disjuntor — parada de ambiente, não padrão repetido nem teto de iterações",
+  "files": [
+    "src/harness/budget.py",
+    "tests/test_budget.py"
+  ],
+  "verify_cmd": "pytest tests/test_budget.py -q",
+  "recorded_at": "2026-08-09T20:42:34.770753+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:e40f5c81d9ac4153ef368cb54c9ebeacfc29e1d0d673611facefee86cda91f47"
+}

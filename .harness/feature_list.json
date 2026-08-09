@@ -1,70 +1,84 @@
 {
-  "contract": "health-check-de-abertura",
-  "compiled_at": "2026-08-09T17:42:08.014517+00:00",
+  "contract": "falha-transiente-e-escalada",
+  "compiled_at": "2026-08-09T20:57:40.270528+00:00",
   "compiled_with_version": "0.32.0",
   "stop_conditions": {
-    "typed": [
-      {
-        "type": "consecutive_verify_failures",
-        "n": 3
-      },
-      {
-        "type": "same_failure_signature",
-        "n": 2
-      }
-    ],
+    "typed": [],
     "advisory": [
-      "Se o health check precisar EXECUTAR o `verify_cmd` para dar veredito: parar. Rodar a suíte na abertura é o preço que fez ninguém rodar o `init.ps1`, e um check que custa uma suíte inteira volta a ser opcional na prática — que é o defeito que esta demanda existe para corrigir.",
-      "Se algum check quiser CORRIGIR o que encontrou (instalar dependência, recompilar hook, reativar o kill-switch): parar. §8.3 é explícito — falha de infraestrutura nunca tem healing automático; o loop consertar a própria jaula é o comportamento que não se quer premiar."
+      "2 tentativas de correção estrutural seguidas na MESMA falha, fora do retry transiente",
+      "qualquer regra nova entrar em conflito com D-007/D-008 (o health check pergunta, nunca executa) sem decisão explícita registrada"
     ]
   },
   "features": [
     {
       "id": "T-01",
-      "desc": "A sessão passa a saber quais ferramentas exigidas pelo contrato não respondem, sem precisar rodar nenhum comando do contrato para descobrir",
+      "desc": "O rastro de tentativas sabe distinguir falha transiente de falha estrutural, e o disjuntor conta só as estruturais",
       "files": [
-        "src/harness/health.py",
-        "tests/test_health.py",
-        "src/harness/cli.py",
-        "tests/test_cli.py",
-        "src/harness/boundary_guard.py",
-        "README.md",
-        "docs/plugin/TUTORIAL.md",
-        "docs/plugin/arquitetura-visual.html",
-        "docs/plugin/ARCHITECTURE.md",
-        "tests/e2e/evidence/fase2-outcomes-verification.md"
+        "src/harness/attempts.py",
+        "tests/test_attempts.py"
       ],
-      "verify_cmd": "pytest tests/test_health.py -q",
+      "verify_cmd": "pytest tests/test_attempts.py -q",
       "depends": [],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-02",
-      "desc": "Um laudo só responde pelas três formas de o harness estar desprotegido em silêncio — ferramenta ausente, governança desalinhada e proteção desligada — e diz que a resposta é parar, não consertar",
+      "desc": "`verify_cmd` com sinal transiente tenta de novo sozinho até 3× com pausa, sem gastar orçamento de correção; sinal não-transiente nunca tenta de novo",
       "files": [
-        "src/harness/health.py",
-        "tests/test_health.py",
-        "src/harness/doctor.py",
-        "tests/test_doctor.py"
+        "src/harness/verify.py",
+        "tests/test_verify.py"
       ],
-      "verify_cmd": "pytest tests/test_health.py -q",
-      "depends": [],
+      "verify_cmd": "pytest tests/test_verify.py -q",
+      "depends": [
+        "T-01"
+      ],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-03",
-      "desc": "A abertura da sessão entrega o veredito de ambiente sozinha, antes de qualquer coisa que dependa dele, sem ninguém precisar lembrar de pedir",
+      "desc": "Falha transiente que insiste 3× vira veredito próprio do disjuntor — parada de ambiente, não padrão repetido nem teto de iterações",
       "files": [
-        "src/harness/session_start.py",
-        "tests/test_session_start.py",
+        "src/harness/budget.py",
+        "tests/test_budget.py"
+      ],
+      "verify_cmd": "pytest tests/test_budget.py -q",
+      "depends": [
+        "T-01"
+      ],
+      "cwd": null,
+      "passes": true
+    },
+    {
+      "id": "T-04",
+      "desc": "Todo veredito de parada do disjuntor vem com o bloco de escalada nas seis partes que o §8 exige, pronto para copiar ao humano",
+      "files": [
+        "src/harness/escalation.py",
+        "src/harness/cli.py",
+        "tests/test_escalation.py",
+        "tests/test_cli.py"
+      ],
+      "verify_cmd": "pytest tests/test_escalation.py tests/test_cli.py -q",
+      "depends": [
+        "T-03"
+      ],
+      "cwd": null,
+      "passes": true
+    },
+    {
+      "id": "T-05",
+      "desc": "O passo 10 do lifecycle documenta o retry transiente e manda usar o bloco de escalada gerado em vez de escrever a mensagem à mão",
+      "files": [
         "src/harness/lifecycle.py",
         "tests/test_lifecycle.py",
-        "AGENTS.md"
+        "README.md",
+        "docs/plugin/arquitetura-visual.html"
       ],
-      "verify_cmd": "pytest tests/test_session_start.py -q",
-      "depends": [],
+      "verify_cmd": "pytest tests/test_lifecycle.py -q",
+      "depends": [
+        "T-04"
+      ],
       "cwd": null,
       "passes": true
     }

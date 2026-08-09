@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-02",
+  "contract": "falha-transiente-e-escalada",
+  "desc": "`verify_cmd` com sinal transiente tenta de novo sozinho até 3× com pausa, sem gastar orçamento de correção; sinal não-transiente nunca tenta de novo",
+  "files": [
+    "src/harness/verify.py",
+    "tests/test_verify.py"
+  ],
+  "verify_cmd": "pytest tests/test_verify.py -q",
+  "recorded_at": "2026-08-09T20:41:28.024715+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:4215abf0ba772160d4f40c2515ce34e604111c24b9745a2bcbbbd0195697a2b7"
+}

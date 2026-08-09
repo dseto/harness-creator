@@ -443,7 +443,7 @@ harness-creator/
 │   └── marketplace.json         # auto-referência p/ instalar como marketplace local
 ├── AGENTS.md                    # 3 blocos gerenciados + prosa humana
 ├── skills/                      # preflight, init, plan, compile, audit, team
-├── src/harness/                 # 39 módulos, uma responsabilidade cada
+├── src/harness/                 # 40 módulos, uma responsabilidade cada
 │   ├── cli.py                   # dispatch dos 26 subcomandos
 │   │
 │   │                            # -- base (fonte única de cada verdade) --
@@ -478,6 +478,7 @@ harness-creator/
 │   ├── spine.py                 # decisões e lições: append-only, vida = o projeto
 │   ├── blind.py                 # camada 3: pacote sem o racional + veredito com hash
 │   ├── budget.py                # disjuntor do loop: continue / stop_* por contagem
+│   ├── escalation.py            # bloco de escalada do §8, 6 partes, pronto pro humano
 │   ├── health.py                # ambiente responde? (§7.2) — pergunta, não executa
 │   ├── reconcile.py             # declarado × real na ABERTURA (reusa audit_closure)
 │   ├── review.py                # state machine do revisor (teto duro de iterações)
@@ -499,7 +500,7 @@ harness-creator/
 │   └── .gitignore               # a regra de ignore é do próprio produto
 ├── docs/plugin/                 # TUTORIAL, GUIDE, ARCHITECTURE, arquitetura-visual.html
 ├── docs/project/                # ROADMAP, PLAN, laudos e handoffs
-└── tests/                       # 1232 casos (sem Docker/API para compile/audit)
+└── tests/                       # 1275 casos (sem Docker/API para compile/audit)
 ```
 
 Quem decide o que entra no git é a **Seção 3** de
@@ -512,7 +513,7 @@ de compilação que carrega dado de máquina é machine-local e regenerada por
 
 ```powershell
 $env:PYTHONPATH = "src"
-python -m pytest tests -q          # unit + E2E — 1232 casos
+python -m pytest tests -q          # unit + E2E — 1275 casos
 ```
 
 A suíte E2E (`tests/e2e/`) roda inteira sobre repos sintéticos criados em
@@ -523,7 +524,7 @@ externo ao plugin.
 **Convenção da suíte (v0.26.0):** um teste = uma REGRA, com tabela de casos
 (`Case` + `_expect`), nunca um `def` por caso. A suíte tinha chegado a 1008
 casos e caiu para 724 sem perder uma asserção — o que sobrou é o piso
-mecânico, não gordura restante. O crescimento desde então — hoje 1232 casos —
+mecânico, não gordura restante. O crescimento desde então — hoje 1275 casos —
 é regra nova coberta, não a gordura voltando.
 
 Achado que a suíte documenta (via `harness.cli` chamado com
