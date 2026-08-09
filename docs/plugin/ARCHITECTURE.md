@@ -61,7 +61,7 @@ contagem de tokens a hooks.
 | **1b · CLI** | `cli.py` | Dispatch dos 22 subcomandos, validação de `--dir` | Não decide `allow`/`deny` em runtime |
 | **2 · Compiladores** | `compiler`, `contract`, `analyzer`, `session_permissions`, `lifecycle`, `templates`, `branching`, `profile_edit`, `install_command`, `autoupdate` | Transformam entrada humana em artefato. Determinísticos, zero LLM, zero rede | Não rodam no caminho da tool call |
 | **3 · Enforcement** | `boundary_guard`, `session_start`, `stop_hook` | Decidem `allow`/`ask`/`deny` a cada tool call | Não importam a biblioteca — stdlib puro |
-| **4 · Prova e controle** | `verify`, `attempts`, `budget`, `reconcile`, `review`, `supervisor`, `teams`, `finish`, `pr_draft` | Produzem e consomem evidência; ordenam o trabalho | Nenhum chama git de escrita |
+| **4 · Prova e controle** | `verify`, `attempts`, `budget`, `reconcile`, `regression`, `review`, `supervisor`, `teams`, `finish`, `pr_draft` | Produzem e consomem evidência; ordenam o trabalho | Nenhum chama git de escrita |
 | **5 · Diagnóstico** | `preflight`, `audit`, `runtime_audit`, `team_audit`, `doctor`, `metrics` | Emitem laudo + o comando exato de correção | Nunca corrigem sozinhos |
 | **Base** | `config`, `governance/approval`, `patterns`, `settings_paths`, `hook_launcher`, `killswitch` | Cada um é fonte **única** de uma verdade | — |
 
@@ -340,6 +340,39 @@ o resumo logo abaixo é justamente o que não se pode acreditar. O texto do avis
 é renderizado em `harness/reconcile.py` e chega ao hook já pronto (campo
 `section`) — o script gerado é stdlib puro (camada 3) e formatar lá dentro
 poria a formatação fora do alcance da suíte.
+
+### Re-prova incremental: o que a verificação barata não vê
+
+A verificação de uma fatia é barata porque roda só a prova daquela fatia. O
+preço é estrutural: ela não olha para trás, então a fatia 5 pode quebrar a fatia
+2 e o `feature_list.json` segue alegando `passes: true` até o gate final — muitas
+iterações depois, quando o suspeito já é a demanda inteira.
+
+`regression.run_reproof` fecha o buraco pelo acoplamento DECLARADO: ao fechar uma
+tarefa, re-roda o `verify_cmd` das tarefas já provadas cujo `files[]` intersecta o
+dela. Não é a suíte completa — essa é a camada 3, e o design a proíbe dentro do
+loop de iteração. Não é inferência de import nem de histórico do git: acoplamento
+não declarado é defeito do contrato, e `harness task add-file` já o corrige.
+
+Duas decisões carregam o custo:
+
+- **O par (comando, `cwd`) é a unidade, não a tarefa.** Quem é verde ou vermelho é
+  o comando; tarefas provadas pelo mesmo comando viram um alvo só, e o comando da
+  tarefa atual não é repetido (acabou de rodar verde, na mesma árvore). Num
+  contrato cujas tarefas dividem arquivo de teste — o caso comum — essa dedução é
+  a maior parte da economia.
+- **Vermelho rebaixa; erro de ambiente não.** Prova vermelha devolve
+  `passes: false` com tentativa registrada (fila do `supervise`, disjuntor do
+  `budget`, bloqueio do `finish`). Timeout ou prova no runtime floor viram `SEM
+  VEREDITO`: aparecem no relatório, mas não derrubam registro válido — §8.3
+  separa falha de infraestrutura de falha estrutural, e rebaixar por máquina lenta
+  destruiria prova legítima.
+
+A evidência antiga da tarefa rebaixada permanece em disco. Ela deixa de bater com
+o código e vira `evidence_stale` na tabela acima — informação, não lixo; apagá-la
+destruiria o registro do que um dia foi provado. O exit code 2 do `harness verify`
+segue a convenção do `budget` e do `reconcile`: veredito de parada, distinto do
+erro de execução.
 
 ---
 

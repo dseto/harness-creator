@@ -235,6 +235,13 @@ def main() -> None:
         "de dividir o verify_cmd",
     )
     ver.add_argument(
+        "--no-reproof", action="store_false", dest="reproof", default=True,
+        help="Não re-prova as tarefas já concluídas que compartilham arquivo "
+        "com esta (§6 do design). Escape hatch para quando a própria re-prova "
+        "é o problema — prova antiga lenta, ambiente meio quebrado. Desligar "
+        "custa a detecção de regressão entre fatias",
+    )
+    ver.add_argument(
         "--stream", action="store_true",
         help="Espelha stdout/stderr do verify_cmd no console em tempo real "
         "(tee) — para humano distinguir suíte lenta de travada. Opt-in: com "
@@ -678,8 +685,50 @@ def main() -> None:
 
         on_feature_verified(Path(args.dir), args.feature_id)
 
+        # Re-prova incremental (§6): a prova desta fatia acabou de passar, mas
+        # ela pode ter quebrado uma fatia já concluída que mexe nos mesmos
+        # arquivos. Roda aqui, sem ninguém precisar lembrar — o mesmo motivo
+        # pelo qual o aviso do `reconcile` chega pelo hook e não por disciplina.
+        # Depois do `mark_feature_passed`: a re-prova lê o `feature_list.json`,
+        # e a tarefa atual precisa estar com o estado final antes disso.
+        # `--no-mark-passed` desliga junto: ele existe para fleet paralelo, e é
+        # justamente o caso em que escrever `passes: false` em tarefas de OUTRO
+        # agente é a corrida que a flag foi criada para evitar.
+        reproof_report = None
+        if args.reproof and args.mark_passed:
+            import harness.regression as regression_module
+
+            try:
+                reproof_report = regression_module.run_reproof(
+                    Path(args.dir), args.feature_id,
+                    timeout_seconds=args.timeout if args.timeout is not None
+                    else _VERIFY_TIMEOUT_SECONDS,
+                )
+            except Exception as exc:  # noqa: BLE001
+                # A evidência desta tarefa já está gravada. Derrubar o comando
+                # aqui apagaria um verde legítimo por causa de um subproduto —
+                # mas o aviso é obrigatório: proteção que falhou em silêncio é
+                # indistinguível de proteção que passou.
+                print(
+                    f"aviso: re-prova incremental não pôde rodar ({exc}) — a "
+                    "regressão em tarefas já concluídas NÃO foi verificada",
+                    file=sys.stderr,
+                )
+
         data = json.loads(evidence_path.read_text(encoding="utf-8-sig"))
         print(json.dumps(data, indent=2, ensure_ascii=False))
+
+        if reproof_report is not None:
+            rendered = regression_module.render_reproof_report(reproof_report)
+            if rendered:
+                print(rendered, file=sys.stderr)
+            if reproof_report["regressed"]:
+                # Mesma convenção de `budget` e `reconcile`: 2 é veredito
+                # legítimo de parada, distinto do erro de execução (1). O verde
+                # desta fatia continua verdadeiro e gravado — o que o exit code
+                # diz é que o trabalho não acabou.
+                sys.exit(2)
+
         sys.exit(0)
 
     if args.command == "team" and args.team_command == "design":

@@ -324,6 +324,34 @@ e é o passo 5 do lifecycle.
 Só leitura, como o `audit_closure`: não roda `verify_cmd`, não conserta, não
 toca rede. Base: §7.4 do mesmo documento.
 
+### Re-prova incremental
+
+Verificar a fatia que acabou de ficar pronta é barato porque não olha para trás
+— e o preço disso é que a fatia 5 quebra a fatia 2 sem ninguém perceber, até o
+gate final, quando o diff suspeito já tem o tamanho da demanda inteira.
+`harness verify` passou a fechar esse buraco sozinho (`src/harness/regression.py`).
+
+- **A interseção, não a suíte** — ao fechar uma tarefa, re-roda o `verify_cmd`
+  das tarefas já `passes: true` que compartilham algum caminho de `files[]` com
+  ela. O custo fica proporcional ao acoplamento real; suíte completa a cada
+  volta é a camada 3, que o design proíbe dentro do loop.
+- **O acoplamento é o declarado** — `files[]`, não import nem histórico do git.
+  Acoplamento não declarado é defeito do contrato, e `harness task add-file`
+  existe para corrigi-lo.
+- **Vermelho rebaixa** — a tarefa regredida volta a `passes: false`, com
+  tentativa registrada: reentra na fila do `harness supervise`, conta no
+  disjuntor do `harness budget` e bloqueia o `harness finish`. Avisar sem
+  rebaixar deixaria o `feature_list.json` alegando pronto o que acabou de
+  falhar. A evidência antiga não é apagada — vira `evidence_stale`, que é
+  informação.
+- **Falha de ambiente não rebaixa** — timeout ou prova no runtime floor saem
+  como `SEM VEREDITO`: aparecem no relatório (proteção que falha em silêncio é
+  indistinguível de proteção que passou), mas não derrubam registro válido.
+- **Exit code 2** — mesma convenção de `budget` e `reconcile`: veredito de
+  parada, não erro de execução. `--no-reproof` desliga.
+
+Base: §6 do mesmo documento.
+
 ## Estrutura do repo
 
 ```
@@ -333,7 +361,7 @@ harness-creator/
 │   └── marketplace.json         # auto-referência p/ instalar como marketplace local
 ├── AGENTS.md                    # 3 blocos gerenciados + prosa humana
 ├── skills/                      # preflight, init, plan, compile, audit, team
-├── src/harness/                 # 35 módulos, uma responsabilidade cada
+├── src/harness/                 # 36 módulos, uma responsabilidade cada
 │   ├── cli.py                   # dispatch dos 22 subcomandos
 │   │
 │   │                            # -- base (fonte única de cada verdade) --
@@ -364,6 +392,7 @@ harness-creator/
 │   │                            # -- prova e controle --
 │   ├── verify.py                # roda verify_cmd e grava a evidência
 │   ├── attempts.py              # rastro de tentativas: erro cru + assinatura da falha
+│   ├── regression.py            # re-prova incremental: fatia nova × fatias já provadas
 │   ├── budget.py                # disjuntor do loop: continue / stop_* por contagem
 │   ├── reconcile.py             # declarado × real na ABERTURA (reusa audit_closure)
 │   ├── review.py                # state machine do revisor (teto duro de iterações)
@@ -385,7 +414,7 @@ harness-creator/
 │   └── .gitignore               # a regra de ignore é do próprio produto
 ├── docs/plugin/                 # TUTORIAL, GUIDE, ARCHITECTURE, arquitetura-visual.html
 ├── docs/project/                # ROADMAP, PLAN, laudos e handoffs
-└── tests/                       # 1058 casos (sem Docker/API para compile/audit)
+└── tests/                       # 1091 casos (sem Docker/API para compile/audit)
 ```
 
 Quem decide o que entra no git é a **Seção 3** de
@@ -398,7 +427,7 @@ de compilação que carrega dado de máquina é machine-local e regenerada por
 
 ```powershell
 $env:PYTHONPATH = "src"
-python -m pytest tests -q          # unit + E2E — 1058 casos
+python -m pytest tests -q          # unit + E2E — 1091 casos
 ```
 
 A suíte E2E (`tests/e2e/`) roda inteira sobre repos sintéticos criados em

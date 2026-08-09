@@ -586,6 +586,37 @@ def mark_feature_passed(target_dir: Path, feature_id: str) -> Path:
     bootstrap. Levanta `VerifyError` se `feature_list.json` não existir, tiver
     JSON inválido, ou não tiver a feature `feature_id`.
     """
+    return _set_feature_passes(target_dir, feature_id, True)
+
+
+def mark_feature_regressed(target_dir: Path, feature_id: str) -> Path:
+    """Grava `passes: false` na feature `feature_id` — o inverso exato do acima.
+
+    Chamada pela re-prova incremental (`harness.regression`) quando a prova de
+    uma tarefa já concluída volta a falhar. O rebaixamento é o que faz a
+    regressão virar trabalho: a tarefa reentra na fila do `harness supervise`,
+    conta no disjuntor do `harness budget` e bloqueia o `harness finish`.
+    Avisar sem rebaixar deixaria o `feature_list.json` alegando `passes: true`
+    para uma prova que acabou de sair vermelha — a mentira que o `harness
+    reconcile` existe para caçar, gravada pelo próprio harness.
+
+    A evidência antiga NÃO é apagada: ela vira prova obsoleta (o `files_hash`
+    deixa de bater e `audit_closure` a reporta como `evidence_stale`). Apagar
+    destruiria o registro do que um dia foi de fato provado.
+
+    Mesma escrita atômica, mesmas exceções e a mesma ressalva de concorrência
+    de `mark_feature_passed`.
+    """
+    return _set_feature_passes(target_dir, feature_id, False)
+
+
+def _set_feature_passes(target_dir: Path, feature_id: str, value: bool) -> Path:
+    """Escrita atômica de `passes` — o único ponto que muda esse campo.
+
+    Promoção e rebaixamento partilham o corpo de propósito: duas cópias da
+    leitura-mutação-escrita seriam duas chances de uma delas deixar o
+    `feature_list.json` truncado.
+    """
     target_dir = target_dir.resolve()
     feature_list_path = target_dir / FEATURE_LIST_FILE
     if not feature_list_path.is_file():
@@ -598,7 +629,7 @@ def mark_feature_passed(target_dir: Path, feature_id: str) -> Path:
 
     for feature in data.get("features", []):
         if feature.get("id") == feature_id:
-            feature["passes"] = True
+            feature["passes"] = value
             break
     else:
         raise VerifyError(f"feature '{feature_id}' não encontrada em {feature_list_path}")

@@ -1,6 +1,6 @@
 # Claude Progress
 
-Contrato: `reconciliacao-de-abertura`
+Contrato: `re-prova-incremental`
 
 _Demanda ENCERRADA por `harness finish`._
 
@@ -8,11 +8,10 @@ _Demanda ENCERRADA por `harness finish`._
 
 | id | desc | status |
 | --- | --- | --- |
-| T-01 | A sessão pode conferir, antes de começar, se o que está anotado como pronto ainda é verdade no código — sem confundir tarefa pendente com divergência | done |
-| T-02 | `harness reconcile` responde por linha de comando se o estado declarado bate com o real, com exit code utilizável por quem automatiza | done |
-| T-03 | O comando que o ciclo manda rodar na abertura não é negado pelo próprio hook de proteção | done |
-| T-04 | A sessão nasce já avisada das divergências, sem precisar que alguém lembre de rodar o comando — e nunca perde o contexto por causa dessa checagem | done |
-| T-05 | O passo 5 do ciclo passa a mandar reconciliar com um comando, em vez de pedir uma olhada no histórico, e a documentação do projeto reflete o verbo novo | done |
+| T-01 | Ao fechar uma tarefa, o harness sabe dizer quais tarefas já concluídas correm risco de ter sido quebradas por ela — pelo parentesco de arquivos, sem repetir prova | done |
+| T-02 | Uma tarefa já dada como pronta que voltou a falhar deixa de constar como pronta, com o registro da falha, em vez de continuar alegando o que não é mais verdade | done |
+| T-03 | Fechar uma tarefa passa a conferir sozinho as tarefas antigas relacionadas, e a verificação avisa por exit code quando encontrou regressão | done |
+| T-04 | O ciclo e a documentação do projeto dizem o que fazer quando a verificação acusa regressão numa tarefa antiga | done |
 
 ## Última atualização
 
