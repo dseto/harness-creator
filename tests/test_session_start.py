@@ -17,6 +17,7 @@ from harness.session_start import (
     install_session_start,
     render_session_start_hook,
 )
+from harness.spine import record_decision, record_lesson
 
 FEATURE_LIST_PENDING = {
     "contract": "exemplo-feature",
@@ -655,3 +656,81 @@ def test_the_hook_payload_carries_the_rendered_section_not_raw_divergences(
     payload = json.loads(proc.stdout)
     assert payload["divergences"]
     assert "AVISO: o estado declarado" in payload["section"]
+
+
+# ---------------------------------------------------------------------------
+# Decisões do projeto injetadas no contexto (contrato `spine-decisoes-e-licoes`,
+# T-04)
+#
+# O modo de falha que §5.2 descreve é a sessão de daqui a duas semanas
+# "descobrir" e tentar de novo a alternativa que já foi descartada por bom
+# motivo. Um arquivo que ninguém abre não impede isso — o registro só cumpre o
+# papel dele se chegar antes da escolha da fatia.
+# ---------------------------------------------------------------------------
+
+def test_the_session_starts_knowing_the_recent_decisions(tmp_path: Path) -> None:
+    record_decision(
+        tmp_path, "Nao inferir acoplamento", decision="Usar files[] declarado",
+        why="Inferencia por import erra em silencio", today="2026-08-09",
+    )
+
+    context = _context(_run_hook(_write_hook_script(tmp_path), tmp_path))
+
+    assert "D-001" in context
+    assert "Nao inferir acoplamento" in context
+    # O porquê junto: só o título diria que a decisão existe, não o que ela
+    # proíbe — e é o porquê que impede a re-litigação.
+    assert "Inferencia por import erra em silencio" in context
+
+
+def test_a_project_without_decisions_gets_no_section(tmp_path: Path) -> None:
+    """Projeto que ainda não registrou decisão nenhuma é o estado inicial de
+    todo projeto — uma seção vazia gastaria atenção em toda sessão para dizer
+    que não há nada a dizer."""
+    context = _context(_run_hook(_write_hook_script(tmp_path), tmp_path))
+
+    assert "Decisões do projeto" not in context
+
+
+def test_lessons_never_reach_the_session_context(tmp_path: Path) -> None:
+    """§5.3 é explícito: lições não bloqueiam retomada, são consumidas pelo
+    HUMANO em cadência dele. Injetá-las aqui transformaria a lista de fricções
+    em backlog que o agente tentaria resolver — auto-modificação do harness pelo
+    próprio agente, a camada que o design manda não construir."""
+    record_lesson(tmp_path, "o guard nega demais", fix="afrouxar a regra")
+
+    context = _context(_run_hook(_write_hook_script(tmp_path), tmp_path))
+
+    assert "o guard nega demais" not in context
+
+
+def test_a_broken_decisions_read_costs_the_section_never_the_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mesma degradação da reconciliação, testada no script GERADO."""
+    namespace: dict = {}
+    exec(compile(render_session_start_hook(), "session_start_gerado", "exec"), namespace)
+
+    def _explode(*_args, **_kwargs):
+        raise OSError("python sumiu do PATH")
+
+    monkeypatch.setattr(namespace["subprocess"], "run", _explode)
+
+    assert namespace["_decisions_section"](tmp_path) is None
+
+
+def test_the_decisions_payload_arrives_already_rendered(tmp_path: Path) -> None:
+    """Mesma razão do `reconcile`: o script gerado é stdlib-only, então a
+    formatação mora em `harness/spine.py`, dentro do alcance da suíte."""
+    record_decision(tmp_path, "Uma escolha", decision="x", why="y", today="2026-08-09")
+
+    proc = subprocess.run(
+        [sys.executable, "-m", "harness.spine", "--dir", str(tmp_path)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    payload = json.loads(proc.stdout)
+    assert "Uma escolha" in payload["section"]

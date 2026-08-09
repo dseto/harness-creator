@@ -58,10 +58,10 @@ contagem de tokens a hooks.
 |---|---|---|---|
 | **0 · Host** | Claude Code | Executa: lê `permissions`, dispara hooks, carrega skills e subagentes | — |
 | **1a · Skills** | `skills/` (7) | Conduz a conversa com o humano | Não escreve nada direto — toda escrita passa pela CLI |
-| **1b · CLI** | `cli.py` | Dispatch dos 22 subcomandos, validação de `--dir` | Não decide `allow`/`deny` em runtime |
+| **1b · CLI** | `cli.py` | Dispatch dos 24 subcomandos, validação de `--dir` | Não decide `allow`/`deny` em runtime |
 | **2 · Compiladores** | `compiler`, `contract`, `analyzer`, `session_permissions`, `lifecycle`, `templates`, `branching`, `profile_edit`, `install_command`, `autoupdate` | Transformam entrada humana em artefato. Determinísticos, zero LLM, zero rede | Não rodam no caminho da tool call |
 | **3 · Enforcement** | `boundary_guard`, `session_start`, `stop_hook` | Decidem `allow`/`ask`/`deny` a cada tool call | Não importam a biblioteca — stdlib puro |
-| **4 · Prova e controle** | `verify`, `attempts`, `budget`, `reconcile`, `regression`, `review`, `supervisor`, `teams`, `finish`, `pr_draft` | Produzem e consomem evidência; ordenam o trabalho | Nenhum chama git de escrita |
+| **4 · Prova e controle** | `verify`, `attempts`, `budget`, `reconcile`, `regression`, `review`, `supervisor`, `teams`, `finish`, `pr_draft`, `spine` | Produzem e consomem evidência; ordenam o trabalho | Nenhum chama git de escrita |
 | **5 · Diagnóstico** | `preflight`, `audit`, `runtime_audit`, `team_audit`, `doctor`, `metrics` | Emitem laudo + o comando exato de correção | Nunca corrigem sozinhos |
 | **Base** | `config`, `governance/approval`, `patterns`, `settings_paths`, `hook_launcher`, `killswitch` | Cada um é fonte **única** de uma verdade | — |
 
@@ -373,6 +373,42 @@ o código e vira `evidence_stale` na tabela acima — informação, não lixo; a
 destruiria o registro do que um dia foi provado. O exit code 2 do `harness verify`
 segue a convenção do `budget` e do `reconcile`: veredito de parada, distinto do
 erro de execução.
+
+### Spine: três registros, três ciclos de vida
+
+O design pede três arquivos persistentes, e a razão de serem três — em vez de um
+"histórico" só — é que morrem em momentos diferentes:
+
+| arquivo | responde | vida | escrita |
+|---|---|---|---|
+| `progress.md` | onde estamos | a demanda | reescrito por `verify`/`finish`, regenerado a cada contrato |
+| `decisions.md` | por que decidimos assim | o projeto | append por `harness decide` |
+| `lessons.md` | o que atrapalhou | o projeto | append por `harness lesson` |
+
+Por isso `progress.md` continua em `harness/templates` e os outros dois vivem em
+`harness/spine`: juntá-los num módulo só faria um deles herdar a política de
+regeneração do outro, e regenerar `decisions.md` a cada demanda nova apagaria
+exatamente aquilo que ele existe para guardar.
+
+**Append-only não é preferência de estilo.** Um registro de razões que pode ser
+reescrito não prova que a razão gravada é a razão original — e essa prova é a
+única coisa que ele tem a oferecer. Mudou de ideia: registra-se uma decisão nova
+que supersede a anterior, e a anterior fica, com a data em que foi tomada.
+
+**Quem escreve é o verbo, e isso é consequência do guard, não conveniência.** O
+`boundary_guard` barra escrita em `.harness/**` fora de `work/` e `scratch/`
+porque plano de controle não se auto-amplia. Logo não existia a opção "o agente
+edita o markdown": ou entram `decide`/`lesson` em `_HARNESS_SUBCOMMANDS`, ou
+esses dois arquivos nunca são escritos por ninguém. A superfície que os verbos
+abrem é estreita — só acrescentam linha no fim.
+
+**Assimetria deliberada na injeção.** As decisões entram no contexto de abertura
+(depois do progresso: a hora de saber o que não re-tentar é ao escolher a
+próxima fatia). As lições **não** entram. §5.3 é explícito que elas não bloqueiam
+retomada, e a razão é mais dura que economia de contexto: uma lista de fricções
+no contexto do agente é um backlog que ele tentaria resolver — auto-modificação
+do harness pelo próprio agente, a camada que o design manda não construir. Elas
+saem no `harness finish`, para o humano.
 
 ---
 

@@ -49,6 +49,12 @@ from pathlib import Path
 from typing import Any
 
 from harness.install_command import install_command_for
+from harness.spine import (
+    DECISIONS_FILE,
+    DECISIONS_HEADER,
+    LESSONS_FILE,
+    LESSONS_HEADER,
+)
 
 HARNESS_DIR = ".harness"
 
@@ -450,6 +456,23 @@ def install_templates(
         if not is_managed_init_script(path):
             continue
         path.write_text(content, encoding="utf-8")
+        written.append(path)
+
+    # Os outros dois registros da spine (§5.2/§5.3). Criados só se ausentes, e
+    # NUNCA regenerados: a vida deles é o projeto, não a demanda — regenerar a
+    # cada contrato novo apagaria a razão de escolhas tomadas em demandas
+    # anteriores, que é justamente o que eles existem para guardar. Nascem aqui
+    # porque o `boundary_guard` proíbe escrita direta em `.harness/**`: sem o
+    # esqueleto, o primeiro `harness decide` criaria um arquivo sem cabeçalho e
+    # nada diria ao leitor que ele é append-only.
+    for relative, header in (
+        (DECISIONS_FILE, DECISIONS_HEADER),
+        (LESSONS_FILE, LESSONS_HEADER),
+    ):
+        path = target_dir / relative
+        if path.is_file():
+            continue
+        path.write_text(header, encoding="utf-8")
         written.append(path)
 
     return written

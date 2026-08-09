@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-03",
+  "contract": "spine-decisoes-e-licoes",
+  "desc": "Os dois registros nascem junto com a sessão compilada, e recompilar nunca apaga o que já foi anotado",
+  "files": [
+    "src/harness/templates.py",
+    "tests/test_templates.py"
+  ],
+  "verify_cmd": "pytest tests/test_templates.py -q",
+  "recorded_at": "2026-08-09T12:59:58.276531+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:71e03672b38411436be4a17aa8531bb04828c5d75adf840ef64e975d169ee3ba"
+}

@@ -1,0 +1,16 @@
+{
+  "feature_id": "T-06",
+  "contract": "spine-decisoes-e-licoes",
+  "desc": "O ciclo diz quando registrar uma decisão e quando registrar uma lição, e a documentação do projeto descreve os três registros da spine",
+  "files": [
+    "src/harness/lifecycle.py",
+    "tests/test_lifecycle.py",
+    "README.md",
+    "docs/plugin/ARCHITECTURE.md",
+    "AGENTS.md"
+  ],
+  "verify_cmd": "pytest tests/test_lifecycle.py -q",
+  "recorded_at": "2026-08-09T13:10:40.405266+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:f7a519ac296eb48de0b79340671a822a0d9278d4071b510a264a4aa51d3e5e4f"
+}

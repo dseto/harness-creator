@@ -1,6 +1,6 @@
 {
-  "contract": "re-prova-incremental",
-  "compiled_at": "2026-08-09T10:16:23.408257+00:00",
+  "contract": "spine-decisoes-e-licoes",
+  "compiled_at": "2026-08-09T13:10:34.870072+00:00",
   "compiled_with_version": "0.32.0",
   "stop_conditions": {
     "typed": [
@@ -14,33 +14,33 @@
       }
     ],
     "advisory": [
-      "Se a re-prova de uma tarefa antiga ficar vermelha por causa do ambiente (timeout, lock de arquivo, ferramenta ausente) e não por regressão de código: parar e tratar como falha de infraestrutura — rebaixar `passes` nesse caso destrói registro válido.",
-      "Se a interseção de arquivos devolver, na prática, quase todas as tarefas do contrato a cada verificação: parar e replanejar o critério de seleção — re-prova que roda a suíte inteira é a camada 3 disfarçada, exatamente o que o design proíbe dentro do loop."
+      "Se a injeção das decisões na abertura da sessão começar a competir por espaço com o aviso de reconciliação e o resumo de progresso: parar e replanejar o corte. Contexto de abertura que vira parede de texto é lido na diagonal, e aí os três registros perdem junto.",
+      "Se aparecer qualquer necessidade de o agente EDITAR uma decisão antiga (e não acrescentar uma nova que a supersede): parar. Append-only é a garantia inteira deste contrato; um arquivo que pode ser reescrito não prova que a razão registrada é a razão original."
     ]
   },
   "features": [
     {
       "id": "T-01",
-      "desc": "Ao fechar uma tarefa, o harness sabe dizer quais tarefas já concluídas correm risco de ter sido quebradas por ela — pelo parentesco de arquivos, sem repetir prova",
+      "desc": "O projeto passa a ter onde guardar a razão de uma escolha e a fricção observada, com numeração e data automáticas, e nada do que já foi registrado pode ser alterado por um registro novo",
       "files": [
-        "src/harness/regression.py",
-        "tests/test_regression.py"
+        "src/harness/spine.py",
+        "tests/test_spine.py"
       ],
-      "verify_cmd": "pytest tests/test_regression.py -q",
+      "verify_cmd": "pytest tests/test_spine.py -q",
       "depends": [],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-02",
-      "desc": "Uma tarefa já dada como pronta que voltou a falhar deixa de constar como pronta, com o registro da falha, em vez de continuar alegando o que não é mais verdade",
+      "desc": "Registrar uma decisão ou uma lição é um comando de uma linha, que o próprio hook de proteção não nega",
       "files": [
-        "src/harness/regression.py",
-        "tests/test_regression.py",
-        "src/harness/verify.py",
-        "tests/test_verify.py"
+        "src/harness/cli.py",
+        "tests/test_cli.py",
+        "src/harness/boundary_guard.py",
+        "tests/test_boundary_guard.py"
       ],
-      "verify_cmd": "pytest tests/test_regression.py -q",
+      "verify_cmd": "pytest tests/test_cli.py tests/test_boundary_guard.py -q",
       "depends": [
         "T-01"
       ],
@@ -49,7 +49,36 @@
     },
     {
       "id": "T-03",
-      "desc": "Fechar uma tarefa passa a conferir sozinho as tarefas antigas relacionadas, e a verificação avisa por exit code quando encontrou regressão",
+      "desc": "Os dois registros nascem junto com a sessão compilada, e recompilar nunca apaga o que já foi anotado",
+      "files": [
+        "src/harness/templates.py",
+        "tests/test_templates.py"
+      ],
+      "verify_cmd": "pytest tests/test_templates.py -q",
+      "depends": [
+        "T-01"
+      ],
+      "cwd": null,
+      "passes": true
+    },
+    {
+      "id": "T-04",
+      "desc": "A sessão nova já começa sabendo das decisões recentes do projeto, sem ninguém precisar procurá-las",
+      "files": [
+        "src/harness/session_start.py",
+        "tests/test_session_start.py",
+        "src/harness/spine.py"
+      ],
+      "verify_cmd": "pytest tests/test_session_start.py -q",
+      "depends": [
+        "T-01"
+      ],
+      "cwd": null,
+      "passes": true
+    },
+    {
+      "id": "T-05",
+      "desc": "Ao encerrar a demanda, o humano recebe a lista de fricções anotadas durante ela",
       "files": [
         "src/harness/cli.py",
         "tests/test_cli.py"
@@ -62,8 +91,8 @@
       "passes": true
     },
     {
-      "id": "T-04",
-      "desc": "O ciclo e a documentação do projeto dizem o que fazer quando a verificação acusa regressão numa tarefa antiga",
+      "id": "T-06",
+      "desc": "O ciclo diz quando registrar uma decisão e quando registrar uma lição, e a documentação do projeto descreve os três registros da spine",
       "files": [
         "src/harness/lifecycle.py",
         "tests/test_lifecycle.py",
@@ -73,7 +102,9 @@
       ],
       "verify_cmd": "pytest tests/test_lifecycle.py -q",
       "depends": [
-        "T-03"
+        "T-02",
+        "T-04",
+        "T-05"
       ],
       "cwd": null,
       "passes": true

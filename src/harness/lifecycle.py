@@ -39,7 +39,8 @@ def render_lifecycle_block() -> str:
 5. Rodar `harness reconcile` e resolver toda divergência antes de seguir —
    estado declarado que não bate com o repositório envenena a sessão inteira.
 6. Escolher exatamente UMA feature pendente.
-7. Planejar a implementação da feature escolhida.
+7. Planejar a implementação da feature escolhida — alternativa descartada por
+   razão não óbvia vira `harness decide`.
 8. Implementar a mudança dentro do raio de impacto declarado.
 9. Rodar `verify_cmd` da tarefa — o `harness verify` ainda re-prova sozinho as
    tarefas concluídas que compartilham arquivo com esta; exit 2 = regressão a
@@ -49,7 +50,8 @@ def render_lifecycle_block() -> str:
 11. Registrar a prova (evidência da verificação bem-sucedida).
 12. Atualizar `.harness/progress.md` com o estado atual.
 13. Marcar a feature concluída em `feature_list.json`.
-14. Documentar o que ficou quebrado, se houver.
+14. Documentar o que ficou quebrado, e anotar a fricção da sessão com
+    `harness lesson` — o agente anota, quem compila é o humano.
 15. Apresentar o que será commitado — por feature: descrição funcional em
     linguagem natural do que mudou, e link `file:line` do teste que prova.
 16. Commit e push na branch do contrato, condicionados a `harness finish`
@@ -119,6 +121,17 @@ aprovado e só devolve o controle ao humano em estado retomável.
 7. **Planejar a implementação da feature escolhida.** Antes de editar
    código, esboçar a abordagem: quais arquivos mudam, que testes cobrem a
    mudança, qual é o critério de pronto.
+
+   Descartou uma alternativa por razão NÃO ÓBVIA, ou tomou uma decisão que
+   restringe as iterações seguintes? Registre:
+
+       harness decide "<título curto>" --decision "<o que foi decidido>" --why "<a razão, incluindo a alternativa descartada>"
+
+   O registro é append-only (`.harness/decisions.md`) e as decisões recentes
+   chegam sozinhas no contexto da próxima sessão. Sem isso, a sessão de daqui
+   a duas semanas "descobre" e tenta de novo o caminho que esta aqui descartou
+   por bom motivo — o motivo não estava em lugar nenhum que ela lesse. Não é
+   ADR: três linhas bastam, e decisão óbvia não precisa de registro nenhum.
 
 8. **Implementar a mudança dentro do raio de impacto declarado.** Editar
    apenas os arquivos ligados à feature escolhida — o `boundary_guard`
@@ -202,9 +215,21 @@ aprovado e só devolve o controle ao humano em estado retomável.
     evidência fresca do passo 11 — marcar sem evidência é enfraquecer a
     garantia que todo o lifecycle existe para proteger.
 
-14. **Documentar o que ficou quebrado, se houver.** Transparência: se algo
-    ficou incompleto ou quebrado, isso é registrado explicitamente — nunca
-    escondido atrás de um commit "limpo".
+14. **Documentar o que ficou quebrado, e anotar a fricção que apareceu.**
+    Transparência: se algo ficou incompleto ou quebrado, isso é registrado
+    explicitamente — nunca escondido atrás de um commit "limpo".
+
+    Bateu numa fricção durante a sessão — regra que barrou demais, critério
+    ambíguo, mensagem de erro que não ajudou, o mesmo erro pela terceira vez?
+    Anote no momento em que aconteceu, uma linha, sem interromper o trabalho:
+
+        harness lesson "<a fricção observada>" --fix "<melhoria candidata no harness/skill/critério>"
+
+    **O agente anota; quem compila é o humano.** Não feche um item, não
+    "aplique" a lição editando o harness, não abra issue por conta própria:
+    auto-modificação do harness pelo próprio agente é a camada mais perigosa
+    do design e não vale o risco. As lições em aberto aparecem no
+    `harness finish` (campo `open_lessons`) — é ali que a pessoa as encontra.
 
 15. **Apresentar o que será commitado.** Este passo deixou de ser um gate: o
     ciclo tem UM pedido humano, a aprovação do contrato, e ela já autoriza o

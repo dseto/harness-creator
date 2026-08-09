@@ -290,6 +290,39 @@ def _reconcile_section(cwd: Path) -> str | None:
     return None
 
 
+def _decisions_section(cwd: Path) -> str | None:
+    """Decisoes recentes do projeto (secao 5.2 do design), ja renderizadas.
+
+    Mesma delegacao do `_reconcile_section`, e pelo mesmo motivo: este script
+    roda com -S e nao importa `harness`. O que chega aqui e o campo `section`
+    pronto, nunca a lista crua.
+
+    Qualquer falha vira None. Uma sessao sem o historico de decisoes trabalha
+    pior; uma sessao sem contexto nenhum nao trabalha.
+    """
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "harness.spine", "--dir", str(cwd)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        data = json.loads(proc.stdout)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    section = data.get("section")
+    if isinstance(section, str) and section.strip():
+        return section
+    return None
+
+
 def build_context(cwd: Path) -> str:
     parts = ["## Estado da sessao anterior (injetado pelo harness)"]
 
@@ -313,6 +346,14 @@ def build_context(cwd: Path) -> str:
     progress = _read_progress(cwd)
     if progress:
         parts.append("### Progresso recente (.harness/progress.md)\\n" + progress)
+
+    # DEPOIS do progresso: a reconciliacao muda como o resto e lido e por isso
+    # vem antes de tudo; as decisoes nao invalidam nada — elas dizem o que NAO
+    # re-tentar, e a hora de saber disso e ao escolher a proxima fatia, que e o
+    # que vem logo depois de ler o progresso.
+    decisions = _decisions_section(cwd)
+    if decisions:
+        parts.append(decisions)
 
     git_log = _read_git_log(cwd)
     if git_log:

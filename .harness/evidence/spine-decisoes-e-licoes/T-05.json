@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-05",
+  "contract": "spine-decisoes-e-licoes",
+  "desc": "Ao encerrar a demanda, o humano recebe a lista de fricções anotadas durante ela",
+  "files": [
+    "src/harness/cli.py",
+    "tests/test_cli.py"
+  ],
+  "verify_cmd": "pytest tests/test_cli.py -q",
+  "recorded_at": "2026-08-09T13:03:12.519012+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:53b986f1488f7e769fd79dc9512a5d67c697385acc20355f6642cda42fcadec0"
+}

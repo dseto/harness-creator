@@ -139,7 +139,8 @@ sempre exige aprovação humana.
 5. Rodar `harness reconcile` e resolver toda divergência antes de seguir —
    estado declarado que não bate com o repositório envenena a sessão inteira.
 6. Escolher exatamente UMA feature pendente.
-7. Planejar a implementação da feature escolhida.
+7. Planejar a implementação da feature escolhida — alternativa descartada por
+   razão não óbvia vira `harness decide`.
 8. Implementar a mudança dentro do raio de impacto declarado.
 9. Rodar `verify_cmd` da tarefa — o `harness verify` ainda re-prova sozinho as
    tarefas concluídas que compartilham arquivo com esta; exit 2 = regressão a
@@ -149,7 +150,8 @@ sempre exige aprovação humana.
 11. Registrar a prova (evidência da verificação bem-sucedida).
 12. Atualizar `.harness/progress.md` com o estado atual.
 13. Marcar a feature concluída em `feature_list.json`.
-14. Documentar o que ficou quebrado, se houver.
+14. Documentar o que ficou quebrado, e anotar a fricção da sessão com
+    `harness lesson` — o agente anota, quem compila é o humano.
 15. Apresentar o que será commitado — por feature: descrição funcional em
     linguagem natural do que mudou, e link `file:line` do teste que prova.
 16. Commit e push na branch do contrato, condicionados a `harness finish`

@@ -91,6 +91,27 @@ def test_step_five_reconciles_with_a_command_instead_of_asking_for_a_look() -> N
     assert "progress_contract_mismatch" in detail
 
 
+def test_the_cycle_says_when_to_record_a_decision_and_when_to_record_a_lesson() -> None:
+    """Contrato `spine-decisoes-e-licoes` (§5.2 e §5.3 do design).
+
+    Os dois verbos existirem não basta: o ciclo precisa dizer o GATILHO de cada
+    um, senão eles ficam em disco sem ninguém acionar — o mesmo defeito das stop
+    conditions em prosa antes do incremento 1. E precisa dizer, junto, que o
+    agente anota a lição mas NÃO a aplica: auto-modificação do harness pelo
+    próprio agente é a camada que o design manda não construir."""
+    block = render_lifecycle_block()
+    detail = render_lifecycle_detail()
+
+    assert "harness decide" in block
+    assert "harness lesson" in block
+    assert "harness decide" in detail
+    assert "harness lesson" in detail
+    # o gatilho da decisão: descartar alternativa por razão não óbvia
+    assert "descart" in detail
+    # a fronteira da lição: quem compila é o humano
+    assert "humano" in detail
+
+
 def test_step_nine_says_what_to_do_when_the_reproof_finds_a_regression() -> None:
     """Passo 9 do contrato `re-prova-incremental` (§6 do design).
 

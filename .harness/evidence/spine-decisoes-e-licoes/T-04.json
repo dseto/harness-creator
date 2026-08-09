@@ -1,0 +1,14 @@
+{
+  "feature_id": "T-04",
+  "contract": "spine-decisoes-e-licoes",
+  "desc": "A sessão nova já começa sabendo das decisões recentes do projeto, sem ninguém precisar procurá-las",
+  "files": [
+    "src/harness/session_start.py",
+    "tests/test_session_start.py",
+    "src/harness/spine.py"
+  ],
+  "verify_cmd": "pytest tests/test_session_start.py -q",
+  "recorded_at": "2026-08-09T13:02:20.680061+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:09a7d64daa46d40b3724b869e5bae678e31bb7b2495c6861993da9103ee11f57"
+}
