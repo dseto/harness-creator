@@ -20,6 +20,7 @@ from harness.verify import (
     detect_file_lock_hint,
     evidence_path,
     mark_feature_passed,
+    mark_feature_regressed,
     normalize_command_head,
     run_verify,
 )
@@ -509,6 +510,41 @@ def test_mark_feature_passed_nonexistent_feature_raises_verify_error(tmp_path: P
 def test_mark_feature_passed_missing_feature_list_raises_verify_error(tmp_path: Path) -> None:
     with pytest.raises(VerifyError):
         mark_feature_passed(tmp_path, "T-01")
+
+
+def test_mark_feature_regressed_takes_the_proof_back_without_touching_the_rest(
+    tmp_path: Path,
+) -> None:
+    """Rebaixamento da re-prova incremental: `passes` volta a false e mais nada
+    muda — a evidência antiga fica no lugar (vira `evidence_stale`, que é
+    informação), e a feature irmã não é afetada."""
+    _write_feature_list(
+        tmp_path,
+        [
+            {"id": "T-01", "desc": "Alvo", "files": ["a.py"], "verify_cmd": _true_cmd(),
+             "depends": [], "passes": True},
+            {"id": "T-02", "desc": "Outra", "files": ["b.py"], "verify_cmd": _true_cmd(),
+             "depends": ["T-01"], "passes": True},
+        ],
+    )
+
+    result_path = mark_feature_regressed(tmp_path, "T-01")
+
+    data = json.loads(result_path.read_text(encoding="utf-8"))
+    features_by_id = {f["id"]: f for f in data["features"]}
+    assert features_by_id["T-01"]["passes"] is False
+    assert features_by_id["T-02"]["passes"] is True
+    assert data["contract"] == "exemplo-feature"
+
+
+def test_mark_feature_regressed_nonexistent_feature_raises_verify_error(tmp_path: Path) -> None:
+    _write_feature_list(
+        tmp_path,
+        [{"id": "T-01", "desc": "x", "files": [], "verify_cmd": _true_cmd(), "depends": [], "passes": True}],
+    )
+
+    with pytest.raises(VerifyError, match="T-99"):
+        mark_feature_regressed(tmp_path, "T-99")
 
 
 # ---------------- Item 7 do backlog issue #1: detect_file_lock_hint (detecção-only) ----------------

@@ -894,6 +894,176 @@ def test_verify_subcommand_marks_passes_true_by_default(
     assert features_by_id["T-02"]["passes"] is False
 
 
+# ---------------- re-prova incremental no `verify` (§6 do design) ----------------
+
+
+def _write_coupled_feature_list(tmp_path: Path, done_cmd: str) -> None:
+    """T-01 já provada e T-02 pendente, compartilhando `src/a.py`.
+
+    Provas DIFERENTES de propósito: prova idêntica à da tarefa atual é
+    deliberadamente pulada pela seleção (acabou de rodar verde), e o teste ficaria
+    verde sem exercitar nada.
+    """
+    payload = {
+        "contract": "exemplo-feature",
+        "compiled_at": "2026-07-16T12:00:00+00:00",
+        "features": [
+            {
+                "id": "T-01",
+                "desc": "Feature ja concluida",
+                "files": ["src/a.py"],
+                "verify_cmd": done_cmd,
+                "depends": [],
+                "passes": True,
+            },
+            {
+                "id": "T-02",
+                "desc": "Feature em andamento",
+                "files": ["src/a.py"],
+                "verify_cmd": _true_cmd() + " ",
+                "depends": [],
+                "passes": False,
+            },
+        ],
+    }
+    _write(
+        tmp_path / ".harness" / "feature_list.json",
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+    )
+
+
+def test_verify_green_that_broke_a_finished_task_exits_two_and_says_which(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Fechar uma fatia não pode declarar sucesso quando ela quebrou outra.
+
+    Exit 2 é a mesma convenção de `budget` e `reconcile`: veredito legítimo de
+    parada, distinto de erro de execução (1) e de sucesso (0).
+    """
+    _write_coupled_feature_list(tmp_path, _exit_code_cmd(1))
+
+    monkeypatch.setattr(sys, "argv", ["harness", "verify", "T-02", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    # o stdout continua sendo SÓ o JSON da evidência da tarefa que passou
+    assert json.loads(captured.out)["feature_id"] == "T-02"
+    assert "T-01" in captured.err
+
+    features_by_id = {
+        f["id"]: f
+        for f in json.loads(
+            (tmp_path / ".harness" / "feature_list.json").read_text(encoding="utf-8")
+        )["features"]
+    }
+    assert features_by_id["T-01"]["passes"] is False, "a tarefa quebrada volta para a fila"
+    assert features_by_id["T-02"]["passes"] is True, "a tarefa que passou continua provada"
+
+
+def test_verify_green_with_intact_neighbours_stays_quiet_and_exits_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Sem regressão, nenhum texto novo: aviso a cada verify verde treina a
+    ignorar aviso."""
+    _write_coupled_feature_list(tmp_path, _true_cmd())
+
+    monkeypatch.setattr(sys, "argv", ["harness", "verify", "T-02", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    captured = capsys.readouterr()
+    assert "re-prova" not in captured.err
+
+    features_by_id = {
+        f["id"]: f
+        for f in json.loads(
+            (tmp_path / ".harness" / "feature_list.json").read_text(encoding="utf-8")
+        )["features"]
+    }
+    assert features_by_id["T-01"]["passes"] is True
+
+
+def test_no_reproof_flag_turns_the_check_off(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Escape hatch para quando a própria re-prova é o problema (prova antiga
+    lenta, ambiente meio quebrado). Explícito na linha de comando, nunca
+    default — desligar em silêncio seria a proteção que não existe."""
+    _write_coupled_feature_list(tmp_path, _exit_code_cmd(1))
+
+    monkeypatch.setattr(
+        sys, "argv",
+        ["harness", "verify", "T-02", "--dir", str(tmp_path), "--no-reproof"],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    capsys.readouterr()
+
+    features_by_id = {
+        f["id"]: f
+        for f in json.loads(
+            (tmp_path / ".harness" / "feature_list.json").read_text(encoding="utf-8")
+        )["features"]
+    }
+    assert features_by_id["T-01"]["passes"] is True
+
+
+def test_parallel_fleet_mode_does_not_demote_other_agents_tasks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--no-mark-passed` é o modo de fleet paralelo. Rebaixar tarefa de OUTRO
+    agente ali é exatamente a corrida de escrita que a flag existe para evitar."""
+    _write_coupled_feature_list(tmp_path, _exit_code_cmd(1))
+
+    monkeypatch.setattr(
+        sys, "argv",
+        ["harness", "verify", "T-02", "--dir", str(tmp_path), "--no-mark-passed"],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    capsys.readouterr()
+
+    features_by_id = {
+        f["id"]: f
+        for f in json.loads(
+            (tmp_path / ".harness" / "feature_list.json").read_text(encoding="utf-8")
+        )["features"]
+    }
+    assert features_by_id["T-01"]["passes"] is True
+
+
+def test_a_broken_reproof_never_costs_the_verification_that_already_passed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A prova da tarefa atual já foi gravada quando a re-prova roda. Explodir
+    aqui apagaria um verde legítimo por causa de um subproduto — mas o aviso
+    aparece, porque proteção que falhou em silêncio é pior que proteção
+    ausente."""
+    import harness.regression as regression_module
+
+    def _explode(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise RuntimeError("contrato ilegivel")
+
+    monkeypatch.setattr(regression_module, "run_reproof", _explode)
+    _write_coupled_feature_list(tmp_path, _true_cmd())
+
+    monkeypatch.setattr(sys, "argv", ["harness", "verify", "T-02", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["feature_id"] == "T-02"
+    assert "re-prova" in captured.err
+
+
 def test_verify_subcommand_no_mark_passed_leaves_feature_list_unchanged(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

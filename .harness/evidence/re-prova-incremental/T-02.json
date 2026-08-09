@@ -1,0 +1,15 @@
+{
+  "feature_id": "T-02",
+  "contract": "re-prova-incremental",
+  "desc": "Uma tarefa já dada como pronta que voltou a falhar deixa de constar como pronta, com o registro da falha, em vez de continuar alegando o que não é mais verdade",
+  "files": [
+    "src/harness/regression.py",
+    "tests/test_regression.py",
+    "src/harness/verify.py",
+    "tests/test_verify.py"
+  ],
+  "verify_cmd": "pytest tests/test_regression.py -q",
+  "recorded_at": "2026-08-09T10:17:33.431650+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:6fe83c4d5e4ea5dcb9ec3b35b482d3083434f0d1814921b28043337c451ef1a9"
+}

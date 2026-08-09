@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-01",
+  "contract": "re-prova-incremental",
+  "desc": "Ao fechar uma tarefa, o harness sabe dizer quais tarefas já concluídas correm risco de ter sido quebradas por ela — pelo parentesco de arquivos, sem repetir prova",
+  "files": [
+    "src/harness/regression.py",
+    "tests/test_regression.py"
+  ],
+  "verify_cmd": "pytest tests/test_regression.py -q",
+  "recorded_at": "2026-08-09T10:17:38.487177+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:42086613bdca363c027d07d56ffa73a0f67eb0142ced0774828619a4f4ed923d"
+}

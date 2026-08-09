@@ -141,7 +141,9 @@ sempre exige aprovação humana.
 6. Escolher exatamente UMA feature pendente.
 7. Planejar a implementação da feature escolhida.
 8. Implementar a mudança dentro do raio de impacto declarado.
-9. Rodar `verify_cmd` da tarefa.
+9. Rodar `verify_cmd` da tarefa — o `harness verify` ainda re-prova sozinho as
+   tarefas concluídas que compartilham arquivo com esta; exit 2 = regressão a
+   consertar antes de seguir.
 10. Se falhar: consultar `harness budget --feature <id>` e obedecer o
     veredito — autocorrigir e re-rodar só enquanto ele disser `continue`.
 11. Registrar a prova (evidência da verificação bem-sucedida).

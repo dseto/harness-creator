@@ -1,0 +1,16 @@
+{
+  "feature_id": "T-04",
+  "contract": "re-prova-incremental",
+  "desc": "O ciclo e a documentação do projeto dizem o que fazer quando a verificação acusa regressão numa tarefa antiga",
+  "files": [
+    "src/harness/lifecycle.py",
+    "tests/test_lifecycle.py",
+    "README.md",
+    "docs/plugin/ARCHITECTURE.md",
+    "AGENTS.md"
+  ],
+  "verify_cmd": "pytest tests/test_lifecycle.py -q",
+  "recorded_at": "2026-08-09T10:16:39.955963+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:07358fcc471ba5d63c8e2157872d56e8600a1d79370000b21aa82135a811e360"
+}

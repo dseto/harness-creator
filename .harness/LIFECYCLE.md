@@ -63,6 +63,29 @@ aprovado e só devolve o controle ao humano em estado retomável.
    contrato (build, lint, suíte de teste) — a prova executável de que a
    implementação funciona.
 
+   Verde nesta tarefa não significa verde no repositório: ela pode ter
+   quebrado uma tarefa já concluída. Por isso o `harness verify` faz também a
+   **re-prova incremental** (§6 do design) — re-roda o `verify_cmd` das
+   tarefas já `passes: true` que compartilham ARQUIVO com esta, a interseção
+   declarada em `files[]`, nunca a suíte inteira (suíte completa é o gate
+   final; dentro do loop ela só encarece a volta).
+
+   Leia o exit code:
+
+   - exit code 0 — nada acoplado regrediu. Siga.
+   - exit code 2 — **regressão**: alguma tarefa concluída voltou a falhar. Ela já foi
+     rebaixada para `passes: false`, com a tentativa registrada, e o
+     `harness supervise` volta a devolvê-la. Conserte antes de escolher outra
+     fatia: o diff suspeito ainda tem o tamanho de uma iteração, e é aqui que
+     o conserto é barato.
+   - exit code 1 — erro de execução do próprio comando (o de sempre).
+
+   Um item `SEM VEREDITO` na saída é falha de ambiente (timeout, prova no
+   runtime floor), não regressão: ninguém é rebaixado, mas aquela prova
+   **não** foi confirmada — trate como falha de infraestrutura (passo 10).
+   `--no-reproof` desliga a checagem; desligar custa exatamente a detecção de
+   regressão entre fatias.
+
 10. **Se falhar: consultar o disjuntor e obedecer o veredito.** Loop de
     autocorreção (Fase 3): o agente conserta a própria falha e testa de
     novo, sem envolver o humano — mas não indefinidamente, e não por

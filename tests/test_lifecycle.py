@@ -89,6 +89,24 @@ def test_step_five_reconciles_with_a_command_instead_of_asking_for_a_look() -> N
     # justificam trocar o passo, e citá-las é o que ensina o que procurar.
     assert "evidence_stale" in detail
     assert "progress_contract_mismatch" in detail
+
+
+def test_step_nine_says_what_to_do_when_the_reproof_finds_a_regression() -> None:
+    """Passo 9 do contrato `re-prova-incremental` (§6 do design).
+
+    `harness verify` passou a re-provar sozinho as tarefas já concluídas que
+    compartilham arquivo com a atual, e a sair com exit code 2 quando alguma
+    delas regrediu. Um exit code novo que o ciclo não explica vira ruído: o
+    agente vê "2", conclui que o verde valeu e segue — que é precisamente a
+    regressão silenciosa que a re-prova existe para acabar."""
+    block = render_lifecycle_block()
+    detail = render_lifecycle_detail()
+
+    assert "re-prova" in block
+    assert "re-prova" in detail
+    # O que o agente precisa saber para agir: o código de saída e o efeito.
+    assert "exit 2" in detail or "exit code 2" in detail
+    assert "passes" in detail
     # O aviso chega sozinho na abertura; o passo existe para quando ele NÃO
     # chegou (sessão sem o hook, `--continue`, execução fora do Claude Code).
     assert "SessionStart" in detail

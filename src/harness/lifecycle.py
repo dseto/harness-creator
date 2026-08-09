@@ -41,7 +41,9 @@ def render_lifecycle_block() -> str:
 6. Escolher exatamente UMA feature pendente.
 7. Planejar a implementação da feature escolhida.
 8. Implementar a mudança dentro do raio de impacto declarado.
-9. Rodar `verify_cmd` da tarefa.
+9. Rodar `verify_cmd` da tarefa — o `harness verify` ainda re-prova sozinho as
+   tarefas concluídas que compartilham arquivo com esta; exit 2 = regressão a
+   consertar antes de seguir.
 10. Se falhar: consultar `harness budget --feature <id>` e obedecer o
     veredito — autocorrigir e re-rodar só enquanto ele disser `continue`.
 11. Registrar a prova (evidência da verificação bem-sucedida).
@@ -125,6 +127,29 @@ aprovado e só devolve o controle ao humano em estado retomável.
 9. **Rodar `verify_cmd` da tarefa.** Comando de verificação vindo do
    contrato (build, lint, suíte de teste) — a prova executável de que a
    implementação funciona.
+
+   Verde nesta tarefa não significa verde no repositório: ela pode ter
+   quebrado uma tarefa já concluída. Por isso o `harness verify` faz também a
+   **re-prova incremental** (§6 do design) — re-roda o `verify_cmd` das
+   tarefas já `passes: true` que compartilham ARQUIVO com esta, a interseção
+   declarada em `files[]`, nunca a suíte inteira (suíte completa é o gate
+   final; dentro do loop ela só encarece a volta).
+
+   Leia o exit code:
+
+   - exit code 0 — nada acoplado regrediu. Siga.
+   - exit code 2 — **regressão**: alguma tarefa concluída voltou a falhar. Ela já foi
+     rebaixada para `passes: false`, com a tentativa registrada, e o
+     `harness supervise` volta a devolvê-la. Conserte antes de escolher outra
+     fatia: o diff suspeito ainda tem o tamanho de uma iteração, e é aqui que
+     o conserto é barato.
+   - exit code 1 — erro de execução do próprio comando (o de sempre).
+
+   Um item `SEM VEREDITO` na saída é falha de ambiente (timeout, prova no
+   runtime floor), não regressão: ninguém é rebaixado, mas aquela prova
+   **não** foi confirmada — trate como falha de infraestrutura (passo 10).
+   `--no-reproof` desliga a checagem; desligar custa exatamente a detecção de
+   regressão entre fatias.
 
 10. **Se falhar: consultar o disjuntor e obedecer o veredito.** Loop de
     autocorreção (Fase 3): o agente conserta a própria falha e testa de
