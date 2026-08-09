@@ -1,0 +1,14 @@
+{
+  "feature_id": "T-04",
+  "contract": "reconciliacao-de-abertura",
+  "desc": "A sessão nasce já avisada das divergências, sem precisar que alguém lembre de rodar o comando — e nunca perde o contexto por causa dessa checagem",
+  "files": [
+    "src/harness/session_start.py",
+    "tests/test_session_start.py",
+    "src/harness/reconcile.py"
+  ],
+  "verify_cmd": "pytest tests/test_session_start.py -q",
+  "recorded_at": "2026-08-09T05:20:11.374710+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:d48149f91ac124a9883509770897f74c14c77c4027560110c3035e7f67e689d2"
+}

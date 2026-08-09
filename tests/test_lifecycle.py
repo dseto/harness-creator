@@ -66,6 +66,34 @@ def test_the_lifecycle_detail_covers_every_step_and_names_its_sources() -> None:
     assert "harness.contract.get_stop_conditions" in detail
 
 
+def test_step_five_reconciles_with_a_command_instead_of_asking_for_a_look() -> None:
+    """Passo 5 do contrato `reconciliacao-de-abertura` (§7.4 do design de loop
+    engineering).
+
+    O texto anterior era "Checar `git log`" — um passo que o agente cumpre
+    olhando e concluindo o que quiser, e que não olha para nada do que de fato
+    diverge: prova cujo `files_hash` não bate mais, tarefa marcada como passando
+    sem arquivo de prova, `progress.md` descrevendo outra demanda. Nada disso
+    aparece num `git log`.
+
+    Agora existe a checagem por máquina (`harness reconcile`), e o passo precisa
+    mandar RODAR e dizer o que fazer com divergência — senão o mecanismo fica em
+    disco sem ninguém acionar, que foi exatamente o defeito das stop conditions
+    em prosa que o contrato anterior corrigiu."""
+    block = render_lifecycle_block()
+    detail = render_lifecycle_detail()
+
+    assert "harness reconcile" in block
+    assert "harness reconcile" in detail
+    # As duas divergências que o `git log` nunca mostraria — são elas que
+    # justificam trocar o passo, e citá-las é o que ensina o que procurar.
+    assert "evidence_stale" in detail
+    assert "progress_contract_mismatch" in detail
+    # O aviso chega sozinho na abertura; o passo existe para quando ele NÃO
+    # chegou (sessão sem o hook, `--continue`, execução fora do Claude Code).
+    assert "SessionStart" in detail
+
+
 def test_the_generated_lifecycle_detail_is_a_managed_artifact_not_residue() -> None:
     """`.harness/LIFECYCLE.md` é gerado por `install_lifecycle` a cada
     `compile-session`. Mudar o texto do lifecycle (como fez o passo 10 deste

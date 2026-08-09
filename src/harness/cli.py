@@ -281,6 +281,14 @@ def main() -> None:
     bud.add_argument("--feature", required=True, help="Id da feature em .harness/feature_list.json")
     bud.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
 
+    rec = sub.add_parser(
+        "reconcile",
+        help="Reconcilia estado declarado × estado real na abertura da sessão — "
+        "prova velha, tarefa marcada sem prova, sobra na tree, progresso de outra "
+        "demanda. Só leitura",
+    )
+    rec.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+
     aud_team = sub.add_parser("audit-team", help="Audita os artefatos de time da Fase 4 — score + findings JSON")
     aud_team.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
 
@@ -780,6 +788,23 @@ def main() -> None:
         # execução no resto da CLI — parar por budget é resultado legítimo do
         # comando, não falha dele.
         sys.exit(0 if report["verdict"] == CONTINUE else 2)
+
+    if args.command == "reconcile":
+        import harness.reconcile as reconcile_module
+
+        try:
+            report = reconcile_module.reconcile(Path(args.dir))
+        except Exception as exc:  # noqa: BLE001 — ver docstring abaixo
+            # Falhar ao PRODUZIR o relatório não pode ser confundido com "não
+            # há divergência". Este comando é consultado na abertura da sessão
+            # para decidir se dá para continuar; um exit 0 por não ter
+            # conseguido olhar seria a resposta mais perigosa possível.
+            print(f"erro: não foi possível reconciliar: {exc}", file=sys.stderr)
+            sys.exit(1)
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+        # Exit 2 = há divergência, mesma convenção de `harness budget`: resultado
+        # legítimo do comando, não falha dele (1 segue sendo erro de execução).
+        sys.exit(2 if report["divergences"] else 0)
 
     if args.command == "finish":
         from harness.finish import audit_closure, sweep_disposables

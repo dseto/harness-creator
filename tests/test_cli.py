@@ -1195,7 +1195,7 @@ def test_every_dir_taking_subcommand_refuses_a_nonexistent_dir(
     comando é o que deixou `compile` certo e `analyze`/`audit` errados."""
     ghost = str(tmp_path / "nao-existe")
     for command in ("analyze", "compile", "audit", "audit-runtime", "preflight",
-                    "compile-session", "supervise", "doctor", "status"):
+                    "compile-session", "supervise", "doctor", "status", "reconcile"):
         assert _run(monkeypatch, command, "--dir", ghost) == 2, command
     assert not Path(ghost).exists()
 
@@ -1225,3 +1225,78 @@ def test_audit_exits_one_when_a_critical_finding_exists(
     assert report["score"] == 60
     assert any(f["severity"] == "critical" for f in report["findings"])
     assert code == 1, "critical com score exatamente 60 saía 0"
+
+
+# ---------------------------------------------------------------------------
+# harness reconcile (contrato `reconciliacao-de-abertura`, T-02)
+# ---------------------------------------------------------------------------
+
+def _reconcilable_repo(root: Path, *, contract: str, progress_contract: str) -> None:
+    """Repo com contrato compilado e um `progress.md` que pode ou não estar
+    falando da mesma demanda — a divergência que só existe na abertura."""
+    harness_dir = root / ".harness"
+    harness_dir.mkdir(parents=True, exist_ok=True)
+    (harness_dir / "feature_list.json").write_text(
+        json.dumps({
+            "contract": contract,
+            "features": [{
+                "id": "T-01", "desc": "faz a coisa", "files": [], "verify_cmd": "pytest -q",
+                "depends": [], "cwd": None, "passes": False,
+            }],
+        }, indent=2),
+        encoding="utf-8",
+    )
+    (harness_dir / "progress.md").write_text(
+        "# Claude Progress\n\nContrato: " + chr(96) + progress_contract + chr(96) + "\n",
+        encoding="utf-8",
+    )
+
+
+def test_reconcile_exits_zero_and_prints_the_report_when_state_is_coherent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Tarefa pendente NÃO é divergência de abertura — é o estado de quem está
+    começando. Se saísse 2 aqui, o passo 5 do lifecycle mandaria parar em toda
+    sessão de trabalho normal."""
+    _reconcilable_repo(tmp_path, contract="demo", progress_contract="demo")
+
+    code = _run(monkeypatch, "reconcile", "--dir", str(tmp_path))
+
+    report = json.loads(capsys.readouterr().out)
+    assert report["contract"] == "demo"
+    assert report["divergences"] == []
+    assert code == 0
+
+
+def test_reconcile_exits_two_when_the_declared_state_does_not_match(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Mesma convenção de `harness budget`: 2 é veredito legítimo do comando
+    (há divergência), não falha de execução — um `if` de shell decide sem
+    parsear JSON, e 1 continua significando erro de execução."""
+    _reconcilable_repo(tmp_path, contract="demo", progress_contract="contrato-antigo")
+
+    code = _run(monkeypatch, "reconcile", "--dir", str(tmp_path))
+
+    report = json.loads(capsys.readouterr().out)
+    assert [d["kind"] for d in report["divergences"]] == ["progress_contract_mismatch"]
+    assert code == 2
+
+
+def test_reconcile_exits_one_when_the_report_cannot_be_produced(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Falhar ao PRODUZIR o relatório não pode virar "não há divergência":
+    exit 0 aqui faria o passo 5 declarar o repo íntegro por não ter conseguido
+    olhar para ele."""
+    import harness.reconcile as reconcile_module
+
+    def _explode(_target: Path) -> dict:
+        raise OSError("disco sumiu no meio da leitura")
+
+    monkeypatch.setattr(reconcile_module, "reconcile", _explode)
+
+    code = _run(monkeypatch, "reconcile", "--dir", str(tmp_path))
+
+    assert code == 1
+    assert "erro" in capsys.readouterr().err

@@ -36,7 +36,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from harness.branching import unmanaged_dirty_paths
+from harness.branching import is_git_repository, unmanaged_dirty_paths
 from harness.contract import FEATURE_LIST_FILE
 from harness.killswitch import SENTINEL_RELATIVE_PATH, is_disabled
 from harness.verify import compute_files_hash, evidence_path
@@ -76,7 +76,17 @@ def _tracked_dirty_paths(target_dir: Path) -> list[str]:
     branch, fechar a demanda), e duplicar a regra é como ela fica inconsistente.
     Repo sem git -> lista vazia: o `finish` degrada como o resto do harness em
     sandbox/e2e, em vez de virar erro.
+
+    A checagem de raiz vem ANTES do subprocesso, e não é otimização: `git
+    status` sobe diretórios até encontrar um repo, então rodá-lo num alvo que
+    não é raiz devolvia a sujeira do repositório DE CIMA — um tmp aninhado num
+    home versionado acusava `.claude/CLAUDE.md` como resíduo do contrato. É a
+    mesma armadilha que `branching._has_git_root` já existia para evitar (lá,
+    criar a branch no repo errado), e reusar aquela função é o que impede as
+    duas respostas de divergirem.
     """
+    if not is_git_repository(target_dir):
+        return []
     try:
         proc = subprocess.run(
             ["git", "status", "--porcelain", "-uno"],

@@ -1,0 +1,14 @@
+{
+  "feature_id": "T-01",
+  "contract": "reconciliacao-de-abertura",
+  "desc": "A sessão pode conferir, antes de começar, se o que está anotado como pronto ainda é verdade no código — sem confundir tarefa pendente com divergência",
+  "files": [
+    "src/harness/reconcile.py",
+    "tests/test_reconcile.py",
+    "src/harness/finish.py"
+  ],
+  "verify_cmd": "pytest tests/test_reconcile.py -q",
+  "recorded_at": "2026-08-09T05:19:52.024338+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:0aa6f0d12bf661026492a106474f4c71f9cffc96698f86b133f0604ced8810fe"
+}

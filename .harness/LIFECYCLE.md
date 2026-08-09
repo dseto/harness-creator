@@ -23,9 +23,29 @@ aprovado e só devolve o controle ao humano em estado retomável.
    uma com seu status (`pending`/`done`) e critério de verificação
    (`verify_cmd`).
 
-5. **Checar `git log`.** Confirma o que já foi commitado de fato, cruzando
-   com o que `.harness/progress.md`/`feature_list.json` alegam — detecta
-   divergência entre estado declarado e estado real do repositório.
+5. **Rodar `harness reconcile`.** Compara o que o repositório DECLARA com o
+   que ele TEM, e devolve as divergências em JSON (exit 0 = íntegro, 2 = há
+   divergência, 1 = não foi possível checar). São quatro tipos, e nenhum
+   deles apareceria num `git log` — que era o que este passo pedia antes:
+
+   - `evidence_stale` — o `files_hash` gravado na prova não bate com o
+     conteúdo atual dos `files[]`: a tarefa está marcada como feita, mas o
+     código mudou depois da prova. Rode `harness verify <id>` de novo.
+   - `evidence_missing` — tarefa com `passes: true` e nenhum arquivo de
+     evidência, ou seja, marcada à mão.
+   - `progress_contract_mismatch` — o `.harness/progress.md` descreve um
+     contrato diferente do `feature_list.json`. É o resumo que você acabou de
+     ler no passo 3; se ele é de outra demanda, tudo que você concluiu dele
+     está errado. Rode `harness compile-session` para regenerá-lo.
+   - `tree_residue` / `killswitch_active` — sobra de outro contexto na
+     working tree, ou o harness rodando em no-op.
+
+   Na sessão iniciada pelo Claude Code o hook `SessionStart` já injeta este
+   relatório sozinho, e o passo é a conferência de que ele foi lido. Rode o
+   comando à mão quando o aviso não chegou — sessão retomada, execução fora
+   do Claude Code, ou hook desinstalado. **Divergência não é ruído a
+   registrar: é trabalho a fazer antes de escolher uma fatia.** Seguir em
+   cima de anotação errada é como o trabalho da sessão anterior se perde.
 
 6. **Escolher exatamente UMA feature pendente.** Disciplina de escopo: a
    sessão trabalha em uma única feature por vez, nunca em paralelo dentro

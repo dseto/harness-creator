@@ -129,7 +129,7 @@ automática: ele existe para mostrar o estado real, não para corrigi-lo.
 Detalhe completo do preflight (tabela de checks, contrato do JSON, decisões de
 arquitetura): [docs/preflight.md](docs/preflight.md).
 
-## CLI — os 21 subcomandos
+## CLI — os 22 subcomandos
 
 Todos aceitam `--dir <alvo>` (default `.`) e só operam sobre um diretório que
 já existe: um `--dir` com erro de digitação sai com código 2 sem escrever nada.
@@ -144,6 +144,7 @@ já existe: um `--dir` com erro de digitação sai com código 2 sem escrever na
 | `harness compile-contract --slug <slug>` | `spec.md` + `Plans.md` → `.harness/feature_list.json`. **Sem `approved_by`/`approved_at`, não escreve um byte** |
 | `harness compile-session` | Fase 2 — branch `contract/<slug>`, permissions enumeradas do raio de impacto, `boundary_guard.py`, lifecycle de 17 passos, templates e os hooks SessionStart/Stop |
 | `harness verify <id>` | Fase 3 — roda o `verify_cmd` real e grava `.harness/evidence/<contrato>/<id>.json`. Marca `passes:true` por padrão desde a v0.23.0 |
+| `harness reconcile` | Reconcilia estado declarado × real na abertura da sessão: prova velha, tarefa marcada sem prova, sobra na tree, progresso de outra demanda. Só leitura; exit 2 quando há divergência |
 | `harness supervise` | Devolve a próxima feature pronta respeitando `depends[]`. Leitura síncrona, não daemon |
 | `harness budget --feature <id>` | Disjuntor do loop: conta o rastro de tentativas e devolve `continue`/`stop_same_failure`/`stop_iterations`. Só leitura; exit 2 quando manda parar |
 | `harness finish` | Encerra a demanda: audita o fecho e, só se aprovado, varre os descartáveis do `.harness/`. **Nunca toca git** |
@@ -294,6 +295,35 @@ Base de projeto: [docs/reference/loop-engineering-design.md](docs/reference/loop
 §4.2 (budget mecânico), §5.1 (histórico de tentativas), §8.2 (padrão
 repetido).
 
+### Reconciliação na abertura
+
+O harness sempre conferiu se o que está anotado como pronto ainda é verdade —
+mas só no FECHO (`harness finish`), quando a sessão já gastou seu tempo
+acreditando na anotação. `harness reconcile` faz a mesma conferência no INÍCIO,
+e é o passo 5 do lifecycle.
+
+- **Mesma regra, outro momento** (`src/harness/reconcile.py`) — chama
+  `finish.audit_closure` em vez de reimplementar o julgamento: prova cujo
+  `files_hash` não bate com o código atual (`evidence_stale`), tarefa marcada
+  como passando sem arquivo de prova (`evidence_missing`), sobra tracked fora
+  do contrato (`tree_residue`), harness em no-op (`killswitch_active`).
+- **A tradução** — `feature_not_passed` e `no_contract` NÃO são divergência de
+  abertura: tarefa pendente é o estado de quem está começando, e repo sem
+  contrato é bootstrap. Um aviso que aparece em toda sessão é um aviso que
+  ensina a ignorar avisos.
+- **A divergência que só existe na abertura** — `progress_contract_mismatch`:
+  o `.harness/progress.md` descrevendo um contrato diferente do
+  `feature_list.json`. O `finish` não vê porque reescreve o arquivo logo em
+  seguida; na abertura é a mentira mais cara que existe (v0.25.0: o
+  `SessionStart` injetou "nenhuma feature pendente" numa sessão com seis
+  tarefas a fazer).
+- **Chega sozinha** — o hook `SessionStart` injeta a seção de aviso quando há
+  divergência, e nada quando não há. Depender de o agente lembrar de rodar era
+  o mesmo defeito das stop conditions em prosa.
+
+Só leitura, como o `audit_closure`: não roda `verify_cmd`, não conserta, não
+toca rede. Base: §7.4 do mesmo documento.
+
 ## Estrutura do repo
 
 ```
@@ -303,8 +333,8 @@ harness-creator/
 │   └── marketplace.json         # auto-referência p/ instalar como marketplace local
 ├── AGENTS.md                    # 3 blocos gerenciados + prosa humana
 ├── skills/                      # preflight, init, plan, compile, audit, team
-├── src/harness/                 # 34 módulos, uma responsabilidade cada
-│   ├── cli.py                   # dispatch dos 21 subcomandos
+├── src/harness/                 # 35 módulos, uma responsabilidade cada
+│   ├── cli.py                   # dispatch dos 22 subcomandos
 │   │
 │   │                            # -- base (fonte única de cada verdade) --
 │   ├── config.py                # HarnessConfig (pydantic) — schema do yaml
@@ -335,6 +365,7 @@ harness-creator/
 │   ├── verify.py                # roda verify_cmd e grava a evidência
 │   ├── attempts.py              # rastro de tentativas: erro cru + assinatura da falha
 │   ├── budget.py                # disjuntor do loop: continue / stop_* por contagem
+│   ├── reconcile.py             # declarado × real na ABERTURA (reusa audit_closure)
 │   ├── review.py                # state machine do revisor (teto duro de iterações)
 │   ├── supervisor.py            # próxima feature pronta, respeitando depends[]
 │   ├── teams.py                 # catálogo de 6 padrões + análise de domínio
@@ -354,7 +385,7 @@ harness-creator/
 │   └── .gitignore               # a regra de ignore é do próprio produto
 ├── docs/plugin/                 # TUTORIAL, GUIDE, ARCHITECTURE, arquitetura-visual.html
 ├── docs/project/                # ROADMAP, PLAN, laudos e handoffs
-└── tests/                       # 1035 casos (sem Docker/API para compile/audit)
+└── tests/                       # 1058 casos (sem Docker/API para compile/audit)
 ```
 
 Quem decide o que entra no git é a **Seção 3** de
@@ -367,7 +398,7 @@ de compilação que carrega dado de máquina é machine-local e regenerada por
 
 ```powershell
 $env:PYTHONPATH = "src"
-python -m pytest tests -q          # unit + E2E — 1035 casos
+python -m pytest tests -q          # unit + E2E — 1058 casos
 ```
 
 A suíte E2E (`tests/e2e/`) roda inteira sobre repos sintéticos criados em
