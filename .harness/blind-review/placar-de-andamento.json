@@ -1,0 +1,35 @@
+{
+  "contract": "placar-de-andamento",
+  "verdicts": [
+    {
+      "verdict": "fail",
+      "evidence": "T-04 inerte no repo: AGENTS.md:143 e .harness/LIFECYCLE.md:73 ainda carregam o passo 6 antigo, sem nenhuma mencao a 'status --brief' -- a instrucao vive so no gerador src/harness/lifecycle.py:156 e os artefatos compilados nao foram regenerados; nenhum teste guarda essa sincronia",
+      "files_hash": "sha256:38ad634db3a24f46eaa75fd5e7b4539e83c634ae1f90fe3413dfce8330acc7e5",
+      "recorded_at": "2026-08-10T02:10:56.109062+00:00"
+    },
+    {
+      "verdict": "pass",
+      "evidence": "T-04 corrigido na causa: AGENTS.md:143 e .harness/LIFECYCLE.md:77-99 agora sao a saida do gerador (comparado em processo contra render_lifecycle_block/detail), e tests/test_lifecycle.py:266 guarda a sincronia -- verificado que a guarda reprova o estado anterior (HEAD). T-01/T-02/T-03/T-05 aprovados na rodada anterior com execucao real dos tres renders e do hook de statusline. Suite: 1421 passed, 1 skipped.",
+      "files_hash": "sha256:6b170f61bfe4dfb0291d7dff149f5debb3939fc4f45592af3c45a1fd577c0d2c",
+      "recorded_at": "2026-08-10T02:18:26.109786+00:00"
+    },
+    {
+      "verdict": "pass",
+      "evidence": "Delta T-06/T-07 aprovado pelo verificador independente: TUTORIAL.md:122 e :851 (secao B.7b), GUIDE.md:730 (11.1), ARCHITECTURE.md:63-64 (tabela de camadas), :68-75 e :525 (mapa de hooks); versao 0.34.0 nas tres fontes (__init__.py:15, plugin.json:4, marketplace.json:9) e nos 5 marcadores de doc, zero ocorrencia de 0.33.0 fora do CHANGELOG; CHANGELOG.md:3 com a entrada da versao. As tres ressalvas de cobertura que ele levantou foram fechadas: janela do mapa de hooks agora limitada dos dois lados, teste novo ancorado nas linhas da tabela de camadas, e test_version_sync passou a cobrir a entrada de CHANGELOG. Suite: 1431 passed, 1 skipped.",
+      "files_hash": "sha256:1cb5c08d71ed258df4c2d4103ad42c50fda71c237de218bf16a740d74cc3dcb5",
+      "recorded_at": "2026-08-10T02:42:28.451186+00:00"
+    },
+    {
+      "verdict": "pass",
+      "evidence": "Guarda B corrigida e provada por mutacao real (nao so em memoria): tests/test_docs_placar.py:105 passou a fatiar a COLUNA de modulos (row.split('|')[2]); apaguei statusline da lista da camada 3 em ARCHITECTURE.md:63, o teste FALHOU (AssertionError em test_docs_placar.py:120), e restaurei. Guardas A e C ja haviam sido confirmadas pelo verificador (janela do mapa de hooks fechada dos dois lados; CHANGELOG coberto por test_version_sync). Contadores 1434 corretos nos 4 marcadores.",
+      "files_hash": "sha256:05dbfa8effa4d1ef3200b2b6559ea759dd7ececfe00986a7110974494207b1da",
+      "recorded_at": "2026-08-10T02:55:43.579204+00:00"
+    },
+    {
+      "verdict": "pass",
+      "evidence": "8/8 aprovado. T-08: .harness/attempts/ entrou em HARNESS_MANAGED_PREFIXES (branching.py:81-85); verificador confirmou isencao nas duas pontas por unmanaged_dirty_paths ser fonte unica (branching.py:142, finish.py:101), que os dois testes reprovam a tupla antiga (test_branching.py:238 e :263), e que finish.py nao aparece no diff. Guarda da tabela de camadas corrigida para a coluna de modulos (test_docs_placar.py:109-115) e provada por mutacao com controle negativo. Fechei tambem a observacao nao-bloqueante dele: test_branching.py:270 fixa que .harness/ FORA do conjunto gerenciado continua sendo residuo, entao trocar a tupla por ('.harness/',) passa a reprovar.",
+      "files_hash": "sha256:6beb982752da6f2d47e0d8a43fac252d84e61b5f9e5109a6bd5119ea36047ee9",
+      "recorded_at": "2026-08-10T03:11:09.984892+00:00"
+    }
+  ]
+}

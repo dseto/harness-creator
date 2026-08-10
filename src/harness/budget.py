@@ -98,6 +98,46 @@ class BudgetError(Exception):
     """Alvo inexistente: contrato não compilado ou feature fora do contrato."""
 
 
+#: Tradução de cada veredito para uma frase de RESULTADO — o que aconteceu,
+#: em palavras de quem não escreveu o harness. O nome cru (`stop_plateau` e
+#: companhia) continua no JSON, que é da máquina; ele nunca chega ao canal
+#: humano, onde só significa "o programa sabe de algo que você não".
+_HUMAN_VERDICT = {
+    CONTINUE: "ainda dá para seguir tentando dentro do orçamento desta tarefa",
+    STOP_SAME_FAILURE: (
+        "o mesmo erro se repetiu {streak} vezes: o que está errado é a abordagem, "
+        "não a execução"
+    ),
+    STOP_ITERATIONS: (
+        "{consecutive} tentativas seguidas terminaram em vermelho sem nenhum verde "
+        "no meio"
+    ),
+    STOP_TRANSIENT_EXHAUSTED: (
+        "o ambiente não respondeu (rede ou timeout) nem depois das tentativas "
+        "automáticas — isso não é bug no código para consertar tentando de novo"
+    ),
+    STOP_WORSENING: "o resultado está piorando a cada medição, não melhorando",
+    STOP_PLATEAU: "as últimas medições ficaram sem melhora: o loop está girando em falso",
+}
+
+_HUMAN_VERDICT_FALLBACK = "o loop parou por uma condição do orçamento desta tarefa"
+
+
+def human_verdict(report: dict[str, Any]) -> str:
+    """A frase de resultado correspondente ao veredito de `report`.
+
+    Veredito desconhecido cai numa frase genérica em vez de imprimir o nome
+    cru: o objetivo é que NENHUM identificador interno vaze para o humano, e
+    um veredito novo que alguém adicione sem passar por aqui não pode furar
+    essa regra por esquecimento.
+    """
+    template = _HUMAN_VERDICT.get(str(report.get("verdict") or ""), _HUMAN_VERDICT_FALLBACK)
+    return template.format(
+        streak=report.get("same_signature_streak", "várias"),
+        consecutive=report.get("consecutive_failures", "várias"),
+    )
+
+
 def _load_feature_list(target_dir: Path) -> dict[str, Any]:
     path = target_dir / FEATURE_LIST_FILE
     if not path.is_file():

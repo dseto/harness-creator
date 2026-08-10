@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-08",
+  "contract": "placar-de-andamento",
+  "desc": "O rastro de tentativas que o próprio harness escreve deixa de travar o fecho da demanda: `.harness/attempts/` passa a ser artefato gerenciado, como a evidência e o veredito cego",
+  "files": [
+    "src/harness/branching.py",
+    "tests/test_branching.py"
+  ],
+  "verify_cmd": "pytest tests/test_branching.py -q",
+  "recorded_at": "2026-08-10T03:10:52.143316+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:66b6077d1ddf45934304a4e96bb7ac91d013f048160b8de126cf2116b6f3a2a4"
+}

@@ -597,6 +597,63 @@ def test_the_agent_can_actually_run_the_verb(tmp_path: Path) -> None:
         assert f'"{subcommand}"' in generated
 
 
+# ---------------------------------------------------------------------------
+# REGRA 6 — contrato `placar-de-andamento`, T-05: o veredito tem uma tradução
+# de RESULTADO para o humano; o JSON continua com o nome cru para a máquina
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class HumanVerdictCase:
+    verdict: str
+    expect_fragment: str
+    why: str
+
+
+HUMAN_VERDICT_CASES = [
+    HumanVerdictCase("continue", "seguir", "continue: o loop segue"),
+    HumanVerdictCase("stop_same_failure", "mesmo erro", "mesma falha: a abordagem está errada"),
+    HumanVerdictCase("stop_iterations", "tentativas", "teto de iterações estourado"),
+    HumanVerdictCase("stop_transient_exhausted", "ambiente", "ambiente instável, não bug"),
+    HumanVerdictCase("stop_worsening", "piorando", "trajetória piorando"),
+    HumanVerdictCase("stop_plateau", "sem melhora", "platô: girando em falso"),
+]
+
+
+@pytest.mark.parametrize("case", HUMAN_VERDICT_CASES, ids=lambda c: c.why)
+def test_every_verdict_has_a_result_sentence_for_the_human(case: HumanVerdictCase) -> None:
+    from harness.budget import human_verdict
+
+    sentence = human_verdict(
+        {"verdict": case.verdict, "consecutive_failures": 3, "same_signature_streak": 3}
+    )
+
+    assert case.expect_fragment in sentence.lower()
+    # O nome cru do veredito é da máquina: ele fica no JSON, não na frase.
+    assert "stop_" not in sentence
+
+
+def test_an_unknown_verdict_falls_back_instead_of_leaking_its_raw_name() -> None:
+    """Veredito novo que alguém adicione sem passar por aqui não pode vazar
+    `stop_qualquer_coisa` na cara do humano — a frase genérica é pior que uma
+    específica, e infinitamente melhor que jargão."""
+    from harness.budget import human_verdict
+
+    sentence = human_verdict({"verdict": "stop_algo_novo"})
+
+    assert "stop_" not in sentence
+    assert sentence.strip()
+
+
+def test_the_json_keeps_the_raw_verdict_for_the_machine(tmp_path: Path) -> None:
+    _write_feature_list(tmp_path)
+    _write_yaml(tmp_path, 12)
+    _write_trail(tmp_path, ["a", "a", "a"])
+
+    report = check_budget(tmp_path, "T-01")
+
+    assert report["verdict"] == "stop_same_failure"
+
+
 def test_check_budget_writes_nothing(tmp_path: Path) -> None:
     _write_feature_list(tmp_path)
     _write_yaml(tmp_path, 12)

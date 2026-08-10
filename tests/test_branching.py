@@ -235,6 +235,75 @@ def test_the_blind_verdict_is_managed_like_the_evidence(tmp_path: Path) -> None:
     assert ensure_contract_branch(tmp_path, "exemplo-feature") == "contract/exemplo-feature"
 
 
+def test_the_attempt_trail_is_managed_like_the_evidence(tmp_path: Path) -> None:
+    """Terceira ocorrência do MESMO deadlock, achada fechando o contrato
+    `placar-de-andamento`: `.harness/attempts/` ficou de fora dos prefixos
+    gerenciados enquanto `evidence/` e `blind-review/` entraram.
+
+    O rastro de tentativas é escrito exclusivamente por `harness verify` — o
+    `boundary_guard` proíbe editá-lo à mão, e `harness task add-file` recusa
+    caminho de plano de controle. Enquanto ele contasse como "trabalho de outro
+    contexto", toda demanda longa travava no fecho: basta um `verify` depois do
+    primeiro commit para o arquivo virar tracked-sujo, e não existe escape
+    nenhum — nem declarar, nem deixar de registrar (o registro é o que o
+    disjuntor lê).
+    """
+    _init_repo(tmp_path)
+    attempts_dir = tmp_path / ".harness" / "attempts" / "exemplo-feature"
+    attempts_dir.mkdir(parents=True)
+    (attempts_dir / "T-01.jsonl").write_text('{"result": "fail"}\n', encoding="utf-8")
+    _git(tmp_path, "add", ".harness")
+    _git(tmp_path, "commit", "-m", "versiona .harness")
+    (attempts_dir / "T-01.jsonl").write_text(
+        '{"result": "fail"}\n{"result": "pass"}\n', encoding="utf-8"
+    )
+
+    assert ensure_contract_branch(tmp_path, "exemplo-feature") == "contract/exemplo-feature"
+
+
+def test_finish_does_not_call_the_attempt_trail_residue(tmp_path: Path) -> None:
+    """A outra ponta do mesmo julgamento: `harness finish` consome
+    `unmanaged_dirty_paths` para decidir `tree_residue`. Sem esta asserção, a
+    isenção poderia valer só na criação da branch e continuar travando o fecho —
+    que é onde o deadlock aparece de verdade."""
+    from harness.branching import unmanaged_dirty_paths
+
+    porcelain = (
+        " M .harness/attempts/demo/T-04.jsonl\n"
+        " M .harness/evidence/demo/T-04.json\n"
+        " M src/app.py\n"
+    )
+
+    assert unmanaged_dirty_paths(porcelain) == ["src/app.py"]
+
+
+def test_the_exemption_is_per_tree_never_the_whole_control_plane() -> None:
+    """O caso NEGATIVO que fixa o limite da isenção.
+
+    Os testes acima dizem quais árvores do `.harness/` são artefato do harness;
+    nenhum dizia que o RESTO continua sendo resíduo. Sem esta asserção, trocar
+    a tupla por `(".harness/",)` isentaria o plano de controle inteiro — o
+    `feature_list.json` alterado à mão, um hook trocado, o `harness.yaml`
+    reescrito — e a suíte seguiria verde. Apontado pelo verificador cego no
+    contrato `placar-de-andamento`, como cobertura ausente, não defeito
+    presente.
+    """
+    from harness.branching import unmanaged_dirty_paths
+
+    porcelain = (
+        " M .harness/hooks/boundary_guard.py\n"
+        " M .harness/harness.yaml\n"
+        " M .harness/work/demo/spec.md\n"
+        " M .harness/attempts/demo/T-01.jsonl\n"
+    )
+
+    assert unmanaged_dirty_paths(porcelain) == [
+        ".harness/hooks/boundary_guard.py",
+        ".harness/harness.yaml",
+        ".harness/work/demo/spec.md",
+    ]
+
+
 def test_ensure_contract_branch_aborts_when_unmanaged_file_is_dirty_beside_managed(
     tmp_path: Path,
 ) -> None:

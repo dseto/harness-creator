@@ -202,14 +202,26 @@ disjuntor (stop conditions) conta por máquina.
    `additionalContext`; se o schema do transcript não expuser usage, declarar
    advisory e medir só no driver — sem teatro). O backstop de 120 tool calls
    herdado do `budget.py` vira contador no `boundary_guard`.
-3. **Stop conditions compiladas** (fecha o gap nº 5): o frontmatter aceita
-   forma tipada — `{type: consecutive_verify_failures, n: 3}`,
-   `{type: budget_usd, max: X}`, `{type: wall_clock_minutes}`,
-   `{type: impossible_signal}` — compilada para
-   `.harness/stop-conditions.json`; **`verify` passa a gravar tentativas
-   FALHAS** em `.harness/attempts/<id>.jsonl` (hoje falha não deixa rastro).
-   O disjuntor vira contagem por máquina; strings livres continuam aceitas
-   como advisory adicional.
+3. **Stop conditions compiladas** (fecha o gap nº 5) — **parcialmente
+   entregue**, fora deste roadmap (design de loop engineering, §4.2/§8.2):
+   - **Já entregue:** `verify` grava toda tentativa FALHA em
+     `.harness/attempts/<contrato>/<feature>.jsonl`
+     ([`attempts.py`](../src/harness/attempts.py)); o frontmatter já aceita
+     forma tipada para os dois tipos que a máquina sabe contar hoje —
+     `{type: consecutive_verify_failures, n: 3}` e
+     `{type: same_failure_signature}`
+     ([`contract.TYPED_STOP_CONDITIONS`](../src/harness/contract.py)); o
+     disjuntor já é contagem por máquina, não string livre —
+     `budget.py` deriva `stop_same_failure`/`stop_iterations` (e, do §4.3,
+     `stop_worsening`/`stop_plateau`) a partir desses contadores.
+   - **Falta:** os tipos `{type: budget_usd, max: X}` e
+     `{type: wall_clock_minutes}` continuam fora do `TYPED_STOP_CONDITIONS`
+     — exigem o medidor de custo/tempo que só nasce com o item 2 desta fase
+     (`--max-budget-usd` + ledger). `{type: impossible_signal}` também não
+     existe. Falta ainda compilar tudo isso para um `.harness/stop-conditions.json`
+     próprio (hoje os dois tipos entregues vivem só como campo do contrato,
+     sem artefato compilado dedicado). Strings livres continuam aceitas como
+     advisory adicional.
 4. **Hook Stop bloqueante opt-in** (`compile-session --autonomous`): feature
    in_progress sem evidência + attempts < teto → bloqueia o encerramento com
    razão ("rode verify / corrija e re-rode"); attempts ≥ teto OU stop
