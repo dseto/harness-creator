@@ -1,0 +1,17 @@
+{
+  "feature_id": "T-06",
+  "contract": "placar-de-andamento",
+  "desc": "Quem lê a documentação do plugin encontra o placar: tutorial, guia e arquitetura passam a mostrar os três renders, a statusline entre os artefatos gerados e os dois módulos novos na tabela de camadas",
+  "files": [
+    "docs/plugin/TUTORIAL.md",
+    "docs/plugin/GUIDE.md",
+    "docs/plugin/ARCHITECTURE.md",
+    "tests/test_docs_placar.py",
+    ".harness/work/placar-de-andamento/spec.md",
+    ".harness/work/placar-de-andamento/Plans.md"
+  ],
+  "verify_cmd": "pytest tests/test_docs_placar.py -q",
+  "recorded_at": "2026-08-10T03:10:59.707414+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:01dcca1630534c6b63d0ec53c64af52f9a2633bf042814c796b975ae4044c6f1"
+}

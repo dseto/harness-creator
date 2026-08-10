@@ -398,6 +398,30 @@ def main() -> None:
 
     stat = sub.add_parser("status", help="Kill-switch: mostra se o harness está ativo ou desativado")
     stat.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+    # O placar é OPT-IN: sem flag, `status` continua imprimindo o mesmo JSON
+    # estruturado de sempre — é o que `session_start` aponta como fonte de
+    # verdade do kill-switch e o que a issue #52 estabeleceu como único lugar
+    # que conta a verdade. Trocar a saída default quebraria quem já lê isso.
+    # Grupo exclusivo: os dois renders do MESMO estado, para leitores
+    # diferentes (chat x terminal). Pedir os dois na mesma invocação é erro de
+    # uso, não uma escolha silenciosa do programa.
+    stat_render = stat.add_mutually_exclusive_group()
+    stat_render.add_argument(
+        "--brief",
+        action="store_true",
+        help="Placar de andamento em markdown+unicode, para o agente colar no chat (sem ANSI)",
+    )
+    stat_render.add_argument(
+        "--panel",
+        action="store_true",
+        help="Placar de andamento no terminal (cor ANSI só quando a saída é um TTY)",
+    )
+    stat.add_argument(
+        "--watch",
+        type=int,
+        metavar="N",
+        help="Re-renderiza o painel a cada N segundos no terminal (implica --panel; Ctrl+C encerra)",
+    )
 
     doc = sub.add_parser(
         "doctor",
@@ -612,6 +636,7 @@ def main() -> None:
             missing_harness_yaml_warning,
         )
         from harness.session_start import install_session_start
+        from harness.statusline import install_statusline
         from harness.stop_hook import install_stop_hook
         from harness.templates import install_templates, manual_init_scripts
 
@@ -668,6 +693,10 @@ def main() -> None:
         templates_preserved = manual_init_scripts(target_dir)
         session_start_path = install_session_start(target_dir)
         stop_hook_path = install_stop_hook(target_dir)
+        # A barra do CLI é o único render do placar que ninguém precisa pedir:
+        # `replace_foreign=False` porque statusline que o usuário configurou é
+        # decisão dele, não espaço vago para o compilador ocupar.
+        statusline_path = install_statusline(target_dir, replace_foreign=False)
 
         for path in templates_preserved:
             print(
@@ -707,6 +736,7 @@ def main() -> None:
             "templates_preserved": [str(p) for p in templates_preserved],
             "session_start_hook": str(session_start_path),
             "stop_hook": str(stop_hook_path),
+            "statusline_hook": str(statusline_path),
             "branch": branch,
             "extra_allowed_commands_grammar_problem": grammar_problem,
             "test_glob_reconciled": test_glob_reconciled,
@@ -969,7 +999,7 @@ def main() -> None:
         sys.exit(2 if report["divergences"] else 0)
 
     if args.command == "finish":
-        from harness.finish import audit_closure, sweep_disposables
+        from harness.finish import audit_closure, render_human_summary, sweep_disposables
 
         from harness.spine import open_lessons
 
@@ -989,6 +1019,10 @@ def main() -> None:
             for lesson in open_lessons(Path(args.dir))
         ]
         print(json.dumps(report, indent=2, ensure_ascii=False))
+        # Mesma divisão de canal que `harness budget` já usa: o JSON é do
+        # script que consome o comando, a frase é de quem está olhando o
+        # terminal. Misturar os dois no stdout quebraria o primeiro.
+        print(render_human_summary(report), end="", file=sys.stderr)
         sys.exit(1 if report["blockers"] else 0)
 
     if args.command == "decide":
@@ -1105,6 +1139,35 @@ def main() -> None:
         from harness.killswitch import status
         from harness.metrics import friction_summary
         from harness.session_permissions import FEATURE_LIST_FILE, missing_harness_yaml_warning
+
+        if args.watch is not None:
+            if args.watch <= 0:
+                parser.error("--watch espera um intervalo em segundos maior que zero")
+            if args.brief:
+                # O `--brief` existe para ser COLADO no chat, que não se
+                # atualiza sozinho. Um loop de re-render ali só empilharia
+                # blocos repetidos — o watch é do terminal do dev.
+                parser.error("--watch é do painel de terminal; não combina com --brief")
+
+        if args.brief or args.panel or args.watch is not None:
+            from harness import panel
+
+            if args.watch is not None:
+                try:
+                    panel.watch(Path(args.dir), args.watch)
+                except KeyboardInterrupt:
+                    # Ctrl+C é como este comando TERMINA, não como ele falha.
+                    pass
+                sys.exit(0)
+
+            state = panel.collect_state(Path(args.dir))
+            if args.brief:
+                print(panel.render_brief(state), end="")
+            else:
+                # Cor é para quem está olhando; em pipe/arquivo ela viraria
+                # lixo no meio do texto de quem for ler depois.
+                print(panel.render_terminal(state, color=sys.stdout.isatty()), end="")
+            sys.exit(0)
 
         result = status(Path(args.dir))
         # Instrumentação da onda 3: o gate da onda 5 (postura B vs C) precisa

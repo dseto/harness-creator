@@ -119,6 +119,7 @@ fonte canônica: quando esta tabela e aquela seção divergirem, a seção vence
 | 4 | `.harness/hooks/boundary_guard.py` | Guard do raio de impacto + runtime floor, cobre TODO `Bash`/`Edit`/`Write` num único processo | `harness compile` (via `install_boundary_guard`) e `harness compile-session` | não |
 | 5 | `.harness/hooks/session_start.py` | Hook que injeta o estado da sessão anterior | `harness compile-session` | não |
 | 6 | `.harness/hooks/stop_hook.py` | Hook de fim de sessão | `harness compile-session` | não |
+| 6b | `.harness/hooks/statusline.py` | Comando de `statusLine` do Claude Code: uma linha na barra com demanda, progresso, tarefa, tentativa e veredito da última prova | `harness compile-session` — registra a entrada `statusLine` no `settings.local.json`; se você já tinha uma statusline configurada, ela **não** é sobrescrita | não |
 | 7 | `.harness/compiled-state.json` | Registro do que `compile` gerencia (merge não-destrutivo) | `harness compile` | não — estado de máquina |
 | 8 | `.harness/compiled-state-session.json` | Idem, para os hooks de sessão | `harness compile-session` | não — estado de máquina |
 | 9 | `.harness/.gitignore` | As regras de ignore do que é machine-local | `compile` / `compile-session` | **sim** — é a própria regra |
@@ -846,6 +847,37 @@ existe dentro da sessão do Claude Code.
 > **O aviso completo sobre o risco de esquecer o kill-switch ligado** — e por
 > que `harness status` é a única fonte de verdade antes de tratar qualquer
 > sessão como evidência — está em [GUIDE.md § 11](GUIDE.md).
+
+## B.7b Acompanhar o loop sem entender de harness engineering
+
+Durante a implementação passam dezenas de tool calls e nenhuma delas responde
+o que você quer saber: onde estou, o que está sendo feito agora, está indo bem
+e o que vem a seguir. O **placar de andamento** responde as quatro. São três
+renders do MESMO estado — nada é coletado a mais, tudo sai do contrato, do
+rastro de tentativas e da trajetória de métrica que o loop já grava:
+
+```powershell
+harness status --brief --dir .            # bloco markdown; é o que o agente cola no chat
+harness status --panel --dir .            # painel de terminal (cor só quando é TTY)
+harness status --panel --watch 5 --dir .  # re-renderiza a cada 5s, estilo htop
+```
+
+O `--brief` traz progresso `X/N`, a lista de tarefas com estado, a tarefa atual
+com `tentativa n/teto`, a **primeira linha do erro** da última prova como o
+runner a imprimiu, e o próximo passo. O ciclo de trabalho manda o agente colar
+essa saída na abertura de cada iteração, na transição de fatia e em qualquer
+parada — e **proíbe** que ele escreva o placar de cabeça: placar auto-relatado
+é o agente se avaliando, que é justamente o que o harness não aceita.
+
+O terceiro render não precisa ser pedido: `harness compile-session` instala
+`.harness/hooks/statusline.py` e registra a entrada `statusLine` no
+`settings.local.json`, e a barra do Claude Code passa a mostrar demanda,
+progresso, tarefa, tentativa, veredito — e o custo da sessão, quando o próprio
+CLI o fornece. Se você já tinha uma statusline configurada, ela é preservada.
+
+> `harness status` **sem flag** continua imprimindo o mesmo JSON de sempre: o
+> placar é opt-in por flag, e a saída padrão continua sendo a fonte de verdade
+> estruturada do kill-switch.
 
 ## B.8 O ciclo completo da demanda, resumido
 

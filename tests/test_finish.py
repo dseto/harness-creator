@@ -454,6 +454,82 @@ def test_sweep_stub_deixa_o_proximo_contrato_regenerar_o_progresso(tmp_path: Pat
     assert "ENCERRADO" not in text
 
 
+# ---------------------------------------------------------------------------
+# Contrato `placar-de-andamento`, T-05 — o fecho passa a FALAR com o humano
+# ---------------------------------------------------------------------------
+
+def test_the_closure_summary_says_in_plain_words_that_the_demand_is_closed(
+    tmp_path: Path,
+) -> None:
+    """Até aqui `harness finish` só imprimia JSON: quem rodava via a lista de
+    chaves e tinha que interpretar `blockers: []` para saber que deu certo."""
+    from harness.finish import render_human_summary
+
+    _clean_closure(tmp_path)
+    report = audit_closure(tmp_path)
+
+    summary = render_human_summary(report)
+
+    assert "1 de 1" in summary or "1/1" in summary
+    assert "encerrada" in summary.lower() or "fechad" in summary.lower()
+    assert "blockers" not in summary
+
+
+def test_the_closure_summary_says_what_is_missing_when_it_is_blocked(tmp_path: Path) -> None:
+    """Bloqueador em linguagem de resultado: o que falta, não o nome interno
+    do `kind`. `evidence_stale` não diz nada a quem não escreveu o harness."""
+    from harness.finish import render_human_summary
+
+    _make_repo(tmp_path)
+    files = _write_contract(tmp_path)
+    _write_evidence(tmp_path, files=files, files_hash="sha256:desatualizado")
+
+    summary = render_human_summary(audit_closure(tmp_path))
+
+    assert "evidence_stale" not in summary
+    assert "prova" in summary.lower()
+    assert "não" in summary.lower() or "falta" in summary.lower()
+
+
+def test_cli_finish_keeps_json_on_stdout_and_talks_to_the_human_on_stderr(
+    tmp_path: Path,
+) -> None:
+    """A separação é o contrato: quem consome o comando por script lê stdout e
+    não pode receber prosa no meio do JSON; quem está lendo o terminal recebe
+    a frase no stderr, como `harness budget` já faz com a escalada."""
+    _clean_closure(tmp_path)
+
+    proc = subprocess.run(
+        ["python", "-m", "harness.cli", "finish", "--dir", str(tmp_path)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    json.loads(proc.stdout)                     # stdout continua sendo SÓ o JSON
+    assert proc.stdout.lstrip().startswith("{")
+    assert proc.stderr.strip()                  # e o humano tem a frase dele
+    assert "blockers" not in proc.stderr
+
+
+def test_cli_finish_says_out_loud_what_blocked_the_closure(tmp_path: Path) -> None:
+    _make_repo(tmp_path)
+    files = _write_contract(tmp_path)
+    _write_evidence(tmp_path, files=files, files_hash="sha256:desatualizado")
+
+    proc = subprocess.run(
+        ["python", "-m", "harness.cli", "finish", "--dir", str(tmp_path)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+    assert proc.returncode == 1
+    assert json.loads(proc.stdout)["blockers"]
+    assert "T-01" in proc.stderr
+
+
 def test_cli_finish_sweeps_and_exits_0_on_a_clean_closure(tmp_path: Path) -> None:
     _clean_closure(tmp_path)
     progress = tmp_path / ".harness" / "progress.md"

@@ -1,0 +1,20 @@
+{
+  "feature_id": "T-07",
+  "contract": "placar-de-andamento",
+  "desc": "O produto se apresenta na versão que ele realmente é: v0.34.0 nas três fontes manuais, nos marcadores de versão da documentação e com a entrada de CHANGELOG do placar",
+  "files": [
+    "src/harness/__init__.py",
+    ".claude-plugin/plugin.json",
+    ".claude-plugin/marketplace.json",
+    "README.md",
+    "docs/plugin/ARCHITECTURE.md",
+    "docs/plugin/arquitetura-visual.html",
+    "docs/plugin/GUIDE.md",
+    "docs/reference/CHANGELOG.md",
+    "tests/test_version_sync.py"
+  ],
+  "verify_cmd": "pytest tests/test_version_sync.py -q",
+  "recorded_at": "2026-08-10T03:10:56.751238+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:0d8bf4a7ee0b3feb3b1d4d2dd6fe2d069e3d2a7d516adb2a865826a5e51c13f7"
+}

@@ -68,6 +68,27 @@ _DOC_VERSION_MARKERS: tuple[tuple[str, str], ...] = (
 )
 
 
+def test_changelog_has_a_section_for_the_current_version() -> None:
+    """O CHANGELOG ganha a seção da versão corrente no MESMO bump que sobe as
+    três fontes.
+
+    Terceira extensão deste arquivo pelo mesmo defeito de sempre: a lista do
+    que um bump toca estava incompleta. Os testes acima cobriam as fontes
+    manuais e os marcadores de doc, mas nada cobria o documento que responde
+    "o que mudou nesta versão" — dava para subir a versão em sete arquivos,
+    com a suíte verde, e deixar o CHANGELOG uma versão atrás. Apontado pelo
+    verificador cego no contrato `placar-de-andamento`.
+    """
+    changelog = (REPO_ROOT / "docs/reference/CHANGELOG.md").read_text(encoding="utf-8")
+    expected = f"## v{harness.__version__} —"
+
+    assert expected in changelog, (
+        f"docs/reference/CHANGELOG.md não tem seção para a versão corrente — "
+        f"esperava uma linha começando com {expected!r}. Bump de versão toca as "
+        f"3 fontes manuais, os marcadores de doc E a entrada de CHANGELOG."
+    )
+
+
 @pytest.mark.parametrize(
     ("relative_path", "template"),
     _DOC_VERSION_MARKERS,

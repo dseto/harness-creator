@@ -74,6 +74,36 @@ aprovado e só devolve o controle ao humano em estado retomável.
    sessão trabalha em uma única feature por vez, nunca em paralelo dentro
    da mesma sessão — isso mantém o raio de impacto pequeno e revisável.
 
+   **Colar o placar (contrato `placar-de-andamento`).** Rode e cole no chat,
+   como saiu:
+
+       harness status --brief
+
+   Nas TRÊS fronteiras, e só nelas: na **abertura de cada iteração** (antes
+   de rodar a prova do passo 9), na **transição de fatia** (aqui, ao escolher
+   a próxima feature) e em qualquer **parada** (veredito do disjuntor,
+   escalada, fim de sessão). Placar a cada tool call é ruído que mata o
+   sinal — a cadência é a fronteira, não o evento.
+
+   O bloco responde as quatro perguntas que a enxurrada de tool calls não
+   responde: onde estou (tarefa quantas de quantas), o que está sendo feito
+   agora, está indo bem (tentativa n de quantas, a última prova passou?) e o
+   que vem a seguir. Quem acompanha a sessão sem dominar harness engineering
+   não tem outra leitura do andamento.
+
+   **Proibido redigir o placar de cabeça.** A saída é montada por código a
+   partir do `feature_list.json`, do rastro de tentativas e da evidência —
+   COLE o que o comando imprimiu, não escreva a sua versão dele. Placar
+   auto-relatado é self-report, e self-report não vale como prova de
+   andamento neste repositório: um agente que narra "vou bem" enquanto a
+   prova está vermelha é exatamente o que o placar existe para tornar
+   impossível.
+
+   Os outros dois renders da MESMA fonte de dados são do humano, não do
+   agente: `harness status --panel` (com `--watch N`) num segundo terminal, e
+   a statusline que `compile-session` instala na barra do Claude Code.
+   `harness status` sem flag continua sendo o JSON estruturado de sempre.
+
 7. **Planejar a implementação da feature escolhida.** Antes de editar
    código, esboçar a abordagem: quais arquivos mudam, que testes cobrem a
    mudança, qual é o critério de pronto.

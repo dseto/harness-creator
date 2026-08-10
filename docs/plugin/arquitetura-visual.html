@@ -284,7 +284,7 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
       <span class="dot"></span>
       <span>harness-creator<small>Arquitetura, fluxo e outcomes</small></span>
     </div>
-    <span class="pill v">v0.33.0</span>
+    <span class="pill v">v0.34.0</span>
     <div class="spacer"></div>
     <div class="seg" role="group" aria-label="Perfil de leitura">
       <button data-persona="gerente"  aria-pressed="false">Gerente</button>
@@ -334,7 +334,7 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
     <div class="kpi"><div class="n">7</div><div class="l">skills</div></div>
     <div class="kpi"><div class="n">27</div><div class="l">subcomandos CLI</div></div>
     <div class="kpi"><div class="n">5</div><div class="l">hooks gerados</div></div>
-    <div class="kpi"><div class="n">1399</div><div class="l">testes</div></div>
+    <div class="kpi"><div class="n">1480</div><div class="l">testes</div></div>
     <div class="kpi"><div class="n">17</div><div class="l">passos do ciclo</div></div>
   </div>
 </div>
@@ -636,7 +636,7 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
   <h3>Catálogo completo <span class="lvmark">filtrável</span></h3>
   <div class="filter">
     <input id="modfilter" placeholder="Filtrar por nome, camada ou responsabilidade… (ex.: floor, evidência, hook)">
-    <span class="pill" id="modcount">42 módulos</span>
+    <span class="pill" id="modcount">44 módulos</span>
   </div>
   <div class="tbl-wrap">
   <table id="modtable">
@@ -654,10 +654,13 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
       <tr><td><code>session_start.py</code></td><td>Enforcement</td><td>Hook SessionStart: injeta progresso, feature pendente e git log via <code>additionalContext</code>. Não bloqueia nada.</td></tr>
       <tr><td><code>stop_hook.py</code></td><td>Enforcement</td><td>Hook Stop: avisa o agente se há trabalho não commitado numa feature sem verificação fresca. Deliberadamente não-bloqueante.</td></tr>
       <tr><td><code>verify.py</code></td><td>Prova</td><td>Roda o <code>verify_cmd</code> real e grava evidência com <code>exit_code</code>, <code>recorded_at</code> e <code>files_hash</code> sha256. Marca <code>passes:true</code> por padrão desde a v0.23.</td></tr>
+      <tr><td><code>skips.py</code></td><td>Prova</td><td>Skip nunca silencioso: lê a saída do runner (pytest/dotnet/jest/go), baseline por comando explícito, delta bloqueia skip novo, e skip acionável (env var/credencial/ferramenta) bloqueia já na 1ª vez com veredito INFRA.</td></tr>
       <tr><td><code>review.py</code></td><td>Prova</td><td>State machine do revisor: pending → in_review → rejected|approved. Teto duro de iterações; estourou, escala ao humano em vez de aprovar sozinho.</td></tr>
       <tr><td><code>supervisor.py</code></td><td>Prova</td><td>Devolve a próxima feature pronta respeitando <code>depends[]</code>. Chamada síncrona, não daemon.</td></tr>
       <tr><td><code>finish.py</code></td><td>Prova</td><td>Encerra a demanda: audita o fecho (read-only) e só então varre descartáveis. Nunca chama git. <code>blockers: []</code> é o que autoriza o commit — substituiu o antigo gate humano do diff.</td></tr>
       <tr><td><code>pr_draft.py</code></td><td>Prova</td><td>Contrato + evidência → <code>.harness/scratch/pr-body.md</code> e o <code>gh pr create</code> exato. Usa <code>--body-file</code>, nunca <code>--body</code> inline: acentuação em linha de comando no PowerShell 5.1 corrompe multi-byte. Abrir o PR continua sendo do humano.</td></tr>
+      <tr><td><code>panel.py</code></td><td>Prova</td><td>Placar de andamento: render puro do estado real (contrato, tentativas, trajetória, kill-switch) em três saídas — <code>--brief</code> para o chat, painel ANSI para o terminal e a linha da statusline. Nunca escreve, nunca roda <code>verify_cmd</code>.</td></tr>
+      <tr><td><code>statusline.py</code></td><td>Enforcement</td><td>Gera e registra o comando de <code>statusLine</code> do Claude Code: uma linha com demanda, progresso, tarefa, tentativa e veredito. Hook standalone stdlib-only; statusline configurada pelo usuário nunca é sobrescrita.</td></tr>
       <tr><td><code>teams.py</code></td><td>Compilação</td><td>Catálogo de 6 padrões de time + análise de domínio e recomendação. Papéis de revisão nunca recebem Edit/Write.</td></tr>
       <tr><td><code>team_audit.py</code></td><td>Diagnóstico</td><td>Papel órfão, papel sem agente gerado, ferramenta além do mínimo, drift do bloco gerenciado.</td></tr>
       <tr><td><code>audit.py</code></td><td>Diagnóstico</td><td>Score 0-100 + findings. Dogfooding: recompila em memória e compara com o disco — divergência é drift.</td></tr>
@@ -1334,11 +1337,11 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
 </div>
 
 <footer>
-  <strong>harness-creator v0.33.0</strong> · documento gerado a partir do código-fonte em
+  <strong>harness-creator v0.34.0</strong> · documento gerado a partir do código-fonte em
   <code>src/harness/</code>, <code>docs/</code> e <code>.harness/</code> ·
   fontes primárias: <code>README.md</code>, <code>docs/plugin/GUIDE.md</code>,
   <code>.harness/LIFECYCLE.md</code>, <code>docs/roadmap-autonomous.md</code> e os docstrings
-  dos 42 módulos.
+  dos 44 módulos.
 </footer>
 
 <script>

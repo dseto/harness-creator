@@ -1,5 +1,70 @@
 ﻿# Changelog
 
+## v0.34.0 — o loop fica legível para quem só quer o resultado
+
+Durante a implementação passavam dezenas de tool calls e nenhuma delas
+respondia as quatro perguntas de quem estava olhando: **onde estou** (tarefa
+quantas de quantas), **o que está sendo feito agora**, **está indo bem**
+(tentativa quantas de quantas, a última prova passou?) e **o que vem a
+seguir**. Quem não domina os conceitos de harness engineering não tinha
+leitura nenhuma do andamento.
+
+### O placar: uma fonte de dados, três renders
+
+Nada novo é coletado — os três renders leem o que o loop já gravava
+(`feature_list.json`, `.harness/attempts/`, a trajetória de métrica, o
+sentinel do kill-switch):
+
+- **`harness status --brief`** — bloco markdown com progresso `X/N`, tarefas
+  com estado, tarefa atual com `tentativa n/teto`, a **primeira linha do erro**
+  da última prova como o runner a imprimiu, a métrica quando a tarefa tem uma,
+  e o próximo passo. Sem ANSI: o chat renderiza markdown, não escape code.
+- **`harness status --panel`** — o mesmo painel no terminal, com cor apenas
+  quando a saída é um TTY (em pipe sai texto puro), e `--watch N` para
+  re-renderizar sozinho num segundo terminal. É um loop de render, não um
+  daemon.
+- **Statusline** — `harness compile-session` passa a instalar
+  `.harness/hooks/statusline.py` e a registrar a entrada `statusLine` no
+  settings machine-local: uma linha sempre visível na barra do Claude Code com
+  demanda, progresso, tarefa, tentativa, veredito da última prova e o custo da
+  sessão quando o próprio CLI o entrega no stdin. Statusline que o usuário já
+  tinha configurado **nunca** é sobrescrita.
+
+`harness status` **sem flag** continua imprimindo o mesmo JSON estruturado: ele
+é a fonte de verdade sobre o kill-switch que a issue #52 estabeleceu, e trocar
+a saída padrão por um painel quebraria todo consumidor dessa leitura para
+ganhar estética.
+
+### O placar não pode ser narrado
+
+O passo 6 do lifecycle passa a mandar **colar** `harness status --brief` em
+três fronteiras — abertura de cada iteração, transição de fatia e qualquer
+parada — e proíbe explicitamente redigi-lo de cabeça. Placar auto-relatado é
+self-report: um agente que narra "vou bem" enquanto a prova está vermelha é
+exatamente o que o placar existe para tornar impossível. A cadência é a
+fronteira, nunca o tool call: placar a cada chamada é ruído que mata o sinal.
+
+### As mensagens falam resultado, não mecanismo
+
+O canal humano (stderr) de escalada, fecho e disjuntor troca jargão por
+resultado: `stop_same_failure` vira "o mesmo erro se repetiu 3 vezes: o que
+está errado é a abordagem, não a execução"; `stop_plateau` vira "as últimas
+medições ficaram sem melhora: o loop está girando em falso". A escalada abre
+com uma manchete `PAROU: …` antes das seis seções do §8, e `harness finish` —
+que só imprimia JSON — ganha um resumo em stderr do que fechou ou do que
+exatamente falta. Os campos de máquina do stdout não mudam.
+
+### Uma reprovação da camada 3 que valeu a guarda
+
+O verificador independente reprovou a primeira passada: a instrução nova do
+lifecycle existia só em `src/harness/lifecycle.py`, enquanto `AGENTS.md` e
+`.harness/LIFECYCLE.md` — os artefatos versionados que a sessão realmente lê —
+seguiam com o texto antigo. A regra estava **inerte no repositório** com a
+suíte verde. Além de regenerar os artefatos, entrou uma guarda mecânica
+(`tests/test_lifecycle.py::test_this_repo_ships_the_lifecycle_it_generates`)
+que compara os dois arquivos com a saída do gerador — o verificador confirmou
+que ela reprova o estado anterior.
+
 ## v0.33.0 — o design de loop engineering sai do papel (PRs #78–#86)
 
 Nove incrementos, um documento só: `docs/reference/loop-engineering-design.md`

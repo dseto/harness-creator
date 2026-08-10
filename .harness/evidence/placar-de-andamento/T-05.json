@@ -1,0 +1,18 @@
+{
+  "feature_id": "T-05",
+  "contract": "placar-de-andamento",
+  "desc": "Escalada, fecho e disjuntor falam resultado para o humano no stderr — inclusive o `harness finish`, que hoje não fala nada — e o JSON do stdout dos três continua byte-idêntico",
+  "files": [
+    "src/harness/escalation.py",
+    "src/harness/finish.py",
+    "src/harness/budget.py",
+    "src/harness/cli.py",
+    "tests/test_escalation.py",
+    "tests/test_finish.py",
+    "tests/test_budget.py"
+  ],
+  "verify_cmd": "pytest tests/test_escalation.py tests/test_finish.py tests/test_budget.py -q",
+  "recorded_at": "2026-08-10T02:00:51.231617+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:fb0b4680e3558f5fde7d0aca8db6b0c258fc9f9db1c459e810e39293569d2844"
+}

@@ -4,7 +4,7 @@
 > O modelo fornece o raciocínio; o harness garante execução confiável,
 > segurança e governança.
 
-**v0.33.0** · versão navegável e interativa deste documento:
+**v0.34.0** · versão navegável e interativa deste documento:
 [`arquitetura-visual.html`](arquitetura-visual.html) (abre offline, com
 diagramas clicáveis e um simulador da cascata de decisão do
 `boundary_guard`).
@@ -60,10 +60,28 @@ contagem de tokens a hooks.
 | **1a · Skills** | `skills/` (7) | Conduz a conversa com o humano | Não escreve nada direto — toda escrita passa pela CLI |
 | **1b · CLI** | `cli.py` | Dispatch dos 27 subcomandos, validação de `--dir` | Não decide `allow`/`deny` em runtime |
 | **2 · Compiladores** | `compiler`, `contract`, `analyzer`, `session_permissions`, `lifecycle`, `templates`, `branching`, `profile_edit`, `install_command`, `autoupdate` | Transformam entrada humana em artefato. Determinísticos, zero LLM, zero rede | Não rodam no caminho da tool call |
-| **3 · Enforcement** | `boundary_guard`, `session_start`, `stop_hook` | Decidem `allow`/`ask`/`deny` a cada tool call | Não importam a biblioteca — stdlib puro |
-| **4 · Prova e controle** | `verify`, `attempts`, `budget`, `reconcile`, `regression`, `blind`, `review`, `supervisor`, `teams`, `finish`, `pr_draft`, `spine` | Produzem e consomem evidência; ordenam o trabalho | Nenhum chama git de escrita |
+| **3 · Enforcement** | `boundary_guard`, `session_start`, `stop_hook`, `statusline` | Decidem `allow`/`ask`/`deny` a cada tool call — e, no caso da `statusline`, mostram o estado do loop na barra do CLI | Não importam a biblioteca — stdlib puro |
+| **4 · Prova e controle** | `verify`, `attempts`, `budget`, `reconcile`, `regression`, `blind`, `review`, `supervisor`, `teams`, `finish`, `pr_draft`, `spine`, `panel` | Produzem e consomem evidência; ordenam o trabalho | Nenhum chama git de escrita; `panel` também não escreve nada |
 | **5 · Diagnóstico** | `preflight`, `audit`, `runtime_audit`, `team_audit`, `doctor`, `health`, `metrics` | Emitem laudo + o comando exato de correção | Nunca corrigem sozinhos |
 | **Base** | `config`, `governance/approval`, `patterns`, `settings_paths`, `hook_launcher`, `killswitch` | Cada um é fonte **única** de uma verdade | — |
+
+### O placar: uma fonte, três renders
+
+`panel.py` (camada 4) não coleta nada — ele lê o que o loop já grava
+(`feature_list.json`, `attempts/`, a trajetória de métrica, o sentinel do
+kill-switch) e devolve o estado em dados. Os três consumidores renderizam esse
+mesmo estado para leitores diferentes: `harness status --brief` (markdown para
+o chat, sem ANSI), `harness status --panel` (terminal, cor só em TTY, com
+`--watch N`) e o hook de `statusline.py`, que imprime UMA linha para a barra do
+Claude Code.
+
+`harness status` **sem flag** continua devolvendo o JSON estruturado do
+kill-switch: ele é a fonte de verdade que `session_start` aponta, e o placar
+é opt-in por flag justamente para não substituí-la.
+
+A statusline é o único dos três que vive na camada 3: como todo hook, ela roda
+fora do pacote instalado, então não importa `panel` — repete uma leitura
+deliberadamente magra do estado, sem replicar nenhuma regra de decisão.
 
 ### Por que a camada 3 é stdlib puro
 
@@ -504,6 +522,7 @@ harness.yaml ──compile──► permissions                                �
              │            boundary_guard.py (install_boundary_guard) │                     boundary_guard.py
              │                                                       │                     session_start.py
 demanda ──assess──► laudo ──► spec + Plans ──compile-contract──► feature_list.json ───────┤ stop_hook.py
+             │                                                       │                     statusline.py
    (4 fontes)   FORA_DE_ESCOPO      ▲                                │
                      barra          │                                │                              │
                                 GATE HUMANO                          │                              ▼

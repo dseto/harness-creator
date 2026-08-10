@@ -49,6 +49,7 @@ from harness.budget import (
     STOP_SAME_FAILURE,
     STOP_TRANSIENT_EXHAUSTED,
     STOP_WORSENING,
+    human_verdict,
 )
 from harness.contract import FEATURE_LIST_FILE
 from harness.convergence import read_measurements, summarize_trajectory
@@ -192,6 +193,10 @@ def render_escalation(target_dir: Path | str, report: dict[str, Any]) -> str:
         spine = f"{spine}\n  {trajectory_line}"
 
     return (
+        # Manchete de RESULTADO antes do dossiê: quem lê precisa saber O QUE
+        # ACONTECEU na primeira linha. As seis partes do §8 continuam inteiras
+        # abaixo — elas são o material para agir, não o anúncio.
+        f"PAROU: {human_verdict(report)}\n\n"
         "O que estava sendo tentado (fatia + critério):\n"
         f"  {feature.get('desc') or '(sem descrição)'} — prova: `{feature.get('verify_cmd') or '?'}`\n\n"
         "O que foi tentado (abordagens, em ordem):\n"

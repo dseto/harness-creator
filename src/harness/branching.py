@@ -67,10 +67,22 @@ HARNESS_MANAGED_PATHS = frozenset({
 })
 
 #: Mesma isenção, para as árvores inteiras que o harness gerencia. A evidência
-#: nasce de `harness verify` a cada tarefa, e o veredito da camada 3 de
-#: `harness blind verdict` — as duas são prova, e num repo que versiona
-#: `.harness/` ficam tracked-sujas durante a demanda.
-HARNESS_MANAGED_PREFIXES = (".harness/evidence/", ".harness/blind-review/")
+#: nasce de `harness verify` a cada tarefa, o rastro de tentativas do MESMO
+#: comando, e o veredito da camada 3 de `harness blind verdict` — as três são
+#: registro do próprio loop, e num repo que versiona `.harness/` ficam
+#: tracked-sujas durante a demanda.
+#:
+#: `attempts/` entrou por último, fechando o contrato `placar-de-andamento`:
+#: era a terceira ocorrência do mesmo deadlock. Enquanto o rastro contava como
+#: "trabalho de outro contexto", bastava um `harness verify` depois do primeiro
+#: commit da demanda para o fecho travar — e sem escape, porque
+#: `harness task add-file` recusa caminho de plano de controle (corretamente:
+#: declarar `.harness/**` seria auto-ampliação de superfície sem gate humano).
+HARNESS_MANAGED_PREFIXES = (
+    ".harness/evidence/",
+    ".harness/blind-review/",
+    ".harness/attempts/",
+)
 
 
 class BranchingError(Exception):

@@ -1,6 +1,6 @@
 ﻿# harness-creator
 
-**v0.33.0** · [CHANGELOG](docs/reference/CHANGELOG.md) · [Arquitetura visual (HTML interativo)](docs/plugin/arquitetura-visual.html)
+**v0.34.0** · [CHANGELOG](docs/reference/CHANGELOG.md) · [Arquitetura visual (HTML interativo)](docs/plugin/arquitetura-visual.html)
 
 Plugin do Claude Code que **cria, avalia e compila** estrutura de harness
 (governança de agentes) para projetos.
@@ -186,9 +186,46 @@ já existe: um `--dir` com erro de digitação sai com código 2 sem escrever na
 | `harness disable [--note "..."]` | **Kill-switch**: desativa TODOS os hooks. Rodar só no seu terminal |
 | `harness enable` | Reativa o harness |
 | `harness status` | Diz se o harness está ativo ou desativado, mais a contagem de ciclos de fricção |
+| `harness status --brief` | **Placar de andamento** em markdown, para o agente colar no chat |
+| `harness status --panel [--watch N]` | O mesmo placar no terminal, com cor e re-render a cada N segundos |
 
 `audit`, `audit-runtime` e `audit-team` saem com código 1 se houver qualquer
 finding `critical` (ou score < 60) — servem como gate de CI.
+
+## Placar de andamento
+
+Durante a implementação passam dezenas de tool calls e nada responde as quatro
+perguntas de quem está olhando: **onde estou**, **o que está sendo feito
+agora**, **está indo bem** e **o que vem a seguir**. O placar responde as
+quatro, em três renders da MESMA fonte de dados — nada é coletado a mais: tudo
+sai do `feature_list.json`, do rastro de tentativas e da trajetória de métrica
+que o loop já grava.
+
+```powershell
+harness status --brief --dir .          # bloco markdown para colar no chat
+harness status --panel --dir .          # painel do terminal (cor só em TTY)
+harness status --panel --watch 5 --dir . # re-render a cada 5s, estilo htop
+```
+
+- **`--brief`** — progresso `X/N`, lista de tarefas com estado, tarefa atual
+  com `tentativa n/teto`, a última prova com a **primeira linha do erro** como
+  o runner a imprimiu, a trajetória da métrica quando a tarefa tem `metric`, e
+  o próximo passo derivado do estado. Sem ANSI: o chat renderiza markdown, não
+  escape code. O lifecycle manda **colar** essa saída na abertura de cada
+  iteração, na transição de fatia e em qualquer parada — e proíbe redigi-la de
+  cabeça, porque placar auto-relatado é self-report.
+- **`--panel`** — mesmo conteúdo para o seu terminal, com cor quando a saída é
+  um TTY (em pipe sai texto puro). `--watch N` re-renderiza sozinho num
+  segundo terminal; é um loop de render, não um daemon — morre com o terminal.
+- **statusline** — `harness compile-session` instala
+  `.harness/hooks/statusline.py` e registra a entrada `statusLine` no settings
+  machine-local: uma linha sempre visível na barra do Claude Code com demanda,
+  progresso, tarefa, tentativa, veredito da última prova e o custo da sessão
+  (esse último quando o próprio CLI o entrega no stdin — campo ausente não
+  quebra a linha). Statusline que **você** configurou não é sobrescrita.
+
+`harness status` **sem flag** continua imprimindo o mesmo JSON estruturado de
+sempre: é a fonte de verdade sobre o kill-switch e o que ferramenta consome.
 
 ## Kill-switch: quem pode desligar
 
@@ -443,7 +480,7 @@ harness-creator/
 │   └── marketplace.json         # auto-referência p/ instalar como marketplace local
 ├── AGENTS.md                    # 3 blocos gerenciados + prosa humana
 ├── skills/                      # preflight, init, plan, compile, audit, team
-├── src/harness/                 # 42 módulos, uma responsabilidade cada
+├── src/harness/                 # 44 módulos, uma responsabilidade cada
 │   ├── cli.py                   # dispatch dos 27 subcomandos
 │   │
 │   │                            # -- base (fonte única de cada verdade) --
@@ -470,6 +507,7 @@ harness-creator/
 │   ├── boundary_guard.py        # dispatcher único: raio de impacto + runtime floor
 │   ├── session_start.py         # injeta o estado da sessão anterior
 │   ├── stop_hook.py             # avisa (sem bloquear) sobre trabalho não verificado
+│   ├── statusline.py            # uma linha de placar na barra do Claude Code
 │   │
 │   │                            # -- prova e controle --
 │   ├── verify.py                # roda verify_cmd e grava a evidência
@@ -488,6 +526,7 @@ harness-creator/
 │   ├── teams.py                 # catálogo de 6 padrões + análise de domínio
 │   ├── finish.py                # encerra a demanda: audita o fecho e varre
 │   ├── pr_draft.py              # contrato + evidência -> corpo do PR e comando gh
+│   ├── panel.py                 # placar do loop: uma fonte, três renders (status/panel/statusline)
 │   │
 │   │                            # -- diagnóstico (read-only) --
 │   ├── preflight.py             # laudo de prontidão do repo cru
@@ -502,7 +541,7 @@ harness-creator/
 │   └── .gitignore               # a regra de ignore é do próprio produto
 ├── docs/plugin/                 # TUTORIAL, GUIDE, ARCHITECTURE, arquitetura-visual.html
 ├── docs/project/                # ROADMAP, PLAN, laudos e handoffs
-└── tests/                       # 1399 casos (sem Docker/API para compile/audit)
+└── tests/                       # 1480 casos (sem Docker/API para compile/audit)
 ```
 
 Quem decide o que entra no git é a **Seção 3** de
@@ -515,7 +554,7 @@ de compilação que carrega dado de máquina é machine-local e regenerada por
 
 ```powershell
 $env:PYTHONPATH = "src"
-python -m pytest tests -q          # unit + E2E — 1399 casos
+python -m pytest tests -q          # unit + E2E — 1480 casos
 ```
 
 A suíte E2E (`tests/e2e/`) roda inteira sobre repos sintéticos criados em
@@ -526,7 +565,7 @@ externo ao plugin.
 **Convenção da suíte (v0.26.0):** um teste = uma REGRA, com tabela de casos
 (`Case` + `_expect`), nunca um `def` por caso. A suíte tinha chegado a 1008
 casos e caiu para 724 sem perder uma asserção — o que sobrou é o piso
-mecânico, não gordura restante. O crescimento desde então — hoje 1399 casos —
+mecânico, não gordura restante. O crescimento desde então — hoje 1480 casos —
 é regra nova coberta, não a gordura voltando.
 
 Achado que a suíte documenta (via `harness.cli` chamado com

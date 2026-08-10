@@ -366,6 +366,52 @@ def test_escalation_spine_has_no_trajectory_line_without_any_measurement_yet(
     assert "Trajetória" not in spine
 
 
+# ---------------------------------------------------------------------------
+# Contrato `placar-de-andamento`, T-05 — o canal humano fala RESULTADO
+# ---------------------------------------------------------------------------
+
+def test_escalation_opens_with_what_happened_in_plain_words(tmp_path: Path) -> None:
+    """Quem lê a escalada precisa saber, na PRIMEIRA linha, o que aconteceu —
+    antes das seis seções do §8, que são o dossiê. Sem a manchete, a leitura
+    começa por "O que estava sendo tentado" e o resultado só aparece no fim."""
+    _write_feature_list(tmp_path, desc="Fechar a lacuna X")
+    _write_trail(tmp_path, [("E   AssertionError: 1 != 2", "structural")] * 3)
+
+    text = render_escalation(tmp_path, check_budget(tmp_path, "T-01"))
+    headline = text.strip().splitlines()[0]
+
+    assert "PAROU" in headline
+    assert "mesmo erro" in headline.lower()
+    # A manchete vem ANTES do dossiê do §8, que continua inteiro logo abaixo.
+    assert text.index(headline) < text.index("O que estava sendo tentado")
+
+
+@dataclass(frozen=True)
+class JargonCase:
+    token: str
+    why: str
+
+
+JARGON_CASES = [
+    JargonCase("stop_same_failure", "nome interno de veredito não é resultado"),
+    JargonCase("stop_iterations", "nome interno de veredito não é resultado"),
+    JargonCase("verify_cmd", "o humano não sabe o que é verify_cmd — é 'a prova'"),
+    JargonCase("feature_list.json", "arquivo interno não diz nada a quem lê"),
+]
+
+
+@pytest.mark.parametrize("case", JARGON_CASES, ids=lambda c: c.token)
+def test_escalation_never_shows_raw_mechanism_names_to_the_human(
+    tmp_path: Path, case: JargonCase
+) -> None:
+    _write_feature_list(tmp_path, desc="Fechar a lacuna X")
+    _write_trail(tmp_path, [("E   AssertionError: 1 != 2", "structural")] * 3)
+
+    text = render_escalation(tmp_path, check_budget(tmp_path, "T-01"))
+
+    assert case.token not in text
+
+
 def test_escalating_a_feature_removed_from_the_contract_raises(tmp_path: Path) -> None:
     _write_feature_list(tmp_path)
     _write_trail(tmp_path, [("a", "structural")] * 3)
