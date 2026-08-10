@@ -34,3 +34,19 @@ Porquê: Executar a suite na abertura foi o que fez ninguem rodar o .harness/ini
 ## D-008 — Conteudo da working tree nao decide o que o health check lanca (2026-08-09)
 Decisão: Executavel so e procurado dentro da arvore quando o token tem separador de caminho, e so vira import o que casa nome de modulo pontilhado
 Porquê: Sem as duas fronteiras, um arquivo de texto homonimo fazia o laudo dizer VERDE para ferramenta ausente, e um arquivo chamado python escolhia o interpretador que o hook da abertura lanca sozinho; a fronteira do separador ainda bate com o que o cmd.exe faz de verdade
+
+## D-009 — Placar e opt-in: harness status sem flag continua JSON (2026-08-10)
+Decisão: O painel entra por --brief/--panel; a saida default de harness status permanece o mesmo JSON estruturado
+Porquê: session_start.py aponta harness status como fonte de verdade estruturada do kill-switch e a issue #52 estabeleceu esse comando como o unico lugar que conta a verdade sobre o harness desligado. Trocar a saida default por um painel quebraria todo consumidor dessa leitura para ganhar estetica. Descartado tambem inverter (painel default + --json): sinalizaria que o JSON e o caso especial, quando ele e o contrato.
+
+## D-010 — Statusline standalone repete leitura magra em vez de importar panel (2026-08-10)
+Decisão: O hook gerado le feature_list.json e a ultima linha do rastro por conta propria; nenhuma regra de decisao (disjuntor, veredito, proximo passo) e replicada nele
+Porquê: O hook roda pelo Claude Code fora do venv do projeto, igual a session_start/stop_hook/boundary_guard -- import harness ali quebra na maquina de quem instalou o plugin sem o pacote no PATH do CLI. O preco e leitura duplicada; o teto do preco e a linha ser magra de proposito, e o teste executar o ARQUIVO GERADO por subprocess em vez de uma copia da logica, para a duplicacao nao virar divergencia silenciosa. Descartado embutir o panel.py inteiro por render (o DISABLED_CHECK_SRC embute 10 linhas; embutir 300 seria um segundo modulo mantido a mao).
+
+## D-011 — compile-session nunca sobrescreve statusline do usuario (2026-08-10)
+Decisão: install_statusline usa replace_foreign=False no compile-session: entrada statusLine que nao veio do harness e preservada, e o hook e gravado assim mesmo
+Porquê: A barra do CLI e o unico artefato deste contrato que fica visivel o tempo todo na interface da pessoa. Entrada que o harness nao instalou (nao bate com o compiled-state nem aponta para o hook) e configuracao dela; sobrescrever seria o compilador decidindo o que aparece na tela do usuario sem pedir. O hook continua sendo gravado para ela poder apontar quando quiser.
+
+## D-012 — Texto de escalada muda dentro do JSON do budget, e isso e o esperado (2026-08-10)
+Decisão: O campo escalation do stdout de harness budget passa a comecar com PAROU:; a promessa de stdout byte-identico do T-05 vale para os campos de maquina (verdict, consecutive_failures, limits, reason)
+Porquê: O campo escalation E o canal humano -- ele so esta dentro do JSON porque o comando emite os dois de uma vez (stdout para script, stderr para quem le). Congelar esse texto para manter o stdout literalmente identico exigiria DUAS versoes do mesmo bloco de escalada, uma velha para o JSON e uma nova para o stderr, e duas versoes do mesmo texto e a origem de divergencia silenciosa. Levantado pelo verificador cego; registrado para nao ser re-litigado como bug.

@@ -237,6 +237,67 @@ def test_step_ten_names_the_two_trajectory_verdicts() -> None:
     assert "oscila" in detail.lower()
 
 
+def test_the_cycle_tells_the_agent_to_paste_the_scoreboard_at_every_boundary() -> None:
+    """Contrato `placar-de-andamento`, T-04: quem acompanha a sessão vê tool
+    call passando e não sabe onde o loop está. O ciclo passa a mandar colar
+    `harness status --brief` nas TRÊS fronteiras — abertura de iteração,
+    transição de fatia e qualquer parada. Sem estar no ciclo, o placar existe
+    e ninguém roda: é o mesmo modo de falha do `.harness/init.ps1` do passo 2.
+    """
+    block = render_lifecycle_block()
+    detail = render_lifecycle_detail()
+
+    assert "status --brief" in block
+    assert "status --brief" in detail
+    for boundary in ("itera", "fatia", "parada"):
+        assert boundary in detail.lower()
+
+
+def test_the_cycle_forbids_writing_the_scoreboard_from_memory() -> None:
+    """A proibição é o ponto: placar redigido de cabeça é self-report, e
+    self-report é exatamente o que este repositório não aceita como prova. O
+    valor do placar vem de ser montado por código — o agente COLA a saída."""
+    detail = render_lifecycle_detail()
+
+    assert "cola" in detail.lower()
+    assert "self-report" in detail.lower() or "de cabeça" in detail.lower()
+
+
+def test_this_repo_ships_the_lifecycle_it_generates() -> None:
+    """O gerador não é o artefato que governa a sessão: quem o agente lê são o
+    `AGENTS.md` e o `.harness/LIFECYCLE.md` COMPILADOS e versionados. Mudar
+    `lifecycle.py` sem rodar `harness compile-session` deixa a regra nova
+    existindo só em Python — a suíte fica verde e a instrução é inerte no
+    repositório, que foi exatamente o que o verificador cego pegou na entrega
+    do placar. `harness audit` sabe achar esse drift; nada no loop o roda, e é
+    por isso que a guarda mora aqui."""
+    agents = Path("AGENTS.md").read_text(encoding="utf-8")
+    detail = Path(".harness/LIFECYCLE.md").read_text(encoding="utf-8")
+
+    block = render_lifecycle_block()
+    inner = block.split("\n", 1)[1].rsplit("\n", 1)[0]
+    assert inner.strip() in agents, (
+        "o bloco de lifecycle no AGENTS.md versionado divergiu do gerador — "
+        "rode `harness compile-session` e commite os artefatos"
+    )
+    assert render_lifecycle_detail().strip() in detail, (
+        ".harness/LIFECYCLE.md versionado divergiu do gerador — "
+        "rode `harness compile-session` e commite os artefatos"
+    )
+
+
+def test_the_readme_documents_the_three_renders_of_the_scoreboard() -> None:
+    """O README é onde o humano descobre o que existe. Os três renders saem da
+    MESMA fonte de dados — se o README documentasse só o `--brief`, o painel de
+    terminal e a statusline ficariam sendo features que ninguém sabe que tem."""
+    readme = Path("README.md").read_text(encoding="utf-8")
+
+    assert "status --brief" in readme
+    assert "--panel" in readme
+    assert "--watch" in readme
+    assert "statusline" in readme.lower()
+
+
 def test_step_two_checks_the_environment_with_a_command_instead_of_a_script_nobody_runs() -> None:
     """Passo 2 do contrato `health-check-de-abertura` (§7.2/§8.3 do design).
 

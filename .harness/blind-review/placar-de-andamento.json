@@ -1,0 +1,17 @@
+{
+  "contract": "placar-de-andamento",
+  "verdicts": [
+    {
+      "verdict": "fail",
+      "evidence": "T-04 inerte no repo: AGENTS.md:143 e .harness/LIFECYCLE.md:73 ainda carregam o passo 6 antigo, sem nenhuma mencao a 'status --brief' -- a instrucao vive so no gerador src/harness/lifecycle.py:156 e os artefatos compilados nao foram regenerados; nenhum teste guarda essa sincronia",
+      "files_hash": "sha256:38ad634db3a24f46eaa75fd5e7b4539e83c634ae1f90fe3413dfce8330acc7e5",
+      "recorded_at": "2026-08-10T02:10:56.109062+00:00"
+    },
+    {
+      "verdict": "pass",
+      "evidence": "T-04 corrigido na causa: AGENTS.md:143 e .harness/LIFECYCLE.md:77-99 agora sao a saida do gerador (comparado em processo contra render_lifecycle_block/detail), e tests/test_lifecycle.py:266 guarda a sincronia -- verificado que a guarda reprova o estado anterior (HEAD). T-01/T-02/T-03/T-05 aprovados na rodada anterior com execucao real dos tres renders e do hook de statusline. Suite: 1421 passed, 1 skipped.",
+      "files_hash": "sha256:6b170f61bfe4dfb0291d7dff149f5debb3939fc4f45592af3c45a1fd577c0d2c",
+      "recorded_at": "2026-08-10T02:18:26.109786+00:00"
+    }
+  ]
+}

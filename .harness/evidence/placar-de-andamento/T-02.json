@@ -1,0 +1,14 @@
+{
+  "feature_id": "T-02",
+  "contract": "placar-de-andamento",
+  "desc": "`harness status --panel` mostra o mesmo placar colorido no terminal (cor só em TTY; em pipe sai texto puro) e `--watch N` re-renderiza sozinho no intervalo pedido",
+  "files": [
+    "src/harness/panel.py",
+    "src/harness/cli.py",
+    "tests/test_panel.py"
+  ],
+  "verify_cmd": "pytest tests/test_panel.py -q",
+  "recorded_at": "2026-08-10T02:00:53.331092+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:f16ea4c01d30d7a5108be6143667062d2133d56d6f04e09bda69d34fc763f253"
+}

@@ -1,0 +1,14 @@
+{
+  "feature_id": "T-03",
+  "contract": "placar-de-andamento",
+  "desc": "A barra do Claude Code passa a mostrar sempre demanda, progresso, tarefa, tentativa, último veredito e o custo da sessão quando o CLI o fornecer — `compile-session` instala a statusline e recompilar não duplica nem deixa entrada órfã",
+  "files": [
+    "src/harness/statusline.py",
+    "src/harness/cli.py",
+    "tests/test_statusline.py"
+  ],
+  "verify_cmd": "pytest tests/test_statusline.py -q",
+  "recorded_at": "2026-08-10T02:00:55.530726+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:d4975282b6d31823a25e9109135bb32ddf972f089948ffa42f519b01103a76f3"
+}

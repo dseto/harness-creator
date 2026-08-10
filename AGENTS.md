@@ -140,7 +140,9 @@ sempre exige aprovação humana.
 4. Ler `feature_list.json`.
 5. Rodar `harness reconcile` e resolver toda divergência antes de seguir —
    estado declarado que não bate com o repositório envenena a sessão inteira.
-6. Escolher exatamente UMA feature pendente.
+6. Escolher exatamente UMA feature pendente — e colar `harness status --brief`
+   no chat ao trocar de fatia, na abertura de cada iteração e em qualquer
+   parada. A saída é montada por código: cole, nunca redija.
 7. Planejar a implementação da feature escolhida — alternativa descartada por
    razão não óbvia vira `harness decide`.
 8. Implementar a mudança dentro do raio de impacto declarado.

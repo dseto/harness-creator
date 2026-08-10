@@ -1,0 +1,16 @@
+{
+  "feature_id": "T-04",
+  "contract": "placar-de-andamento",
+  "desc": "O lifecycle manda colar `harness status --brief` na abertura de cada iteração, na transição de fatia e em parada — e proíbe redigir o placar de cabeça",
+  "files": [
+    "src/harness/lifecycle.py",
+    "tests/test_lifecycle.py",
+    "README.md",
+    "docs/plugin/arquitetura-visual.html",
+    "AGENTS.md"
+  ],
+  "verify_cmd": "pytest tests/test_lifecycle.py -q",
+  "recorded_at": "2026-08-10T02:17:23.210884+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:ebf169ac6666eea400deb53e3b02b08f3baa1ecdc7ea096919dc1e5efa82df27"
+}

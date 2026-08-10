@@ -269,6 +269,39 @@ def audit_closure(target_dir: Path | str) -> dict[str, Any]:
     return {"contract": contract, "blockers": blockers, "features": features_report}
 
 
+def render_human_summary(report: dict[str, Any]) -> str:
+    """Resumo do fecho em linguagem de RESULTADO, para o stderr do comando.
+
+    O `audit_closure` devolve JSON, e JSON é para máquina: quem rodava
+    `harness finish` no terminal via uma lista de chaves e tinha que
+    interpretar `blockers: []` para saber se deu certo. Esta frase diz o que
+    aconteceu — e, quando não fechou, o que exatamente falta.
+
+    O `kind` do bloqueador (`evidence_stale` e companhia) NÃO aparece aqui: é
+    o identificador que o consumidor de JSON casa, e para o humano ele só
+    significa "o programa sabe de algo que você não". A frase de cada
+    bloqueador (`problem`) já é escrita para gente.
+    """
+    contract = report.get("contract") or "?"
+    features = report.get("features") or []
+    done = sum(1 for f in features if f.get("passes") is True)
+    blockers = report.get("blockers") or []
+
+    if not blockers:
+        return (
+            f"Demanda `{contract}` encerrada: {done} de {len(features)} tarefas "
+            "passaram, todas com prova conferida contra o código atual.\n"
+        )
+
+    lines = [
+        f"Demanda `{contract}` NÃO foi encerrada — {done} de {len(features)} tarefas "
+        f"passaram e {len(blockers)} pendência(s) impedem o fecho:",
+    ]
+    lines.extend(f"  - {blocker.get('problem') or '(sem descrição)'}" for blocker in blockers)
+    lines.append("Resolva o que está acima e rode `harness finish` de novo.")
+    return "\n".join(lines) + "\n"
+
+
 def render_closed_progress(report: dict[str, Any]) -> str:
     """Conteúdo do `.harness/progress.md` de uma demanda encerrada.
 
