@@ -1,4 +1,96 @@
-# Changelog
+﻿# Changelog
+
+## v0.33.0 — o design de loop engineering sai do papel (PRs #78–#86)
+
+Nove incrementos, um documento só: `docs/reference/loop-engineering-design.md`
+descrevia como um agente deveria trabalhar horas sem parar sem virar um loop
+cego — e ficava só na intenção. Esta versão mecaniza o design inteiro, seção
+por seção.
+
+### O disjuntor deixa de ser sugestão (§4.2, §5.1, §8.2)
+
+`max_green_iterations` existia no schema sem nenhum consumidor. Agora toda
+passada de `harness verify` deixa rastro em `.harness/attempts/` — erro cru,
+assinatura da falha, classificação — e `harness budget --feature <id>` decide
+por CONTAGEM, não por prosa: `continue`, `stop_same_failure` (mesma falha
+repetida — a abordagem está errada) ou `stop_iterations` (teto de tentativas
+desde o último verde).
+
+### A sessão pergunta antes de trabalhar (§7.2, §7.4, §8.3)
+
+Duas perguntas que só eram feitas no FECHO, tarde demais:
+
+- `harness reconcile` — o que o `feature_list.json` declara bate com o que o
+  repositório de fato tem? Divergência é trabalho a fazer antes de escolher
+  fatia, não ruído a anotar.
+- `harness health` — o ambiente responde? Ferramenta ausente, hook com
+  interpretador irresolúvel, kill-switch ligado — as três formas do harness
+  ficar desprotegido em silêncio (este repositório já ficou 4 dias assim sem
+  ninguém ver). Pergunta, nunca executa o `verify_cmd`.
+
+As duas chegam sozinhas: o hook `SessionStart` injeta os dois laudos antes do
+resumo de progresso.
+
+### Regressão entre fatias não passa mais em silêncio (§6)
+
+`harness verify` agora re-roda, depois do verde, o `verify_cmd` das tarefas
+já `passes: true` que compartilham arquivo com a que acabou de passar —
+interseção declarada em `files[]`, nunca a suíte inteira. Regressão rebaixa
+a tarefa afetada (`passes: false`) e volta pra fila; falha de ambiente vira
+`SEM VEREDITO`, nunca rebaixamento.
+
+### A spine ganha os outros dois registros (§5.2, §5.3)
+
+`progress.md` respondia "onde estamos" e morria com a demanda. Agora:
+
+- `harness decide` — por que escolhemos este caminho e não aquele.
+  Append-only: decisão que muda de ideia registra outra que supersede, a
+  antiga fica com a data em que foi tomada.
+- `harness lesson` — o que atrapalhou durante o trabalho. O agente anota; só
+  o humano compila a lição em mudança de código (nunca o próprio agente).
+
+### Um olho que não implementou, antes do PR (§6, camada 3, §9.1)
+
+`harness blind package` monta, por código, um pacote sem o racional de quem
+implementou (o `spec.md` fica de fora de propósito); um verificador com
+contexto limpo julga e devolve veredito por `harness blind verdict`.
+`harness finish` bloqueia sem essa passada. É o primeiro ponto de
+independência antes do humano no PR — quando mudar já custa caro.
+
+### Falha transiente ganha retry próprio, e toda escalada usa o mesmo formato (§8.1, §8)
+
+`verify_cmd` que falha com sinal reconhecidamente passageiro (timeout, erro
+de rede) tenta de novo sozinho até 3× com backoff curto — não conta como
+tentativa de correção. Se insistir, vira veredito próprio
+(`stop_transient_exhausted`), que vence qualquer outro. E toda parada do
+disjuntor sai no formato fixo de seis partes que a §8 exige — pronto para
+copiar, nunca escrito à mão.
+
+### Sinal de convergência opt-in por tarefa (§4.3)
+
+Tarefa cujo "meio pronto" é mensurável numa escala contínua — fidelidade de
+conversão, contagem de erros de lint, testes passando numa migração — ganha
+dois bullets opcionais no `Plans.md` (`metric`/`target`). O harness passa a
+medir a trajetória a cada `harness verify` e o disjuntor ganha dois
+vereditos novos: `stop_worsening` (piorou 2× seguidas frente ao melhor já
+registrado) e `stop_plateau` (3 medições sem bater recorde — pega oscilação
+por construção). Custo zero para tarefa que não usa: o `feature_list.json`
+sai idêntico ao de antes deste par existir. O harness nunca reverte nada
+sozinho, e bater o alvo nunca vira `passes` — a métrica guia, quem decide
+"pronto" continua sendo só o `verify_cmd`.
+
+### As três primeiras lições compiladas de volta
+
+Três frições anotadas em `.harness/lessons.md` viraram mudança: re-prova
+verde agora recarimba a evidência antiga em vez de deixá-la `evidence_stale`
+cobrando um `harness verify` manual redundante; a lista de subcomandos que o
+guard libera passou de três cópias divergentes (uma delas 8 verbos atrasada)
+para uma constante importada; e número de contagem errado na documentação
+(módulos, subcomandos, casos de teste) agora quebra a suíte em vez de
+escapar — já pegou dois números errados na mesma demanda antes de virar
+regra.
+
+---
 
 ## v0.32.0 — um gate humano no ciclo, e o plugin desatualizado deixa de ser invisível (issue #76, PR #77)
 

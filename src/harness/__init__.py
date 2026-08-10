@@ -1,4 +1,4 @@
-"""harness-init — modo compilador: governança nativa do Claude Code.
+﻿"""harness-init — modo compilador: governança nativa do Claude Code.
 
 Agente = Modelo + Harness. `compile`/`audit`/`analyze`/`review` compilam
 .harness/harness.yaml para permissions/hooks/AGENTS.md nativos do Claude
@@ -12,7 +12,7 @@ __all__ = ["HarnessConfig"]
 # (compiled_with_version) e .harness/compiled-state.json (plugin_version) -
 # mudar aqui SEM bumpar .claude-plugin/plugin.json, .claude-plugin/marketplace.json
 # e pyproject.toml deixa os quatro dessincronizados (ja aconteceu uma vez).
-__version__ = "0.32.0"
+__version__ = "0.33.0"
 
 
 def __getattr__(name: str) -> Any:

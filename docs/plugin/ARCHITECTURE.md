@@ -1,10 +1,10 @@
-# harness-creator — Arquitetura
+﻿# harness-creator — Arquitetura
 
 > **Fórmula:** `Agente = Modelo + Harness`.
 > O modelo fornece o raciocínio; o harness garante execução confiável,
 > segurança e governança.
 
-**v0.32.0** · versão navegável e interativa deste documento:
+**v0.33.0** · versão navegável e interativa deste documento:
 [`arquitetura-visual.html`](arquitetura-visual.html) (abre offline, com
 diagramas clicáveis e um simulador da cascata de decisão do
 `boundary_guard`).

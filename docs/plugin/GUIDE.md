@@ -1,4 +1,4 @@
-# Guia de uso — harness-creator
+﻿# Guia de uso — harness-creator
 
 Este guia cobre o **dia a dia**: depois do plugin instalado, como você de fato
 usa o harness para fazer uma alteração num projeto.
@@ -741,7 +741,7 @@ registre um marketplace local apontando pro diretório do plugin.
      "name": "harness-creator-local",
      "owner": { "name": "<seu nome>" },
      "plugins": [
-       { "name": "harness-creator", "source": "./", "version": "0.32.0" }
+       { "name": "harness-creator", "source": "./", "version": "0.33.0" }
      ]
    }
    ```
