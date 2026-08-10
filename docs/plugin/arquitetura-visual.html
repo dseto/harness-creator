@@ -330,11 +330,11 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
   sem chave de API, sem confiar em "o agente vai obedecer".</p>
   <div class="formula"><b>Agente</b> <span>=</span> <i>Modelo</i> <span>+</span> <b>Harness</b></div>
   <div class="kpis">
-    <div class="kpi"><div class="n">41</div><div class="l">módulos Python</div></div>
+    <div class="kpi"><div class="n">42</div><div class="l">módulos Python</div></div>
     <div class="kpi"><div class="n">7</div><div class="l">skills</div></div>
-    <div class="kpi"><div class="n">26</div><div class="l">subcomandos CLI</div></div>
+    <div class="kpi"><div class="n">27</div><div class="l">subcomandos CLI</div></div>
     <div class="kpi"><div class="n">5</div><div class="l">hooks gerados</div></div>
-    <div class="kpi"><div class="n">1437</div><div class="l">testes</div></div>
+    <div class="kpi"><div class="n">1480</div><div class="l">testes</div></div>
     <div class="kpi"><div class="n">17</div><div class="l">passos do ciclo</div></div>
   </div>
 </div>
@@ -636,13 +636,13 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
   <h3>Catálogo completo <span class="lvmark">filtrável</span></h3>
   <div class="filter">
     <input id="modfilter" placeholder="Filtrar por nome, camada ou responsabilidade… (ex.: floor, evidência, hook)">
-    <span class="pill" id="modcount">43 módulos</span>
+    <span class="pill" id="modcount">44 módulos</span>
   </div>
   <div class="tbl-wrap">
   <table id="modtable">
     <thead><tr><th style="width:20%">Módulo</th><th style="width:11%">Camada</th><th>Responsabilidade</th></tr></thead>
     <tbody>
-      <tr><td><code>cli.py</code></td><td>Superfície</td><td>Dispatch dos 26 subcomandos; valida <code>--dir</code> num ponto só; força UTF-8 em stdout e stderr para não corromper JSON acentuado em console cp1252.</td></tr>
+      <tr><td><code>cli.py</code></td><td>Superfície</td><td>Dispatch dos 27 subcomandos; valida <code>--dir</code> num ponto só; força UTF-8 em stdout e stderr para não corromper JSON acentuado em console cp1252.</td></tr>
       <tr><td><code>config.py</code></td><td>Base</td><td>Schema pydantic do <code>harness.yaml</code>: política de aprovação, orçamento, comandos extras, branch por contrato, branches protegidas, TDD.</td></tr>
       <tr><td><code>compiler.py</code></td><td>Compilação</td><td>Coração do modo plugin: yaml → permissions + hooks TDD + bloco do AGENTS.md. Merge não-destrutivo via <code>compiled-state.json</code>.</td></tr>
       <tr><td><code>contract.py</code></td><td>Compilação</td><td>spec.md + Plans.md → <code>feature_list.json</code>. Gate de aprovação: sem <code>approved_by</code>, não escreve nada. Preserva <code>passes</code> só se a identidade da tarefa não mudou.</td></tr>
@@ -654,6 +654,7 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
       <tr><td><code>session_start.py</code></td><td>Enforcement</td><td>Hook SessionStart: injeta progresso, feature pendente e git log via <code>additionalContext</code>. Não bloqueia nada.</td></tr>
       <tr><td><code>stop_hook.py</code></td><td>Enforcement</td><td>Hook Stop: avisa o agente se há trabalho não commitado numa feature sem verificação fresca. Deliberadamente não-bloqueante.</td></tr>
       <tr><td><code>verify.py</code></td><td>Prova</td><td>Roda o <code>verify_cmd</code> real e grava evidência com <code>exit_code</code>, <code>recorded_at</code> e <code>files_hash</code> sha256. Marca <code>passes:true</code> por padrão desde a v0.23.</td></tr>
+      <tr><td><code>skips.py</code></td><td>Prova</td><td>Skip nunca silencioso: lê a saída do runner (pytest/dotnet/jest/go), baseline por comando explícito, delta bloqueia skip novo, e skip acionável (env var/credencial/ferramenta) bloqueia já na 1ª vez com veredito INFRA.</td></tr>
       <tr><td><code>review.py</code></td><td>Prova</td><td>State machine do revisor: pending → in_review → rejected|approved. Teto duro de iterações; estourou, escala ao humano em vez de aprovar sozinho.</td></tr>
       <tr><td><code>supervisor.py</code></td><td>Prova</td><td>Devolve a próxima feature pronta respeitando <code>depends[]</code>. Chamada síncrona, não daemon.</td></tr>
       <tr><td><code>finish.py</code></td><td>Prova</td><td>Encerra a demanda: audita o fecho (read-only) e só então varre descartáveis. Nunca chama git. <code>blockers: []</code> é o que autoriza o commit — substituiu o antigo gate humano do diff.</td></tr>
@@ -1340,7 +1341,7 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
   <code>src/harness/</code>, <code>docs/</code> e <code>.harness/</code> ·
   fontes primárias: <code>README.md</code>, <code>docs/plugin/GUIDE.md</code>,
   <code>.harness/LIFECYCLE.md</code>, <code>docs/roadmap-autonomous.md</code> e os docstrings
-  dos 43 módulos.
+  dos 44 módulos.
 </footer>
 
 <script>
@@ -1391,7 +1392,7 @@ const LAYERS={
     "Sete skills conversacionais: <code>preflight</code> (o repo está pronto?), <code>init</code> (criar o harness), <code>assess</code> (a demanda cabe aqui?), <code>plan</code> (demanda → contrato), <code>compile</code> (recompilar após editar o yaml), <code>audit</code> (score + findings), <code>team</code> (montar time de agentes).",
     "<b>Não decidem nada sozinhas:</b> toda escrita passa por um comando da CLI, que é determinístico e testável. A skill conduz a conversa; o mecanismo mora no Python."],
   cli:["Camada 1b — CLI <code>harness</code>",
-    "Vinte e seis subcomandos. Os de compilação escrevem artefatos; os de auditoria só leem; <code>verify</code> executa o comando real da tarefa; <code>health</code> pergunta se o ambiente responde sem executar nada; <code>pr-draft</code> monta o PR a partir do contrato; <code>disable</code>/<code>enable</code> são o kill-switch do humano.",
+    "Vinte e sete subcomandos. Os de compilação escrevem artefatos; os de auditoria só leem; <code>verify</code> executa o comando real da tarefa; <code>skips</code> baselineia o que uma feature já pula; <code>health</code> pergunta se o ambiente responde sem executar nada; <code>pr-draft</code> monta o PR a partir do contrato; <code>disable</code>/<code>enable</code> são o kill-switch do humano.",
     "<b>Detalhe deliberado:</b> <code>enable</code>/<code>disable</code> ficam FORA da allowlist do agente — é o que impede o <code>finish</code> ou qualquer outro subcomando de virar bypass do floor."],
   compile:["Camada 2 — Compiladores",
     "Transformam entrada humana em artefato: <code>compiler</code> (yaml → permissions/hooks/AGENTS.md), <code>contract</code> (spec+Plans → feature_list), <code>session_permissions</code> (contrato → superfície enumerada), <code>analyzer</code> (repo → perfil com evidência), <code>branching</code> (branch do contrato), <code>autoupdate</code> (recompila o que ficou atrás do pacote), <code>lifecycle</code> e <code>templates</code>.",

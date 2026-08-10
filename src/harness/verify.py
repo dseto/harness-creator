@@ -65,6 +65,7 @@ from pathlib import Path
 from typing import Any, Callable, TextIO
 
 from harness.attempts import (
+    CLASSIFICATION_STRUCTURAL,
     CLASSIFICATION_TRANSIENT,
     classify_failure,
     extract_failure_line,
@@ -77,6 +78,15 @@ from harness.boundary_guard import is_floor_bash_command
 from harness.branching import is_git_repository
 from harness.contract import FEATURE_LIST_FILE
 from harness.convergence import ConvergenceError, parse_metric_value, record_measurement
+from harness.skips import (
+    actionable_skip_violation,
+    format_skip_summary,
+    load_allowed_skips,
+    parse_skips,
+    read_baseline,
+    skip_delta_violation,
+    without_liberated_actionable_skips,
+)
 from harness.templates import (
     append_progress_note,
     update_progress_attempts,
@@ -85,6 +95,13 @@ from harness.templates import (
 
 EVIDENCE_DIR = ".harness/evidence"
 _VERIFY_TIMEOUT_SECONDS = 600
+
+#: Teto de itens da lista de skips gravada em evidência (T-06) — não de
+#: caracteres, como o console (`skips.format_skip_summary`): a evidência é
+#: JSON estruturado, cada item já é curto por natureza (nodeid + reason).
+#: Vinte cabe qualquer skip legítimo real (a suíte deste repositório tem 2);
+#: acima disso o campo `truncated` avisa em vez de crescer sem teto.
+_EVIDENCE_SKIPS_MAX_ITEMS = 20
 
 #: §8.1: "retry direto, com limite próprio (2-3)". 3 tentativas NO TOTAL
 #: (a primeira + 2 retries) — o mesmo número que a regra do padrão repetido
@@ -512,6 +529,20 @@ def _load_feature(target_dir: Path, feature_id: str) -> tuple[dict[str, Any], st
     raise VerifyError(f"feature '{feature_id}' não encontrada em {feature_list_path}")
 
 
+def _report_skips(feature_id: str, stdout: str, stderr: str) -> None:
+    """Imprime o resumo de skips desta passada em stderr — SEMPRE, verde ou
+    vermelho, sem flag (T-02 do contrato `skips-nunca-silenciosos`). Motivo
+    de existir: `run_verify` decidia o resultado só pelo exit code, e
+    pytest/dotnet test/jest saem 0 mesmo com dezenas de testes pulados; a
+    prova gravada sobre uma suíte assim ficava indistinguível de uma suíte
+    inteira. `None` de `format_skip_summary` (nada a dizer) não imprime
+    nada — silêncio é o resultado certo quando não há skip.
+    """
+    message = format_skip_summary(parse_skips(stdout, stderr))
+    if message:
+        print(f"verify_cmd de '{feature_id}': {message}", file=sys.stderr)
+
+
 def run_verify(
     target_dir: Path,
     feature_id: str,
@@ -594,7 +625,55 @@ def run_verify(
             ) from exc
 
         if returncode == 0:
-            break
+            _report_skips(feature_id, stdout, stderr)
+            report = parse_skips(stdout, stderr)
+            allowed_skips = load_allowed_skips(target_dir)
+
+            infra_violation = actionable_skip_violation(report, allowed_skips)
+            if infra_violation is not None:
+                # INFRA (§8.3): falta algo do lado de fora do código, não
+                # código quebrado. Nunca entra no rastro de tentativas — a
+                # mesma razão pela qual `verify_cmd` no runtime floor (acima)
+                # também levanta `VerifyError` sem tocar `record_failure`:
+                # loop não conserta a própria jaula, e "tentar de novo" não
+                # resolve env var ausente.
+                raise VerifyError(f"feature '{feature_id}': {infra_violation}")
+
+            skip_violation = skip_delta_violation(
+                without_liberated_actionable_skips(report, allowed_skips),
+                read_baseline(target_dir, contract, feature_id),
+            )
+            if skip_violation is None:
+                break
+
+            # Skip novo fora do baseline: o processo saiu 0, mas a política
+            # trata como falha estrutural — mesmo caminho do vermelho de
+            # hoje (nada em .harness/evidence/, tentativa registrada, exceção
+            # levantada). `exit_code=1` na tentativa e na exceção porque o 0
+            # real do processo mentiria sobre o veredito para quem lê depois.
+            print(f"verify_cmd de '{feature_id}': BLOQUEADO — {skip_violation}", file=sys.stderr)
+            try:
+                record_failure(
+                    target_dir,
+                    contract,
+                    feature_id,
+                    verify_cmd=verify_cmd,
+                    exit_code=1,
+                    stdout=stdout,
+                    stderr=stderr,
+                    files_hash=compute_files_hash(files, target_dir),
+                    recorded_at=datetime.now(timezone.utc).isoformat(),
+                    classification=CLASSIFICATION_STRUCTURAL,
+                )
+                update_progress_attempts(
+                    target_dir,
+                    feature_id,
+                    open_failures(read_attempts(target_dir, contract, feature_id)),
+                )
+            except Exception:
+                pass
+            _record_metric(target_dir, feature, verify_cwd, feature_id, contract, timeout_seconds)
+            raise VerifyFailedError(feature_id, 1, stdout, stderr)
 
         failure_line = extract_failure_line(stdout, stderr)
         classification = classify_failure(failure_line)
@@ -639,6 +718,7 @@ def run_verify(
             )
         except Exception:
             pass
+        _report_skips(feature_id, stdout, stderr)
         _record_metric(target_dir, feature, verify_cwd, feature_id, contract, timeout_seconds)
         raise VerifyFailedError(feature_id, returncode, stdout, stderr)
 
@@ -657,6 +737,28 @@ def run_verify(
         "exit_code": returncode,
         "files_hash": compute_files_hash(files, target_dir),
     }
+    # T-06: quem abrir esta evidência semanas depois precisa ver o que quem
+    # rodou viu. Silêncio-no-verde: sem skip e sem "zero coletados", a chave
+    # nem aparece — não muda o schema de quem já lê evidência de uma passada
+    # limpa hoje. `items` vazio quando o motivo não é visível na saída — mas
+    # isso nunca chega aqui de qualquer forma: T-04/T-05 já bloqueiam skip
+    # sem motivo visível antes deste ponto (delta não decidível, INFRA
+    # aplicável). Teto de ITENS, não de caracteres — evidência é JSON
+    # estruturado, não texto de console (`format_skip_summary` já cobre o
+    # console com teto de caracteres).
+    if report.skipped_count or report.zero_collected:
+        items = [
+            {"nodeid": s.nodeid, "reason": s.reason}
+            for s in report.skipped[:_EVIDENCE_SKIPS_MAX_ITEMS]
+        ]
+        skips_evidence: dict[str, Any] = {
+            "count": report.skipped_count,
+            "zero_collected": report.zero_collected,
+            "items": items,
+        }
+        if report.skipped_count > len(items):
+            skips_evidence["truncated"] = True
+        evidence["skips"] = skips_evidence
 
     path = evidence_path(target_dir, contract, feature_id)
     path.parent.mkdir(parents=True, exist_ok=True)

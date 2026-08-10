@@ -1,6 +1,6 @@
 # Claude Progress
 
-Contrato: `placar-de-andamento`
+Contrato: `skips-nunca-silenciosos`
 
 _Demanda ENCERRADA por `harness finish`._
 
@@ -8,14 +8,14 @@ _Demanda ENCERRADA por `harness finish`._
 
 | id | desc | status |
 | --- | --- | --- |
-| T-01 | `harness status --brief` mostra o placar do chat montado por código: progresso X/N, tarefas com estado, tarefa atual com tentativa n/teto, última prova com o erro, métrica quando houver e próximo passo — markdown+unicode, sem ANSI; `harness status` sem flag continua com o JSON de hoje byte-idêntico | done |
-| T-02 | `harness status --panel` mostra o mesmo placar colorido no terminal (cor só em TTY; em pipe sai texto puro) e `--watch N` re-renderiza sozinho no intervalo pedido | done |
-| T-03 | A barra do Claude Code passa a mostrar sempre demanda, progresso, tarefa, tentativa, último veredito e o custo da sessão quando o CLI o fornecer — `compile-session` instala a statusline e recompilar não duplica nem deixa entrada órfã | done |
-| T-04 | O lifecycle manda colar `harness status --brief` na abertura de cada iteração, na transição de fatia e em parada — e proíbe redigir o placar de cabeça | done |
-| T-06 | Quem lê a documentação do plugin encontra o placar: tutorial, guia e arquitetura passam a mostrar os três renders, a statusline entre os artefatos gerados e os dois módulos novos na tabela de camadas | done |
-| T-08 | O rastro de tentativas que o próprio harness escreve deixa de travar o fecho da demanda: `.harness/attempts/` passa a ser artefato gerenciado, como a evidência e o veredito cego | done |
-| T-07 | O produto se apresenta na versão que ele realmente é: v0.34.0 nas três fontes manuais, nos marcadores de versão da documentação e com a entrada de CHANGELOG do placar | done |
-| T-05 | Escalada, fecho e disjuntor falam resultado para o humano no stderr — inclusive o `harness finish`, que hoje não fala nada — e o JSON do stdout dos três continua byte-idêntico | done |
+| T-01 | A saída de qualquer runner de teste passa a ser lida: quantos testes pularam, por quê quando o motivo aparece, e se nenhum teste chegou a ser coletado | done |
+| T-02 | Toda execução de `harness verify` diz quantos testes pularam, verde ou vermelho, sem precisar de flag — e quando os motivos não estão visíveis na saída, diz isso e ensina como revelá-los | done |
+| T-03 | Um comando explícito roda a suíte, mostra ao humano tudo o que pulou e grava essa lista como o conjunto conhecido; a verificação normal nunca escreve essa lista sozinha | done |
+| T-04 | Um teste que começa a pular do nada derruba a verificação e nomeia o que pulou; o que já era conhecido passa sem atrito, e o que deixou de pular só informa | done |
+| T-05 | Teste pulado por falta de variável de ambiente, credencial ou ferramenta para o trabalho já na primeira vez, nomeando o que falta — e o dono do repositório libera os pulos legítimos uma única vez no arquivo de configuração | done |
+| T-06 | A prova gravada em disco passa a registrar o que pulou, para que quem abrir a evidência semanas depois veja a mesma coisa que quem rodou viu | done |
+| T-07 | O arquivo de configuração do harness passa a nascer com todas as opções que ele aceita, cada uma com seu valor padrão e uma linha explicando — nenhuma opção fica descobrível só lendo o código | done |
+| T-08 | A documentação continua batendo com o código depois do módulo e do subcomando novos: as contagens que ela declara conferem | done |
 
 ## Última atualização
 

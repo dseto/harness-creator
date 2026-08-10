@@ -1,0 +1,16 @@
+{
+  "feature_id": "T-03",
+  "contract": "skips-nunca-silenciosos",
+  "desc": "Um comando explícito roda a suíte, mostra ao humano tudo o que pulou e grava essa lista como o conjunto conhecido; a verificação normal nunca escreve essa lista sozinha",
+  "files": [
+    "src/harness/skips.py",
+    "src/harness/cli.py",
+    "src/harness/boundary_guard.py",
+    "tests/test_skips_baseline.py",
+    "tests/e2e/evidence/fase2-outcomes-verification.md"
+  ],
+  "verify_cmd": "pytest tests/test_skips_baseline.py -q",
+  "recorded_at": "2026-08-10T19:21:06.555451+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:96b378eb3ce4570c07528c4cf794d37b34ed6a588199482da22ee0a6b82a9564"
+}

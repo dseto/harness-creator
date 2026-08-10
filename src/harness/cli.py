@@ -249,6 +249,23 @@ def main() -> None:
         "do agente a cada verify",
     )
 
+    skips = sub.add_parser(
+        "skips", help="Conjunto conhecido de testes pulados (skips) de uma feature"
+    )
+    skips_sub = skips.add_subparsers(dest="skips_command", required=True)
+
+    skips_baseline = skips_sub.add_parser(
+        "baseline",
+        help="Roda o verify_cmd da feature, mostra ao humano o que pulou e grava "
+        "essa lista como o conjunto conhecido — harness verify NUNCA escreve isto sozinho",
+    )
+    skips_baseline.add_argument("feature_id", help="Id da feature em .harness/feature_list.json")
+    skips_baseline.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+    skips_baseline.add_argument(
+        "--timeout", type=int, default=None, metavar="SEGUNDOS",
+        help="Timeout do verify_cmd em segundos (default 600)",
+    )
+
     decide = sub.add_parser(
         "decide",
         help="Registra uma decisão do projeto (com o porquê) em .harness/decisions.md",
@@ -822,6 +839,29 @@ def main() -> None:
                 # diz é que o trabalho não acabou.
                 sys.exit(2)
 
+        sys.exit(0)
+
+    if args.command == "skips" and args.skips_command == "baseline":
+        from harness.skips import BaselineError, format_skip_summary, run_baseline
+        from harness.verify import _VERIFY_TIMEOUT_SECONDS
+
+        try:
+            report, path = run_baseline(
+                Path(args.dir), args.feature_id,
+                timeout_seconds=args.timeout if args.timeout is not None else _VERIFY_TIMEOUT_SECONDS,
+            )
+        except BaselineError as exc:
+            print(f"erro: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        summary = format_skip_summary(report)
+        if summary:
+            print(summary, file=sys.stderr)
+        print(json.dumps({
+            "feature_id": args.feature_id,
+            "baseline": str(path),
+            "skipped_count": report.skipped_count,
+        }, indent=2, ensure_ascii=False))
         sys.exit(0)
 
     if args.command == "team" and args.team_command == "design":

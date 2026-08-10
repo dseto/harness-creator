@@ -1,0 +1,15 @@
+{
+  "feature_id": "T-07",
+  "contract": "skips-nunca-silenciosos",
+  "desc": "O arquivo de configuração do harness passa a nascer com todas as opções que ele aceita, cada uma com seu valor padrão e uma linha explicando — nenhuma opção fica descobrível só lendo o código",
+  "files": [
+    "src/harness/config.py",
+    "src/harness/templates.py",
+    "skills/init/SKILL.md",
+    "tests/test_config_template.py"
+  ],
+  "verify_cmd": "pytest tests/test_config_template.py -q",
+  "recorded_at": "2026-08-10T19:05:38.227216+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:2fa95828870ec9868f88cdcd1781a5495379408a1d634f7baa7231568baa3387"
+}

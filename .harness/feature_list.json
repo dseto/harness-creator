@@ -1,37 +1,37 @@
 {
-  "contract": "placar-de-andamento",
-  "compiled_at": "2026-08-10T02:56:54.842051+00:00",
-  "compiled_with_version": "0.34.0",
+  "contract": "skips-nunca-silenciosos",
+  "compiled_at": "2026-08-10T19:13:48.600297+00:00",
+  "compiled_with_version": "0.33.0",
   "stop_conditions": {
     "typed": [],
     "advisory": [
-      "2 tentativas de correção estrutural seguidas na MESMA falha, fora do retry transiente",
-      "qualquer mudança sair da camada de apresentação — tocar veredito, gate, disjuntor ou fluxo de aprovação — parar e escalar"
+      "3 falhas consecutivas do mesmo verify_cmd na mesma tarefa",
+      "Detectar os motivos dos skips exigir alterar o verify_cmd do contrato — pare e escale: preservar o texto do contrato é garantia, não preferência",
+      "A suíte deste repositório ficar bloqueada pela T-04 sem que a chave de liberação do harness.yaml a destrave — sinal de que a liberação não funciona, e implementar em volta disso esconde o defeito",
+      "O parser de saída de runner precisar executar o verify_cmd mais de uma vez para decidir — o custo de rodar a suíte duas vezes é proibitivo e a decisão precisa sair da mesma execução"
     ]
   },
   "features": [
     {
       "id": "T-01",
-      "desc": "`harness status --brief` mostra o placar do chat montado por código: progresso X/N, tarefas com estado, tarefa atual com tentativa n/teto, última prova com o erro, métrica quando houver e próximo passo — markdown+unicode, sem ANSI; `harness status` sem flag continua com o JSON de hoje byte-idêntico",
+      "desc": "A saída de qualquer runner de teste passa a ser lida: quantos testes pularam, por quê quando o motivo aparece, e se nenhum teste chegou a ser coletado",
       "files": [
-        "src/harness/panel.py",
-        "src/harness/cli.py",
-        "tests/test_panel.py"
+        "src/harness/skips.py",
+        "tests/test_skips.py"
       ],
-      "verify_cmd": "pytest tests/test_panel.py -q",
+      "verify_cmd": "pytest tests/test_skips.py -q",
       "depends": [],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-02",
-      "desc": "`harness status --panel` mostra o mesmo placar colorido no terminal (cor só em TTY; em pipe sai texto puro) e `--watch N` re-renderiza sozinho no intervalo pedido",
+      "desc": "Toda execução de `harness verify` diz quantos testes pularam, verde ou vermelho, sem precisar de flag — e quando os motivos não estão visíveis na saída, diz isso e ensina como revelá-los",
       "files": [
-        "src/harness/panel.py",
-        "src/harness/cli.py",
-        "tests/test_panel.py"
+        "src/harness/verify.py",
+        "tests/test_verify_skips.py"
       ],
-      "verify_cmd": "pytest tests/test_panel.py -q",
+      "verify_cmd": "pytest tests/test_verify_skips.py -q",
       "depends": [
         "T-01"
       ],
@@ -40,13 +40,15 @@
     },
     {
       "id": "T-03",
-      "desc": "A barra do Claude Code passa a mostrar sempre demanda, progresso, tarefa, tentativa, último veredito e o custo da sessão quando o CLI o fornecer — `compile-session` instala a statusline e recompilar não duplica nem deixa entrada órfã",
+      "desc": "Um comando explícito roda a suíte, mostra ao humano tudo o que pulou e grava essa lista como o conjunto conhecido; a verificação normal nunca escreve essa lista sozinha",
       "files": [
-        "src/harness/statusline.py",
+        "src/harness/skips.py",
         "src/harness/cli.py",
-        "tests/test_statusline.py"
+        "src/harness/boundary_guard.py",
+        "tests/test_skips_baseline.py",
+        "tests/e2e/evidence/fase2-outcomes-verification.md"
       ],
-      "verify_cmd": "pytest tests/test_statusline.py -q",
+      "verify_cmd": "pytest tests/test_skips_baseline.py -q",
       "depends": [
         "T-01"
       ],
@@ -55,89 +57,81 @@
     },
     {
       "id": "T-04",
-      "desc": "O lifecycle manda colar `harness status --brief` na abertura de cada iteração, na transição de fatia e em parada — e proíbe redigir o placar de cabeça",
+      "desc": "Um teste que começa a pular do nada derruba a verificação e nomeia o que pulou; o que já era conhecido passa sem atrito, e o que deixou de pular só informa",
       "files": [
-        "src/harness/lifecycle.py",
-        "tests/test_lifecycle.py",
-        "README.md",
-        "docs/plugin/arquitetura-visual.html",
-        "AGENTS.md"
+        "src/harness/verify.py",
+        "src/harness/skips.py",
+        "tests/test_skips_delta.py"
       ],
-      "verify_cmd": "pytest tests/test_lifecycle.py -q",
+      "verify_cmd": "pytest tests/test_skips_delta.py -q",
       "depends": [
-        "T-01"
-      ],
-      "cwd": null,
-      "passes": true
-    },
-    {
-      "id": "T-06",
-      "desc": "Quem lê a documentação do plugin encontra o placar: tutorial, guia e arquitetura passam a mostrar os três renders, a statusline entre os artefatos gerados e os dois módulos novos na tabela de camadas",
-      "files": [
-        "docs/plugin/TUTORIAL.md",
-        "docs/plugin/GUIDE.md",
-        "docs/plugin/ARCHITECTURE.md",
-        "tests/test_docs_placar.py",
-        ".harness/work/placar-de-andamento/spec.md",
-        ".harness/work/placar-de-andamento/Plans.md"
-      ],
-      "verify_cmd": "pytest tests/test_docs_placar.py -q",
-      "depends": [
-        "T-01"
-      ],
-      "cwd": null,
-      "passes": true
-    },
-    {
-      "id": "T-08",
-      "desc": "O rastro de tentativas que o próprio harness escreve deixa de travar o fecho da demanda: `.harness/attempts/` passa a ser artefato gerenciado, como a evidência e o veredito cego",
-      "files": [
-        "src/harness/branching.py",
-        "tests/test_branching.py"
-      ],
-      "verify_cmd": "pytest tests/test_branching.py -q",
-      "depends": [
-        "T-01"
-      ],
-      "cwd": null,
-      "passes": true
-    },
-    {
-      "id": "T-07",
-      "desc": "O produto se apresenta na versão que ele realmente é: v0.34.0 nas três fontes manuais, nos marcadores de versão da documentação e com a entrada de CHANGELOG do placar",
-      "files": [
-        "src/harness/__init__.py",
-        ".claude-plugin/plugin.json",
-        ".claude-plugin/marketplace.json",
-        "README.md",
-        "docs/plugin/ARCHITECTURE.md",
-        "docs/plugin/arquitetura-visual.html",
-        "docs/plugin/GUIDE.md",
-        "docs/reference/CHANGELOG.md",
-        "tests/test_version_sync.py"
-      ],
-      "verify_cmd": "pytest tests/test_version_sync.py -q",
-      "depends": [
-        "T-06"
+        "T-02",
+        "T-03"
       ],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-05",
-      "desc": "Escalada, fecho e disjuntor falam resultado para o humano no stderr — inclusive o `harness finish`, que hoje não fala nada — e o JSON do stdout dos três continua byte-idêntico",
+      "desc": "Teste pulado por falta de variável de ambiente, credencial ou ferramenta para o trabalho já na primeira vez, nomeando o que falta — e o dono do repositório libera os pulos legítimos uma única vez no arquivo de configuração",
       "files": [
-        "src/harness/escalation.py",
-        "src/harness/finish.py",
-        "src/harness/budget.py",
-        "src/harness/cli.py",
-        "tests/test_escalation.py",
-        "tests/test_finish.py",
-        "tests/test_budget.py"
+        "src/harness/skips.py",
+        "src/harness/verify.py",
+        "src/harness/config.py",
+        "tests/test_skips_actionable.py"
       ],
-      "verify_cmd": "pytest tests/test_escalation.py tests/test_finish.py tests/test_budget.py -q",
+      "verify_cmd": "pytest tests/test_skips_actionable.py -q",
       "depends": [
-        "T-01"
+        "T-02"
+      ],
+      "cwd": null,
+      "passes": true
+    },
+    {
+      "id": "T-06",
+      "desc": "A prova gravada em disco passa a registrar o que pulou, para que quem abrir a evidência semanas depois veja a mesma coisa que quem rodou viu",
+      "files": [
+        "src/harness/verify.py",
+        "tests/test_skips_evidence.py"
+      ],
+      "verify_cmd": "pytest tests/test_skips_evidence.py -q",
+      "depends": [
+        "T-02"
+      ],
+      "cwd": null,
+      "passes": true
+    },
+    {
+      "id": "T-07",
+      "desc": "O arquivo de configuração do harness passa a nascer com todas as opções que ele aceita, cada uma com seu valor padrão e uma linha explicando — nenhuma opção fica descobrível só lendo o código",
+      "files": [
+        "src/harness/config.py",
+        "src/harness/templates.py",
+        "skills/init/SKILL.md",
+        "tests/test_config_template.py"
+      ],
+      "verify_cmd": "pytest tests/test_config_template.py -q",
+      "depends": [
+        "T-05"
+      ],
+      "cwd": null,
+      "passes": true
+    },
+    {
+      "id": "T-08",
+      "desc": "A documentação continua batendo com o código depois do módulo e do subcomando novos: as contagens que ela declara conferem",
+      "files": [
+        "README.md",
+        "docs/reference/loop-engineering-design.md",
+        "AGENTS.md",
+        "docs/plugin/TUTORIAL.md",
+        "docs/plugin/ARCHITECTURE.md",
+        "docs/plugin/arquitetura-visual.html"
+      ],
+      "verify_cmd": "pytest tests/test_docs_derived_facts.py -q",
+      "depends": [
+        "T-03",
+        "T-07"
       ],
       "cwd": null,
       "passes": true

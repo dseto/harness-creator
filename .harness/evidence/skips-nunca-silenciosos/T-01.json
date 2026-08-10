@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-01",
+  "contract": "skips-nunca-silenciosos",
+  "desc": "A saída de qualquer runner de teste passa a ser lida: quantos testes pularam, por quê quando o motivo aparece, e se nenhum teste chegou a ser coletado",
+  "files": [
+    "src/harness/skips.py",
+    "tests/test_skips.py"
+  ],
+  "verify_cmd": "pytest tests/test_skips.py -q",
+  "recorded_at": "2026-08-10T19:21:07.544667+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:492be83a683ba26ce0a5cfac938b5453928f2d5122d6a898ce1eb2dfe6ac8739"
+}

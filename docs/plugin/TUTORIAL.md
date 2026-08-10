@@ -203,9 +203,9 @@ Isso instala a biblioteca e o CLI `harness`. Confira:
 
 ```powershell
 harness --help
-# deve listar 26 subcomandos: compile, audit, audit-runtime, analyze,
+# deve listar 27 subcomandos: compile, audit, audit-runtime, analyze,
 #   preflight, compile-contract, task, profile, compile-session, verify,
-#   decide, lesson, blind, health, team, review, supervise, budget,
+#   skips, decide, lesson, blind, health, team, review, supervise, budget,
 #   reconcile, audit-team, finish, disable, enable, status, doctor, pr-draft
 ```
 

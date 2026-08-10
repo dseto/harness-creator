@@ -1,0 +1,15 @@
+{
+  "feature_id": "T-05",
+  "contract": "skips-nunca-silenciosos",
+  "desc": "Teste pulado por falta de variável de ambiente, credencial ou ferramenta para o trabalho já na primeira vez, nomeando o que falta — e o dono do repositório libera os pulos legítimos uma única vez no arquivo de configuração",
+  "files": [
+    "src/harness/skips.py",
+    "src/harness/verify.py",
+    "src/harness/config.py",
+    "tests/test_skips_actionable.py"
+  ],
+  "verify_cmd": "pytest tests/test_skips_actionable.py -q",
+  "recorded_at": "2026-08-10T19:21:10.881886+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:beebc00b2b0210b5bc21630307071a3c4b9afb6be905217c3d4a876d060e6590"
+}

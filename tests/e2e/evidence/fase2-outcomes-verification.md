@@ -6,7 +6,7 @@ Gerado por `tests/e2e/test_fase2_outcomes.py` (repos sintéticos em tmp_path via
 
 Veredito: **ATINGIDO**
 
-`compile-session` num settings virgem compilou `permissions.allow` EXATAMENTE igual à superfície enumerada (75 regras: Edit/Write dos files[] das 2 tarefas sem duplicar `src/app.py`, os 2 verify_cmd distintos, lint/typecheck/build do profile, `npm ci` do package_manager, git local do ritual). Nenhum wildcard genérico.
+`compile-session` num settings virgem compilou `permissions.allow` EXATAMENTE igual à superfície enumerada (77 regras: Edit/Write dos files[] das 2 tarefas sem duplicar `src/app.py`, os 2 verify_cmd distintos, lint/typecheck/build do profile, `npm ci` do package_manager, git local do ritual). Nenhum wildcard genérico.
 
 ```json
 [
@@ -59,6 +59,7 @@ Veredito: **ATINGIDO**
   "Bash(harness --help*)",
   "Bash(harness -h*)",
   "Bash(harness --version*)",
+  "Bash(harness skips*)",
   "Bash(python -m harness.cli compile*)",
   "Bash(python -m harness.cli audit*)",
   "Bash(python -m harness.cli audit-runtime*)",
@@ -84,7 +85,8 @@ Veredito: **ATINGIDO**
   "Bash(python -m harness.cli status*)",
   "Bash(python -m harness.cli --help*)",
   "Bash(python -m harness.cli -h*)",
-  "Bash(python -m harness.cli --version*)"
+  "Bash(python -m harness.cli --version*)",
+  "Bash(python -m harness.cli skips*)"
 ]
 ```
 Merge não-destrutivo: regra manual `Bash(echo regra-manual)` sobreviveu à recompilação; nenhuma regra duplicada (idempotência).

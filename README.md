@@ -129,7 +129,7 @@ automática: ele existe para mostrar o estado real, não para corrigi-lo.
 Detalhe completo do preflight (tabela de checks, contrato do JSON, decisões de
 arquitetura): [docs/preflight.md](docs/preflight.md).
 
-## CLI — os 26 subcomandos
+## CLI — os 27 subcomandos
 
 Todos aceitam `--dir <alvo>` (default `.`) e só operam sobre um diretório que
 já existe: um `--dir` com erro de digitação sai com código 2 sem escrever nada.
@@ -480,8 +480,8 @@ harness-creator/
 │   └── marketplace.json         # auto-referência p/ instalar como marketplace local
 ├── AGENTS.md                    # 3 blocos gerenciados + prosa humana
 ├── skills/                      # preflight, init, plan, compile, audit, team
-├── src/harness/                 # 43 módulos, uma responsabilidade cada
-│   ├── cli.py                   # dispatch dos 26 subcomandos
+├── src/harness/                 # 44 módulos, uma responsabilidade cada
+│   ├── cli.py                   # dispatch dos 27 subcomandos
 │   │
 │   │                            # -- base (fonte única de cada verdade) --
 │   ├── config.py                # HarnessConfig (pydantic) — schema do yaml
@@ -507,9 +507,11 @@ harness-creator/
 │   ├── boundary_guard.py        # dispatcher único: raio de impacto + runtime floor
 │   ├── session_start.py         # injeta o estado da sessão anterior
 │   ├── stop_hook.py             # avisa (sem bloquear) sobre trabalho não verificado
+│   ├── statusline.py            # uma linha de placar na barra do Claude Code
 │   │
 │   │                            # -- prova e controle --
 │   ├── verify.py                # roda verify_cmd e grava a evidência
+│   ├── skips.py                 # skip nunca silencioso: parser, baseline, delta, INFRA
 │   ├── attempts.py              # rastro de tentativas: erro cru + assinatura da falha
 │   ├── convergence.py           # §4.3: trajetória de métrica opt-in — piora/platô
 │   ├── regression.py            # re-prova incremental: fatia nova × fatias já provadas
@@ -524,6 +526,7 @@ harness-creator/
 │   ├── teams.py                 # catálogo de 6 padrões + análise de domínio
 │   ├── finish.py                # encerra a demanda: audita o fecho e varre
 │   ├── pr_draft.py              # contrato + evidência -> corpo do PR e comando gh
+│   ├── panel.py                 # placar do loop: uma fonte, três renders (status/panel/statusline)
 │   │
 │   │                            # -- diagnóstico (read-only) --
 │   ├── preflight.py             # laudo de prontidão do repo cru
@@ -538,7 +541,7 @@ harness-creator/
 │   └── .gitignore               # a regra de ignore é do próprio produto
 ├── docs/plugin/                 # TUTORIAL, GUIDE, ARCHITECTURE, arquitetura-visual.html
 ├── docs/project/                # ROADMAP, PLAN, laudos e handoffs
-└── tests/                       # 1437 casos (sem Docker/API para compile/audit)
+└── tests/                       # 1480 casos (sem Docker/API para compile/audit)
 ```
 
 Quem decide o que entra no git é a **Seção 3** de
@@ -551,7 +554,7 @@ de compilação que carrega dado de máquina é machine-local e regenerada por
 
 ```powershell
 $env:PYTHONPATH = "src"
-python -m pytest tests -q          # unit + E2E — 1437 casos
+python -m pytest tests -q          # unit + E2E — 1480 casos
 ```
 
 A suíte E2E (`tests/e2e/`) roda inteira sobre repos sintéticos criados em
@@ -562,7 +565,7 @@ externo ao plugin.
 **Convenção da suíte (v0.26.0):** um teste = uma REGRA, com tabela de casos
 (`Case` + `_expect`), nunca um `def` por caso. A suíte tinha chegado a 1008
 casos e caiu para 724 sem perder uma asserção — o que sobrou é o piso
-mecânico, não gordura restante. O crescimento desde então — hoje 1437 casos —
+mecânico, não gordura restante. O crescimento desde então — hoje 1480 casos —
 é regra nova coberta, não a gordura voltando.
 
 Achado que a suíte documenta (via `harness.cli` chamado com
