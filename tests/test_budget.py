@@ -26,10 +26,13 @@ import pytest
 from harness.attempts import CLASSIFICATION_TRANSIENT, attempts_path, failure_signature
 from harness.budget import (
     DEFAULT_SAME_SIGNATURE_LIMIT,
+    STOP_PLATEAU,
     STOP_TRANSIENT_EXHAUSTED,
+    STOP_WORSENING,
     BudgetError,
     check_budget,
 )
+from harness.convergence import metric_path
 
 
 def _write(path: Path, content: str) -> None:
@@ -233,6 +236,180 @@ def test_transient_exhausted_reason_names_the_environment_not_the_approach(
     reason = check_budget(tmp_path, "T-01")["reason"]
     assert "Connection refused" in reason
     assert "abordagem" not in reason
+
+
+# ---------------------------------------------------------------------------
+# REGRA 1.6 — trajetória de métrica (§4.3, contrato `convergencia-opt-in`):
+# `stop_worsening`/`stop_plateau` só existem para tarefa com `metric_cmd` E
+# `metric_target`, e ficam ATRÁS de qualquer veredito estrutural na ordem de
+# precedência.
+# ---------------------------------------------------------------------------
+
+def _write_feature_list_with_metric(
+    tmp_path: Path,
+    metric_cmd: str | None = "python metric.py",
+    metric_target: str | None = ">= 0.85",
+    typed: list[dict] | None = None,
+    contract: str = "exemplo",
+    feature_id: str = "T-01",
+) -> None:
+    feature = {
+        "id": feature_id, "desc": "Fazer alguma coisa", "files": ["src/x.py"],
+        "verify_cmd": "pytest -q", "depends": [], "passes": False,
+    }
+    if metric_cmd:
+        feature["metric_cmd"] = metric_cmd
+        if metric_target:
+            feature["metric_target"] = metric_target
+    payload = {
+        "contract": contract,
+        "compiled_at": "2026-08-09T04:00:00+00:00",
+        "stop_conditions": {"typed": typed or [], "advisory": []},
+        "features": [feature],
+    }
+    _write(
+        tmp_path / ".harness" / "feature_list.json",
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+    )
+
+
+def _write_measurements(tmp_path: Path, values: list[float], contract: str = "exemplo") -> None:
+    lines = [
+        json.dumps({"value": v, "recorded_at": "t", "commit": "abc1234", "dirty": False})
+        for v in values
+    ]
+    _write(metric_path(tmp_path, contract, "T-01"), "\n".join(lines) + ("\n" if lines else ""))
+
+
+@dataclass(frozen=True)
+class TrajectoryVerdictCase:
+    values: list[float]
+    verdict: str
+    why: str
+
+
+TRAJECTORY_VERDICT_CASES = [
+    TrajectoryVerdictCase([], "continue", "sem medição: nada para julgar"),
+    TrajectoryVerdictCase([0.9], "continue", "uma medição não é pior que si mesma"),
+    TrajectoryVerdictCase([0.9, 0.7], "continue", "uma piora só não fecha o teto de 2"),
+    TrajectoryVerdictCase([0.9, 0.7, 0.6], "stop_worsening", "duas seguidas piores que o melhor"),
+    TrajectoryVerdictCase(
+        [0.9, 0.5, 0.9, 0.5, 0.9], STOP_PLATEAU,
+        "oscilação sem nunca bater recorde: só o platô pega, não a piora",
+    ),
+    TrajectoryVerdictCase([0.9, 0.95], "continue", "bateu recorde: nem piora nem platô"),
+]
+
+
+@pytest.mark.parametrize("case", TRAJECTORY_VERDICT_CASES, ids=lambda c: c.why)
+def test_trajectory_verdicts_from_metric_measurements(
+    tmp_path: Path, case: TrajectoryVerdictCase
+) -> None:
+    _write_feature_list_with_metric(tmp_path)
+    _write_yaml(tmp_path, 12)
+    _write_trail(tmp_path, [])
+    _write_measurements(tmp_path, case.values)
+
+    assert check_budget(tmp_path, "T-01")["verdict"] == case.verdict
+
+
+def test_structural_verdicts_win_over_trajectory_verdicts(tmp_path: Path) -> None:
+    """Falha repetida é sinal sobre a EXECUÇÃO do loop; piora de trajetória é
+    sinal sobre o ARTEFATO. Os dois podem estourar juntos — o estrutural
+    vence, mesma ordem que já vale para o transiente."""
+    _write_feature_list_with_metric(
+        tmp_path, typed=[{"type": "same_failure_signature", "n": 2}]
+    )
+    _write_yaml(tmp_path, 12)
+    _write_trail(tmp_path, ["a", "a"])
+    _write_measurements(tmp_path, [0.9, 0.5, 0.4])  # também dispararia stop_worsening
+
+    assert check_budget(tmp_path, "T-01")["verdict"] == "stop_same_failure"
+
+
+def test_worsening_wins_over_plateau_when_both_trip(tmp_path: Path) -> None:
+    """'piora antes de platô' (spec): quando as duas condições estouram
+    juntas, o veredito reportado é o de piora."""
+    _write_feature_list_with_metric(tmp_path)
+    _write_yaml(tmp_path, 12)
+    _write_trail(tmp_path, [])
+    _write_measurements(tmp_path, [0.9, 0.8, 0.7, 0.6])  # worsening=3, plateau=3
+
+    assert check_budget(tmp_path, "T-01")["verdict"] == STOP_WORSENING
+
+
+def test_metric_without_target_never_trips_trajectory_verdicts(tmp_path: Path) -> None:
+    """Sem `metric_target` não há direção de 'melhor' — mesmo silêncio de
+    uma tarefa sem métrica nenhuma (ver docstring de `convergence.py`)."""
+    _write_feature_list_with_metric(tmp_path, metric_target=None)
+    _write_yaml(tmp_path, 12)
+    _write_trail(tmp_path, [])
+    _write_measurements(tmp_path, [0.9, 0.7, 0.6])  # dispararia stop_worsening se houvesse target
+
+    report = check_budget(tmp_path, "T-01")
+    assert report["verdict"] == "continue"
+    assert report["target_met"] is False
+
+
+def test_feature_without_metric_cmd_has_target_met_false(tmp_path: Path) -> None:
+    _write_feature_list(tmp_path)
+    _write_yaml(tmp_path, 12)
+    _write_trail(tmp_path, [])
+
+    report = check_budget(tmp_path, "T-01")
+    assert report["verdict"] == "continue"
+    assert report["target_met"] is False
+
+
+def test_target_met_is_informational_and_never_changes_the_verdict(tmp_path: Path) -> None:
+    """Anti-Goodhart do §4.3 como invariante: bater o alvo não é `passes`,
+    nem sequer um veredito diferente — `verify_cmd` continua sendo quem
+    decide. Aqui a medição mais recente bate o alvo E é o melhor valor (sem
+    piora nem platô), então o veredito segue `continue` de qualquer jeito —
+    o teste existe para o campo aparecer certo, não para provar isolamento."""
+    _write_feature_list_with_metric(tmp_path)
+    _write_yaml(tmp_path, 12)
+    _write_trail(tmp_path, [])
+    _write_measurements(tmp_path, [0.5, 0.9])
+
+    report = check_budget(tmp_path, "T-01")
+    assert report["target_met"] is True
+    assert report["verdict"] == "continue"
+
+
+def test_stop_worsening_reason_names_the_best_state(tmp_path: Path) -> None:
+    _write_feature_list_with_metric(tmp_path)
+    _write_yaml(tmp_path, 12)
+    _write_trail(tmp_path, [])
+    _write_measurements(tmp_path, [0.9, 0.7, 0.6])
+
+    reason = check_budget(tmp_path, "T-01")["reason"]
+    assert "0.9" in reason
+    assert "abc1234" in reason
+
+
+def test_stop_plateau_reason_names_the_lack_of_a_new_record(tmp_path: Path) -> None:
+    _write_feature_list_with_metric(tmp_path)
+    _write_yaml(tmp_path, 12)
+    _write_trail(tmp_path, [])
+    _write_measurements(tmp_path, [0.9, 0.5, 0.9, 0.5, 0.9])
+
+    report = check_budget(tmp_path, "T-01")
+    assert report["verdict"] == STOP_PLATEAU
+    assert "platô" in report["reason"] or "recorde" in report["reason"]
+
+
+def test_check_budget_still_writes_nothing_with_metric_configured(tmp_path: Path) -> None:
+    _write_feature_list_with_metric(tmp_path)
+    _write_yaml(tmp_path, 12)
+    _write_trail(tmp_path, [])
+    _write_measurements(tmp_path, [0.9, 0.7, 0.6])
+
+    before = {p: p.read_bytes() for p in sorted(tmp_path.rglob("*")) if p.is_file()}
+    check_budget(tmp_path, "T-01")
+    after = {p: p.read_bytes() for p in sorted(tmp_path.rglob("*")) if p.is_file()}
+
+    assert before == after
 
 
 # ---------------------------------------------------------------------------

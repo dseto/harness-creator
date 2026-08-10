@@ -15,7 +15,8 @@ from pathlib import Path
 import pytest
 
 from harness.attempts import attempts_path, failure_signature
-from harness.budget import check_budget
+from harness.budget import STOP_PLATEAU, STOP_WORSENING, check_budget
+from harness.convergence import metric_path
 from harness.escalation import EscalationError, render_escalation
 
 
@@ -271,6 +272,98 @@ def test_escalating_a_continue_verdict_raises(tmp_path: Path) -> None:
     assert report["verdict"] == "continue"
     with pytest.raises(EscalationError):
         render_escalation(tmp_path, report)
+
+
+# ---------------------------------------------------------------------------
+# REGRA 7 — tarefa com métrica ganha a linha de trajetória no "Estado da
+# spine" (§4.3, contrato `convergencia-opt-in`), e um rótulo de classificação
+# próprio — nunca forçada em "estrutural no teto"
+# ---------------------------------------------------------------------------
+
+def _write_feature_list_with_metric(
+    tmp_path: Path,
+    metric_target: str = ">= 0.85",
+    typed: list[dict] | None = None,
+    contract: str = "exemplo",
+) -> None:
+    _write(
+        tmp_path / ".harness" / "feature_list.json",
+        json.dumps(
+            {
+                "contract": contract,
+                "stop_conditions": {"typed": typed or [], "advisory": []},
+                "features": [{
+                    "id": "T-01", "desc": "Fechar a lacuna X", "files": ["src/x.py"],
+                    "verify_cmd": "pytest -q", "metric_cmd": "python metric.py",
+                    "metric_target": metric_target, "depends": [], "passes": False,
+                }],
+            },
+            indent=2, ensure_ascii=False,
+        ),
+    )
+
+
+def _write_measurements(tmp_path: Path, values: list[float], contract: str = "exemplo") -> None:
+    lines = [
+        json.dumps({"value": v, "recorded_at": f"2026-08-09T0{i}:00:00+00:00", "commit": f"c{i}", "dirty": False})
+        for i, v in enumerate(values)
+    ]
+    _write(metric_path(tmp_path, contract, "T-01"), "\n".join(lines) + ("\n" if lines else ""))
+
+
+def test_escalation_classification_label_for_worsening(tmp_path: Path) -> None:
+    _write_feature_list_with_metric(tmp_path)
+    _write_measurements(tmp_path, [0.9, 0.7, 0.6])
+
+    report = check_budget(tmp_path, "T-01")
+    assert report["verdict"] == STOP_WORSENING
+    text = render_escalation(tmp_path, report)
+    assert "trajetória em piora" in text.split("Classificação:")[1].split("Estado da spine:")[0]
+
+
+def test_escalation_classification_label_for_plateau(tmp_path: Path) -> None:
+    _write_feature_list_with_metric(tmp_path)
+    _write_measurements(tmp_path, [0.9, 0.5, 0.9, 0.5, 0.9])
+
+    report = check_budget(tmp_path, "T-01")
+    assert report["verdict"] == STOP_PLATEAU
+    text = render_escalation(tmp_path, report)
+    assert "trajetória em platô" in text.split("Classificação:")[1].split("Estado da spine:")[0]
+
+
+def test_escalation_spine_gains_the_trajectory_line_with_recent_series_and_best(
+    tmp_path: Path,
+) -> None:
+    _write_feature_list_with_metric(tmp_path)
+    _write_measurements(tmp_path, [0.9, 0.7, 0.6])
+
+    text = render_escalation(tmp_path, check_budget(tmp_path, "T-01"))
+    spine = text.split("Estado da spine:")[1].split("Sugestão de próximo passo:")[0]
+    assert "0.9" in spine and "0.7" in spine and "0.6" in spine
+    assert "c0" in spine  # commit da medição que é o melhor valor (0.9, índice 0)
+
+
+def test_escalation_spine_has_no_trajectory_line_without_metric(tmp_path: Path) -> None:
+    _write_feature_list(tmp_path)
+    _write_trail(tmp_path, [("a", "structural")] * 3)
+
+    text = render_escalation(tmp_path, check_budget(tmp_path, "T-01"))
+    spine = text.split("Estado da spine:")[1].split("Sugestão de próximo passo:")[0]
+    assert "Trajetória" not in spine
+
+
+def test_escalation_spine_has_no_trajectory_line_without_any_measurement_yet(
+    tmp_path: Path,
+) -> None:
+    """Tarefa com metric_cmd/metric_target declarados mas ainda sem nenhuma
+    medição gravada (contrato recém-compilado) — mesmo silêncio de tarefa
+    sem métrica, não uma linha vazia ou quebrada."""
+    _write_feature_list_with_metric(tmp_path)
+    _write_trail(tmp_path, [("a", "structural")] * 3)
+
+    text = render_escalation(tmp_path, check_budget(tmp_path, "T-01"))
+    spine = text.split("Estado da spine:")[1].split("Sugestão de próximo passo:")[0]
+    assert "Trajetória" not in spine
 
 
 def test_escalating_a_feature_removed_from_the_contract_raises(tmp_path: Path) -> None:

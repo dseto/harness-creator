@@ -1,0 +1,15 @@
+{
+  "feature_id": "T-02",
+  "contract": "convergencia-opt-in",
+  "desc": "Com `metric_cmd`, cada `harness verify` mede e grava a trajetória (valor, timestamp, commit, árvore suja) no rastro da tarefa; saída não-numérica é falha de ambiente, nunca valor",
+  "files": [
+    "src/harness/convergence.py",
+    "src/harness/verify.py",
+    "tests/test_convergence.py",
+    "tests/test_verify.py"
+  ],
+  "verify_cmd": "pytest tests/test_convergence.py -q",
+  "recorded_at": "2026-08-09T23:41:48.715338+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:50707c1803ac0b14d24abc6f80c1510370eb1c6a56e364f525b5aeca72ab09ef"
+}

@@ -70,6 +70,19 @@ PLANS_MISSING_VERIFY = """## [T-01] Tarefa sem verify
 - files: `src/harness/x.py`
 """
 
+PLANS_WITH_METRIC = """## [T-01] Converter HTML para PowerPoint com fidelidade visual
+- files: `src/convert.py`, `tests/test_convert.py`
+- verify: `pytest tests/test_convert.py -q`
+- metric: `python scripts/similarity.py`
+- target: `>= 0.85`
+"""
+
+PLANS_TARGET_WITHOUT_METRIC = """## [T-01] Tarefa com target orfao
+- files: `src/x.py`
+- verify: `pytest -q`
+- target: `>= 0.85`
+"""
+
 
 def _write_contract(target: Path, slug: str, spec_text: str, plans_text: str) -> Path:
     contract_dir = target / ".harness" / "work" / slug
@@ -193,6 +206,33 @@ def test_parse_plans_cwd_absent_defaults_to_none(tmp_path: Path) -> None:
     assert tasks[0].cwd is None
 
 
+# ---------------------------------------------------------------------------
+# metric/target opt-in (contrato `convergencia-opt-in`, T-01, §4.3 do design)
+# ---------------------------------------------------------------------------
+
+def test_parse_plans_metric_and_target_present_are_parsed(tmp_path: Path) -> None:
+    plans_path = tmp_path / "Plans.md"
+    plans_path.write_text(PLANS_WITH_METRIC, encoding="utf-8")
+    tasks = parse_plans(plans_path)
+    assert tasks[0].metric_cmd == "python scripts/similarity.py"
+    assert tasks[0].metric_target == ">= 0.85"
+
+
+def test_parse_plans_metric_and_target_absent_default_to_none(tmp_path: Path) -> None:
+    plans_path = tmp_path / "Plans.md"
+    plans_path.write_text(BASIC_PLANS, encoding="utf-8")
+    tasks = parse_plans(plans_path)
+    assert tasks[0].metric_cmd is None
+    assert tasks[0].metric_target is None
+
+
+def test_parse_plans_target_without_metric_raises_naming_task(tmp_path: Path) -> None:
+    plans_path = tmp_path / "Plans.md"
+    plans_path.write_text(PLANS_TARGET_WITHOUT_METRIC, encoding="utf-8")
+    with pytest.raises(ContractError, match="T-01"):
+        parse_plans(plans_path)
+
+
 def test_parse_plans_missing_verify_raises_naming_task(tmp_path: Path) -> None:
     plans_path = tmp_path / "Plans.md"
     plans_path.write_text(PLANS_MISSING_VERIFY, encoding="utf-8")
@@ -232,6 +272,33 @@ def test_compile_contract_approved_compiles_with_correct_schema(tmp_path: Path) 
 
     t02 = next(f for f in data["features"] if f["id"] == "T-02")
     assert t02["depends"] == ["T-01"]
+
+
+def test_compile_contract_with_metric_bullets_adds_metric_fields_to_feature(
+    tmp_path: Path,
+) -> None:
+    _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, PLANS_WITH_METRIC)
+    out_path = compile_contract(tmp_path, "exemplo-feature")
+    data = json.loads(out_path.read_text(encoding="utf-8"))
+    t01 = data["features"][0]
+    assert t01["metric_cmd"] == "python scripts/similarity.py"
+    assert t01["metric_target"] == ">= 0.85"
+
+
+def test_compile_contract_without_metric_bullets_omits_the_keys_entirely(
+    tmp_path: Path,
+) -> None:
+    """§4.3 é opt-in por tarefa: sem os bullets, o feature_list.json não pode
+    ganhar `metric_cmd`/`metric_target` nem como `null` — a promessa da spec
+    é 'idêntico ao de hoje', e um consumidor antigo faria `.get('metric_cmd')`
+    ver `None` de qualquer jeito, mas a chave ausente é o sinal mais forte de
+    'esta tarefa não usa métrica'."""
+    _write_contract(tmp_path, "exemplo-feature", APPROVED_SPEC, BASIC_PLANS)
+    out_path = compile_contract(tmp_path, "exemplo-feature")
+    data = json.loads(out_path.read_text(encoding="utf-8"))
+    for feature in data["features"]:
+        assert "metric_cmd" not in feature
+        assert "metric_target" not in feature
 
 
 def test_compile_contract_not_approved_raises_and_writes_nothing(tmp_path: Path) -> None:

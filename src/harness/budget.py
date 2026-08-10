@@ -11,6 +11,17 @@ veredito `stop_transient_exhausted`, que vence os outros dois — não é o
 loop de correção normal do §8.2 pegando um teto, é o §8.3 batendo por outra
 porta ("mesmo erro transiente 3× → reclassificar como infra").
 
+Contrato `convergencia-opt-in` (T-03) soma §4.3: tarefa com `metric_cmd` E
+`metric_target` no `feature_list.json` (T-01) ganha DOIS vereditos de
+trajetória, lidos de `convergence.summarize_trajectory` — `stop_worsening`
+(as últimas 2 medições pioraram frente ao melhor já registrado) e
+`stop_plateau` (as últimas 3 não bateram um novo recorde, oscilação
+inclusa). Os dois ficam DEPOIS dos vereditos estruturais na ordem de
+precedência: falha repetida/teto de iterações/transiente esgotado são sinais
+sobre a EXECUÇÃO do loop e vencem um sinal sobre a TRAJETÓRIA do artefato.
+Tarefa com `metric_cmd` mas sem `metric_target` (sem direção de "melhor")
+nunca dispara os dois — mesmo silêncio de uma tarefa sem métrica nenhuma.
+
 O que estava furado: `max_green_iterations` existia no `harness.yaml` e no
 schema (`config.BudgetConfig`) sem UM consumidor — o `compiler.py` o
 imprimia no `AGENTS.md` numa seção chamada, literalmente, "Orçamento
@@ -49,6 +60,7 @@ from pydantic import ValidationError
 from harness.attempts import CLASSIFICATION_TRANSIENT, read_attempts, summarize
 from harness.config import HarnessConfig
 from harness.contract import FEATURE_LIST_FILE
+from harness.convergence import read_measurements, summarize_trajectory
 
 HARNESS_YAML_RELATIVE_PATH = ".harness/harness.yaml"
 
@@ -70,6 +82,16 @@ STOP_ITERATIONS = "stop_iterations"
 #: do §8.3 (nunca healing automático, sempre parada + escalada), não um
 #: caso do loop de correção normal do §8.2.
 STOP_TRANSIENT_EXHAUSTED = "stop_transient_exhausted"
+#: §4.3: "duas medições seguidas piores que o melhor valor já registrado".
+#: Constante do design (contrato `convergencia-opt-in`) — não configurável
+#: no primeiro corte (ver Não-objetivos: "configurar antes da primeira
+#: demanda real usar é ajuste sem dado").
+STOP_WORSENING = "stop_worsening"
+WORSENING_STREAK_LIMIT = 2
+#: §4.3: "três medições sem superar o melhor valor" — inclui oscilação por
+#: construção (ver `convergence.summarize_trajectory`).
+STOP_PLATEAU = "stop_plateau"
+PLATEAU_STREAK_LIMIT = 3
 
 
 class BudgetError(Exception):
@@ -147,8 +169,10 @@ def check_budget(target_dir: Path | str, feature_id: str) -> dict[str, Any]:
          "same_signature_streak", "last_failure_line", "last_failure_signature",
          "limits": {"consecutive_verify_failures": int,
                     "same_failure_signature": int},
-         "verdict": "continue" | "stop_same_failure" | "stop_iterations",
-         "reason": "<frase para humano>"}
+         "verdict": "continue" | "stop_same_failure" | "stop_iterations" |
+                    "stop_transient_exhausted" | "stop_worsening" | "stop_plateau",
+         "reason": "<frase para humano>",
+         "target_met": bool}
 
     Precedência: `stop_transient_exhausted` vence QUALQUER outro veredito —
     checado antes de streak/consecutivas, do mesmo jeito que `health.py`
@@ -174,7 +198,10 @@ def check_budget(target_dir: Path | str, feature_id: str) -> dict[str, Any]:
 
     contract = feature_list.get("contract")
     features = feature_list.get("features") or []
-    if not any(isinstance(f, dict) and f.get("id") == feature_id for f in features):
+    feature = next(
+        (f for f in features if isinstance(f, dict) and f.get("id") == feature_id), None
+    )
+    if feature is None:
         known = ", ".join(
             str(f.get("id")) for f in features if isinstance(f, dict) and f.get("id")
         )
@@ -196,6 +223,18 @@ def check_budget(target_dir: Path | str, feature_id: str) -> dict[str, Any]:
     summary = summarize(read_attempts(target_dir, contract, feature_id))
     consecutive = summary["consecutive_failures"]
     streak = summary["same_signature_streak"]
+
+    # §4.3: só existe trajetória para comparar com `metric_cmd` E
+    # `metric_target` — sem a direção que o target dá, não há "melhor" para
+    # `summarize_trajectory` comparar (ver docstring de `convergence.py`).
+    metric_cmd = feature.get("metric_cmd")
+    metric_target = feature.get("metric_target")
+    trajectory = None
+    target_met = False
+    if metric_cmd and metric_target:
+        measurements = read_measurements(target_dir, contract, feature_id)
+        trajectory = summarize_trajectory(measurements, metric_target)
+        target_met = trajectory["target_met"]
 
     if summary["last_classification"] == CLASSIFICATION_TRANSIENT:
         verdict = STOP_TRANSIENT_EXHAUSTED
@@ -223,6 +262,25 @@ def check_budget(target_dir: Path | str, feature_id: str) -> dict[str, Any]:
             "progress.md e devolva o controle ao humano com o diagnóstico "
             "(o que foi tentado, último erro, classificação)."
         )
+    elif trajectory is not None and trajectory["worsening_streak"] >= WORSENING_STREAK_LIMIT:
+        verdict = STOP_WORSENING
+        best = trajectory["best"]
+        reason = (
+            f"as últimas {trajectory['worsening_streak']} medições da métrica pioraram "
+            f"frente ao melhor valor já registrado ({best['value']}, "
+            f"{best.get('recorded_at') or '?'}, commit {best.get('commit') or '?'}) — "
+            "isso não é bug de lógica para consertar por dentro do loop (§4.3): "
+            "retome do melhor estado nomeado acima, não continue empilhando por "
+            "cima do que já piorou."
+        )
+    elif trajectory is not None and trajectory["plateau_streak"] >= PLATEAU_STREAK_LIMIT:
+        verdict = STOP_PLATEAU
+        reason = (
+            f"as últimas {trajectory['plateau_streak']} medições da métrica não "
+            "bateram um novo recorde contra o que veio antes delas — platô, "
+            "oscilação inclusa (§4.3). Troque de abordagem ou escale com a curva "
+            "registrada; insistir na mesma direção não está aproximando do alvo."
+        )
     else:
         verdict = CONTINUE
         reason = (
@@ -243,4 +301,8 @@ def check_budget(target_dir: Path | str, feature_id: str) -> dict[str, Any]:
         "limits": limits,
         "verdict": verdict,
         "reason": reason,
+        # §4.3: informativo, NUNCA decide veredito nem `passes` — anti-Goodhart
+        # do design como invariante (ver stop_conditions do contrato
+        # `convergencia-opt-in`). `False` para tarefa sem métrica/target.
+        "target_met": target_met,
     }

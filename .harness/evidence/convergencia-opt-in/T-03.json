@@ -1,0 +1,14 @@
+{
+  "feature_id": "T-03",
+  "contract": "convergencia-opt-in",
+  "desc": "Disjuntor ganha os vereditos de trajetória: `stop_worsening` (2 piores que o melhor, nomeando o melhor estado) e `stop_plateau` (3 sem superar o melhor, oscilação inclusa); `target` atingido informa `target_met` sem mudar veredito nem `passes`; vereditos de falha repetida prevalecem",
+  "files": [
+    "src/harness/budget.py",
+    "src/harness/convergence.py",
+    "tests/test_budget.py"
+  ],
+  "verify_cmd": "pytest tests/test_budget.py -q",
+  "recorded_at": "2026-08-09T23:41:47.485787+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:2147e10165ffd384d7a25f85a762d99e244ba2947fce102415afe7e467328aed"
+}

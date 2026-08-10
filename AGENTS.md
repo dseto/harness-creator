@@ -146,9 +146,14 @@ sempre exige aprovação humana.
 8. Implementar a mudança dentro do raio de impacto declarado.
 9. Rodar `verify_cmd` da tarefa — o `harness verify` ainda re-prova sozinho as
    tarefas concluídas que compartilham arquivo com esta; exit 2 = regressão a
-   consertar antes de seguir.
-10. Se falhar: consultar `harness budget --feature <id>` e obedecer o
-    veredito — autocorrigir e re-rodar só enquanto ele disser `continue`.
+   consertar antes de seguir. Tarefa com `metric` opcional (§4.3) também mede
+   a trajetória logo depois, passe ou falhe — a métrica GUIA, quem decide
+   `passes` continua sendo só o `verify_cmd`.
+10. Se falhar (falha transiente já tenta de novo sozinha, 3× — não conta;
+    tarefa com métrica também pode parar por piora/platô da trajetória):
+    consultar `harness budget --feature <id>` e obedecer o veredito —
+    autocorrigir e re-rodar só enquanto ele disser `continue`; em qualquer
+    parada, usar o campo `escalation` da saída pronto, sem escrever à mão.
 11. Registrar a prova (evidência da verificação bem-sucedida).
 12. Atualizar `.harness/progress.md` com o estado atual.
 13. Marcar a feature concluída em `feature_list.json`.

@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-04",
+  "contract": "convergencia-opt-in",
+  "desc": "Bloco de escalada de tarefa com métrica inclui a trajetória: série recente, melhor valor e onde ocorreu",
+  "files": [
+    "src/harness/escalation.py",
+    "tests/test_escalation.py"
+  ],
+  "verify_cmd": "pytest tests/test_escalation.py -q",
+  "recorded_at": "2026-08-09T23:43:21.976720+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:3d4ea87da656f4ca70ceb091bef9e2781021a17843489ad011ebc1ec29540c6a"
+}

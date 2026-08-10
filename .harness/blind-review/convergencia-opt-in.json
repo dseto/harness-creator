@@ -1,0 +1,11 @@
+{
+  "contract": "convergencia-opt-in",
+  "verdicts": [
+    {
+      "verdict": "pass",
+      "evidence": "T-01: contract.py Task dataclass ganhou metric_cmd/metric_target (linhas 187-188), parse_plans le bullets opcionais e recusa target sem metric (linhas 411-416), compile_contract so grava metric_cmd/metric_target se declarados (linhas 800-803, aditivo). session_permissions.py render_session_permissions emite Bash(metric_cmd)/Bash(metric_cmd:*) no mesmo padrao de verify_cmd (linhas 215-218, 241-244), filtrado pelo floor. pytest tests/test_contract.py tests/test_session_permissions.py -q = 98 passed. T-02: convergence.py parse_metric_value nunca devolve zero, levanta ConvergenceError p/ saida nao-numerica (linhas 86-100); verify.py _record_metric roda metric_cmd apos verify_cmd, passe ou falhe, grava commit/dirty/timestamp (linhas 439-492), nunca deriva passes. pytest tests/test_convergence.py -q = 44 passed. T-03: budget.py check_budget ordena vereditos: stop_transient_exhausted > stop_same_failure > stop_iterations > stop_worsening (streak>=2) > stop_plateau (streak>=3) (linhas 239-291); target_met e so campo informativo no dict de retorno (linha 307), nunca influencia o if/elif que decide verdict. pytest tests/test_budget.py -q = 47 passed, inclui teste explicito (linha 325) que trajetoria pior nao muda veredito quando stop_same_failure ja fechou. T-04: escalation.py _trajectory_line (linhas 141-165) adiciona serie recente + melhor valor/onde ocorreu ao bloco Estado da spine. pytest tests/test_escalation.py -q = 19 passed. T-05: lifecycle.py passos 9 (linhas 200-216) e 10 (linhas 253-261) documentam a regra dos dois criterios, a regra de ouro 'metrica guia, verify_cmd decide' e afirmam explicitamente que o harness nao reverte nada sozinho. AGENTS.md linhas 149-156 espelha o mesmo texto gerado. pytest tests/test_lifecycle.py -q = 29 passed. Verificacao adicional do contrato de seguranca: grep por 'git checkout/reset/revert' em src/harness/*.py fora de comentarios/docstrings nao encontrou nenhuma chamada real de subprocess; target_met so aparece como campo leitura em budget.py/convergence.py/lifecycle.py, nunca atribuido a passes.",
+      "files_hash": "sha256:6eb8f9734975fc4757b9842a8be6abd18fae63cba9935a5ad185d90a80e778ef",
+      "recorded_at": "2026-08-10T00:04:50.746513+00:00"
+    }
+  ]
+}

@@ -46,8 +46,11 @@ def render_lifecycle_block() -> str:
 8. Implementar a mudança dentro do raio de impacto declarado.
 9. Rodar `verify_cmd` da tarefa — o `harness verify` ainda re-prova sozinho as
    tarefas concluídas que compartilham arquivo com esta; exit 2 = regressão a
-   consertar antes de seguir.
-10. Se falhar (falha transiente já tenta de novo sozinha, 3× — não conta):
+   consertar antes de seguir. Tarefa com `metric` opcional (§4.3) também mede
+   a trajetória logo depois, passe ou falhe — a métrica GUIA, quem decide
+   `passes` continua sendo só o `verify_cmd`.
+10. Se falhar (falha transiente já tenta de novo sozinha, 3× — não conta;
+    tarefa com métrica também pode parar por piora/platô da trajetória):
     consultar `harness budget --feature <id>` e obedecer o veredito —
     autocorrigir e re-rodar só enquanto ele disser `continue`; em qualquer
     parada, usar o campo `escalation` da saída pronto, sem escrever à mão.
@@ -194,6 +197,24 @@ aprovado e só devolve o controle ao humano em estado retomável.
    `--no-reproof` desliga a checagem; desligar custa exatamente a detecção de
    regressão entre fatias.
 
+   **Métrica opcional (§4.3, contrato `convergencia-opt-in`).** Uma tarefa
+   ganha o bullet `metric` (e um `target` de comparação, ex.: `>= 0.85`) no
+   `Plans.md` quando as DUAS condições valem: (a) "meio pronto" é mensurável
+   por um número que um comando imprime — similaridade visual, contagem de
+   erros de lint, testes passando numa migração grande; (b) uma iteração
+   pode PIORAR o artefato sem que o `verify_cmd` mude de veredito (ele
+   continua vermelho, mas o resultado se afastou do alvo). Se qualquer uma
+   falhar — teste passa/não-passa já cobre tudo, ou piora é impossível/
+   irrelevante — a tarefa fica binária como sempre foi: bugfix com teste de
+   regressão não precisa de `metric`; fidelidade visual, sim.
+
+   Quando `metric` está presente, `harness verify` roda o comando logo
+   depois do `verify_cmd`, passe ou falhe, e grava o valor no rastro de
+   trajetória — sem passo manual, sem afetar o exit code desta tarefa.
+   **Regra de ouro: a métrica GUIA o loop, quem decide "pronto" continua
+   sendo só o `verify_cmd`.** Bater o alvo (`target_met`) nunca vira
+   `passes` — é informativo, não um atalho.
+
 10. **Se falhar: consultar o disjuntor e obedecer o veredito.** Loop de
     autocorreção (Fase 3): o agente conserta a própria falha e testa de
     novo, sem envolver o humano — mas não indefinidamente, e não por
@@ -229,6 +250,15 @@ aprovado e só devolve o controle ao humano em estado retomável.
       por outra porta ("mesmo erro transiente 3× → reclassificar como
       infra"): nunca healing automático, sempre parada + escalada. Não tente
       "corrigir" um `Connection refused` editando código.
+    - `stop_worsening` — só para tarefa com `metric`/`target` (§4.3): as
+      últimas 2 medições da trajetória pioraram frente ao melhor valor já
+      registrado. O veredito nomeia o melhor estado (valor, commit) — retome
+      dali, não continue empilhando por cima do que já piorou. O harness
+      **não** reverte nada sozinho; agir é seu.
+    - `stop_plateau` — idem, mas as últimas 3 medições não bateram um novo
+      recorde (oscilação inclusa: subir e descer sem nunca superar o pico
+      cai aqui, não em `stop_worsening`). Troque de abordagem ou escale com
+      a curva registrada.
 
     Os tetos vêm, nesta ordem, das `stop_conditions:` TIPADAS do frontmatter
     do `spec.md` ativo (`{type: consecutive_verify_failures, n: 3}`,

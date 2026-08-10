@@ -74,7 +74,9 @@ from harness.attempts import (
     record_pass,
 )
 from harness.boundary_guard import is_floor_bash_command
+from harness.branching import is_git_repository
 from harness.contract import FEATURE_LIST_FILE
+from harness.convergence import ConvergenceError, parse_metric_value, record_measurement
 from harness.templates import (
     append_progress_note,
     update_progress_attempts,
@@ -413,6 +415,83 @@ def compute_files_hash(files: list[str], target_dir: Path) -> str:
     return f"sha256:{digest.hexdigest()}"
 
 
+def _current_git_state(target_dir: Path) -> tuple[str | None, bool]:
+    """`(commit, dirty)` do HEAD atual — best-effort, nunca levanta. Mesma
+    postura só-leitura de `escalation._spine_state`; `dirty` usa
+    `git status --porcelain -uno` (tracked, mesmo escopo do resto do
+    harness — ver `branching.py`)."""
+    if not is_git_repository(target_dir):
+        return None, False
+    try:
+        commit_proc = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=target_dir, capture_output=True, text=True,
+        )
+        status_proc = subprocess.run(
+            ["git", "status", "--porcelain", "-uno"], cwd=target_dir, capture_output=True, text=True,
+        )
+    except OSError:
+        return None, False
+    commit = commit_proc.stdout.strip() if commit_proc.returncode == 0 else None
+    dirty = bool(status_proc.stdout.strip()) if status_proc.returncode == 0 else False
+    return commit, dirty
+
+
+def _record_metric(
+    target_dir: Path,
+    feature: dict[str, Any],
+    feature_cwd: Path,
+    feature_id: str,
+    contract: str,
+    timeout_seconds: int,
+) -> None:
+    """Roda `metric_cmd` (se a tarefa declarou um) depois do `verify_cmd` —
+    passe ou falhe — e grava a medição no rastro de trajetória (§4.3, T-02).
+
+    Nunca levanta: falha de `metric_cmd` (comando quebrado, floor, saída não
+    numérica) é visível em stderr, mas não pode derrubar o resultado do
+    `verify_cmd`, que é o único que decide `passes`. Sem `metric_cmd`
+    declarado, no-op silencioso — nenhum arquivo de métrica é criado.
+    """
+    metric_cmd = feature.get("metric_cmd")
+    if not metric_cmd:
+        return
+    if is_floor_bash_command(metric_cmd):
+        print(
+            f"metric_cmd de '{feature_id}' bate no runtime floor "
+            "(push/rede/publicacao) — nunca executado, medição pulada",
+            file=sys.stderr,
+        )
+        return
+    try:
+        exec_metric_cmd = normalize_command_head(metric_cmd)
+        returncode, stdout, stderr = _run_verify_cmd(
+            exec_metric_cmd, feature_cwd, timeout_seconds, False
+        )
+        if returncode != 0:
+            tail = (stderr or stdout).strip()[:200]
+            print(
+                f"metric_cmd de '{feature_id}' saiu com exit code {returncode} "
+                f"— medição pulada ({tail or 'sem saída'})",
+                file=sys.stderr,
+            )
+            return
+        value = parse_metric_value(stdout)
+        commit, dirty = _current_git_state(target_dir)
+        record_measurement(
+            target_dir,
+            contract,
+            feature_id,
+            value=value,
+            commit=commit,
+            dirty=dirty,
+            recorded_at=datetime.now(timezone.utc).isoformat(),
+        )
+    except ConvergenceError as exc:
+        print(f"metric_cmd de '{feature_id}': {exc} — medição pulada", file=sys.stderr)
+    except Exception:
+        pass
+
+
 def _load_feature(target_dir: Path, feature_id: str) -> tuple[dict[str, Any], str]:
     """`(feature, contrato)`. O contrato sai junto porque a evidência é
     escopada por ele — ver `evidence_path`."""
@@ -560,7 +639,10 @@ def run_verify(
             )
         except Exception:
             pass
+        _record_metric(target_dir, feature, verify_cwd, feature_id, contract, timeout_seconds)
         raise VerifyFailedError(feature_id, returncode, stdout, stderr)
+
+    _record_metric(target_dir, feature, verify_cwd, feature_id, contract, timeout_seconds)
 
     evidence = {
         "feature_id": feature_id,

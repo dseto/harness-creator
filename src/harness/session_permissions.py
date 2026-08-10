@@ -16,7 +16,8 @@ A superfície gerada cobre:
        distinto — a regra sem wildcard casa o comando EXATO, então sozinha ela
        transformava `pytest -q tests/test_api.py` (que o `boundary_guard`
        LIBERA) em prompt de permissão. Ver Item 8 do backlog do dogfood
-       venv-Windows.
+       venv-Windows. `metric_cmd` opcional (§4.3, contrato
+       `convergencia-opt-in`) recebe o MESMO tratamento, pelo mesmo motivo.
     3. `Bash(<lint/typecheck/build>)` do `repo-profile.json` (`extras`),
        quando o profile os observou — nas duas formas, mesma razão.
     4. `Bash(<comando de instalação>)` derivado do `package_manager` do
@@ -191,6 +192,8 @@ def render_session_permissions(
     seen_files: set[str] = set()
     verify_cmds: list[str] = []
     seen_verify: set[str] = set()
+    metric_cmds: list[str] = []
+    seen_metric: set[str] = set()
 
     for feature in feature_list.get("features", []):
         for path in feature.get("files", []):
@@ -202,6 +205,17 @@ def render_session_permissions(
         if verify_cmd and verify_cmd not in seen_verify:
             seen_verify.add(verify_cmd)
             verify_cmds.append(verify_cmd)
+
+        # §4.3 (contrato `convergencia-opt-in`): `metric_cmd` é outro comando
+        # que o harness executa por dentro do processo já autorizado do
+        # `harness verify` (mesma situação de `verify_cmd`) — mas se o agente
+        # rodar `metric_cmd` manualmente via Bash tool, ele precisa da MESMA
+        # regra `allow`, ou repete a fadiga silenciosa do Item 8 (prompt de
+        # permissão em vez de passar direto).
+        metric_cmd = feature.get("metric_cmd")
+        if metric_cmd and metric_cmd not in seen_metric:
+            seen_metric.add(metric_cmd)
+            metric_cmds.append(metric_cmd)
 
     allow: list[str] = []
     for path in files:
@@ -224,6 +238,10 @@ def render_session_permissions(
         # caso sem depender de interpretação da doc.
         allow.append(f"Bash({verify_cmd})")
         allow.append(f"Bash({verify_cmd}:*)")
+    for metric_cmd in metric_cmds:
+        # Mesmo par de formas e mesmo motivo do verify_cmd acima.
+        allow.append(f"Bash({metric_cmd})")
+        allow.append(f"Bash({metric_cmd}:*)")
 
     if profile is not None:
         # Nunca `profile.get('extras', {})` sozinho: a chave pode existir
