@@ -1,6 +1,6 @@
 # Claude Progress
 
-Contrato: `falha-transiente-e-escalada`
+Contrato: `convergencia-opt-in`
 
 _Demanda ENCERRADA por `harness finish`._
 
@@ -8,11 +8,11 @@ _Demanda ENCERRADA por `harness finish`._
 
 | id | desc | status |
 | --- | --- | --- |
-| T-01 | O rastro de tentativas sabe distinguir falha transiente de falha estrutural, e o disjuntor conta só as estruturais | done |
-| T-02 | `verify_cmd` com sinal transiente tenta de novo sozinho até 3× com pausa, sem gastar orçamento de correção; sinal não-transiente nunca tenta de novo | done |
-| T-03 | Falha transiente que insiste 3× vira veredito próprio do disjuntor — parada de ambiente, não padrão repetido nem teto de iterações | done |
-| T-04 | Todo veredito de parada do disjuntor vem com o bloco de escalada nas seis partes que o §8 exige, pronto para copiar ao humano | done |
-| T-05 | O passo 10 do lifecycle documenta o retry transiente e manda usar o bloco de escalada gerado em vez de escrever a mensagem à mão | done |
+| T-01 | Tarefa do contrato aceita bullets opcionais `metric`/`target`; sem eles o `feature_list.json` sai idêntico ao de hoje, e `target` sem `metric` é erro de compilação; `metric_cmd` de cada feature entra no `allow` compilado no mesmo padrão de `verify_cmd` | done |
+| T-02 | Com `metric_cmd`, cada `harness verify` mede e grava a trajetória (valor, timestamp, commit, árvore suja) no rastro da tarefa; saída não-numérica é falha de ambiente, nunca valor | done |
+| T-03 | Disjuntor ganha os vereditos de trajetória: `stop_worsening` (2 piores que o melhor, nomeando o melhor estado) e `stop_plateau` (3 sem superar o melhor, oscilação inclusa); `target` atingido informa `target_met` sem mudar veredito nem `passes`; vereditos de falha repetida prevalecem | done |
+| T-04 | Bloco de escalada de tarefa com métrica inclui a trajetória: série recente, melhor valor e onde ocorreu | done |
+| T-05 | Passos 9 e 10 do lifecycle documentam a métrica opt-in, a regra de decisão (meio-pronto mensurável E iteração pode piorar o artefato) e a regra de ouro: métrica guia, `verify_cmd` decide | done |
 
 ## Última atualização
 

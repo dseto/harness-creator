@@ -143,7 +143,10 @@ FEATURE_LIST_FILE = ".harness/feature_list.json"
 
 _FRONTMATTER_DELIM = "---"
 _TASK_HEADER_RE = re.compile(r"^##\s*\[(?P<id>[^\]]+)\]\s*(?P<desc>.*)$")
-_FIELD_RE = re.compile(r"^-\s*(?P<key>files|verify|depends|cwd)\s*:\s*(?P<value>.*)$", re.IGNORECASE)
+_FIELD_RE = re.compile(
+    r"^-\s*(?P<key>files|verify|depends|cwd|metric|target)\s*:\s*(?P<value>.*)$",
+    re.IGNORECASE,
+)
 _BACKTICK_RE = re.compile(r"`([^`]+)`")
 # Variante de _FIELD_RE dedicada à reescrita cirúrgica do bullet `files:` —
 # usada só por `add_task_file`. Difere de _FIELD_RE por preservar o prefixo
@@ -164,7 +167,16 @@ class ContractNotApprovedError(ContractError):
 
 @dataclass
 class Task:
-    """Uma tarefa `## [T-XX]` do `Plans.md`."""
+    """Uma tarefa `## [T-XX]` do `Plans.md`.
+
+    `metric_cmd`/`metric_target` (contrato `convergencia-opt-in`, §4.3 do
+    design de loop engineering): par OPCIONAL de bullets — `metric` é um
+    comando que imprime um único número em stdout, `target` é a expressão de
+    comparação (ex.: `>= 0.85`) que diz quando a métrica bate o alvo. Sem
+    eles, uma tarefa continua puramente binária (verify_cmd passa/não passa),
+    e `compile_contract` não escreve `metric_cmd`/`metric_target` na feature
+    — o `feature_list.json` sai idêntico ao de antes deste par existir.
+    """
 
     id: str
     desc: str
@@ -172,6 +184,8 @@ class Task:
     verify_cmd: str
     depends: list[str] = field(default_factory=list)
     cwd: str | None = None
+    metric_cmd: str | None = None
+    metric_target: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -384,8 +398,26 @@ def parse_plans(plans_path: Path) -> list[Task]:
         cwd_values = _split_list(raw_fields["cwd"]) if raw_fields.get("cwd") else []
         cwd = cwd_values[0] if cwd_values else None
 
+        metric_cmd: str | None = None
+        if raw_fields.get("metric"):
+            metric_values = _split_list(raw_fields["metric"])
+            metric_cmd = metric_values[0] if metric_values else raw_fields["metric"].strip()
+
+        metric_target: str | None = None
+        if raw_fields.get("target"):
+            target_values = _split_list(raw_fields["target"])
+            metric_target = target_values[0] if target_values else raw_fields["target"].strip()
+
+        if metric_target and not metric_cmd:
+            raise ContractError(
+                f"{plans_path}: tarefa {task_id} tem 'target' sem 'metric' — "
+                "target é a expressão de comparação do valor que 'metric' produz; "
+                "sem metric_cmd não há o que comparar"
+            )
+
         tasks.append(Task(
             id=task_id, desc=desc, files=files, verify_cmd=verify_cmd, depends=depends, cwd=cwd,
+            metric_cmd=metric_cmd, metric_target=metric_target,
         ))
 
     return tasks
@@ -753,7 +785,7 @@ def compile_contract(target_dir: Path, slug: str, *, dry_run_verify: bool = Fals
             and old.get("cwd") == task.cwd
             and old.get("passes")
         )
-        features.append({
+        feature: dict[str, Any] = {
             "id": task.id,
             "desc": task.desc,
             "files": task.files,
@@ -761,7 +793,15 @@ def compile_contract(target_dir: Path, slug: str, *, dry_run_verify: bool = Fals
             "depends": task.depends,
             "cwd": task.cwd,
             "passes": passes,
-        })
+        }
+        # Aditivo e condicional de propósito: tarefa sem `metric` bullet não
+        # ganha as chaves `metric_cmd`/`metric_target` — o feature_list.json
+        # sai idêntico ao que saía antes deste par existir (§4.3 opt-in).
+        if task.metric_cmd:
+            feature["metric_cmd"] = task.metric_cmd
+            if task.metric_target:
+                feature["metric_target"] = task.metric_target
+        features.append(feature)
 
     if dry_run_verify:
         seen_pairs: set[tuple[str, str | None]] = set()

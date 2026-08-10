@@ -1,0 +1,16 @@
+{
+  "feature_id": "T-05",
+  "contract": "convergencia-opt-in",
+  "desc": "Passos 9 e 10 do lifecycle documentam a métrica opt-in, a regra de decisão (meio-pronto mensurável E iteração pode piorar o artefato) e a regra de ouro: métrica guia, `verify_cmd` decide",
+  "files": [
+    "src/harness/lifecycle.py",
+    "tests/test_lifecycle.py",
+    "README.md",
+    "docs/plugin/arquitetura-visual.html",
+    "AGENTS.md"
+  ],
+  "verify_cmd": "pytest tests/test_lifecycle.py -q",
+  "recorded_at": "2026-08-09T23:52:05.944387+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:93a5f8955fbc9452bfca5d643d1fef429520689ffad44726dff6c9cc9b4d9b06"
+}

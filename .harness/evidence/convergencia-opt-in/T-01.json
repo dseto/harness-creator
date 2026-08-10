@@ -1,0 +1,15 @@
+{
+  "feature_id": "T-01",
+  "contract": "convergencia-opt-in",
+  "desc": "Tarefa do contrato aceita bullets opcionais `metric`/`target`; sem eles o `feature_list.json` sai idêntico ao de hoje, e `target` sem `metric` é erro de compilação; `metric_cmd` de cada feature entra no `allow` compilado no mesmo padrão de `verify_cmd`",
+  "files": [
+    "src/harness/contract.py",
+    "src/harness/session_permissions.py",
+    "tests/test_contract.py",
+    "tests/test_session_permissions.py"
+  ],
+  "verify_cmd": "pytest tests/test_contract.py tests/test_session_permissions.py -q",
+  "recorded_at": "2026-08-09T23:29:57.837375+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:99dc6fe262552797e45b9be498e5f24f4faf39c26a4cc348bdafe1cd718c35ec"
+}

@@ -1,35 +1,39 @@
 {
-  "contract": "falha-transiente-e-escalada",
-  "compiled_at": "2026-08-09T20:57:40.270528+00:00",
+  "contract": "convergencia-opt-in",
+  "compiled_at": "2026-08-09T23:51:47.549792+00:00",
   "compiled_with_version": "0.32.0",
   "stop_conditions": {
     "typed": [],
     "advisory": [
       "2 tentativas de correção estrutural seguidas na MESMA falha, fora do retry transiente",
-      "qualquer regra nova entrar em conflito com D-007/D-008 (o health check pergunta, nunca executa) sem decisão explícita registrada"
+      "qualquer regra nova fazer a métrica DECIDIR 'pronto' no lugar do verify_cmd (anti-Goodhart do §4.3) — parar e escalar"
     ]
   },
   "features": [
     {
       "id": "T-01",
-      "desc": "O rastro de tentativas sabe distinguir falha transiente de falha estrutural, e o disjuntor conta só as estruturais",
+      "desc": "Tarefa do contrato aceita bullets opcionais `metric`/`target`; sem eles o `feature_list.json` sai idêntico ao de hoje, e `target` sem `metric` é erro de compilação; `metric_cmd` de cada feature entra no `allow` compilado no mesmo padrão de `verify_cmd`",
       "files": [
-        "src/harness/attempts.py",
-        "tests/test_attempts.py"
+        "src/harness/contract.py",
+        "src/harness/session_permissions.py",
+        "tests/test_contract.py",
+        "tests/test_session_permissions.py"
       ],
-      "verify_cmd": "pytest tests/test_attempts.py -q",
+      "verify_cmd": "pytest tests/test_contract.py tests/test_session_permissions.py -q",
       "depends": [],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-02",
-      "desc": "`verify_cmd` com sinal transiente tenta de novo sozinho até 3× com pausa, sem gastar orçamento de correção; sinal não-transiente nunca tenta de novo",
+      "desc": "Com `metric_cmd`, cada `harness verify` mede e grava a trajetória (valor, timestamp, commit, árvore suja) no rastro da tarefa; saída não-numérica é falha de ambiente, nunca valor",
       "files": [
+        "src/harness/convergence.py",
         "src/harness/verify.py",
+        "tests/test_convergence.py",
         "tests/test_verify.py"
       ],
-      "verify_cmd": "pytest tests/test_verify.py -q",
+      "verify_cmd": "pytest tests/test_convergence.py -q",
       "depends": [
         "T-01"
       ],
@@ -38,28 +42,27 @@
     },
     {
       "id": "T-03",
-      "desc": "Falha transiente que insiste 3× vira veredito próprio do disjuntor — parada de ambiente, não padrão repetido nem teto de iterações",
+      "desc": "Disjuntor ganha os vereditos de trajetória: `stop_worsening` (2 piores que o melhor, nomeando o melhor estado) e `stop_plateau` (3 sem superar o melhor, oscilação inclusa); `target` atingido informa `target_met` sem mudar veredito nem `passes`; vereditos de falha repetida prevalecem",
       "files": [
         "src/harness/budget.py",
+        "src/harness/convergence.py",
         "tests/test_budget.py"
       ],
       "verify_cmd": "pytest tests/test_budget.py -q",
       "depends": [
-        "T-01"
+        "T-02"
       ],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-04",
-      "desc": "Todo veredito de parada do disjuntor vem com o bloco de escalada nas seis partes que o §8 exige, pronto para copiar ao humano",
+      "desc": "Bloco de escalada de tarefa com métrica inclui a trajetória: série recente, melhor valor e onde ocorreu",
       "files": [
         "src/harness/escalation.py",
-        "src/harness/cli.py",
-        "tests/test_escalation.py",
-        "tests/test_cli.py"
+        "tests/test_escalation.py"
       ],
-      "verify_cmd": "pytest tests/test_escalation.py tests/test_cli.py -q",
+      "verify_cmd": "pytest tests/test_escalation.py -q",
       "depends": [
         "T-03"
       ],
@@ -68,12 +71,13 @@
     },
     {
       "id": "T-05",
-      "desc": "O passo 10 do lifecycle documenta o retry transiente e manda usar o bloco de escalada gerado em vez de escrever a mensagem à mão",
+      "desc": "Passos 9 e 10 do lifecycle documentam a métrica opt-in, a regra de decisão (meio-pronto mensurável E iteração pode piorar o artefato) e a regra de ouro: métrica guia, `verify_cmd` decide",
       "files": [
         "src/harness/lifecycle.py",
         "tests/test_lifecycle.py",
         "README.md",
-        "docs/plugin/arquitetura-visual.html"
+        "docs/plugin/arquitetura-visual.html",
+        "AGENTS.md"
       ],
       "verify_cmd": "pytest tests/test_lifecycle.py -q",
       "depends": [

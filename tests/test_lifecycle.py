@@ -201,6 +201,42 @@ def test_step_ten_names_the_transient_retry_and_the_ready_made_escalation() -> N
     assert "sozinh" in detail
 
 
+def test_step_nine_names_the_optional_metric_and_that_it_never_decides_done() -> None:
+    """Passo 9 do contrato `convergencia-opt-in` (§4.3 do design): tarefa com
+    `metric`/`target` opcionais no `Plans.md` mede a trajetória depois do
+    `verify_cmd` — sem o passo dizer isso, a medição no terminal parece um
+    comando extra desconhecido, não o design funcionando. A regra de ouro
+    (métrica guia, verify_cmd decide) precisa aparecer explicitamente, ou o
+    anti-Goodhart do §4.3 vira invariante só no código, não na instrução que
+    o agente lê."""
+    block = render_lifecycle_block()
+    detail = render_lifecycle_detail()
+
+    assert "metric" in block
+    assert "metric" in detail
+    assert "verify_cmd" in detail
+    assert "passes" in detail
+    # A regra de decisão para quem escreve o contrato: as duas condições que
+    # fazem uma tarefa ganhar `metric` em vez de ficar binária.
+    assert "mensurável" in detail
+    assert "piorar" in detail
+
+
+def test_step_ten_names_the_two_trajectory_verdicts() -> None:
+    """Passo 10 ganha os dois vereditos de trajetória do §4.3 —
+    `stop_worsening`/`stop_plateau` — no mesmo formato que os vereditos
+    estruturais já documentados: nome do veredito + o que fazer a seguir."""
+    block = render_lifecycle_block()
+    detail = render_lifecycle_detail()
+
+    assert "piora" in block or "platô" in block
+    for verdict in ("stop_worsening", "stop_plateau"):
+        assert verdict in detail
+    # Oscilação é o caso traiçoeiro do design — o detalhe precisa dizer
+    # explicitamente que ela cai no platô, não no stop_worsening.
+    assert "oscila" in detail.lower()
+
+
 def test_step_two_checks_the_environment_with_a_command_instead_of_a_script_nobody_runs() -> None:
     """Passo 2 do contrato `health-check-de-abertura` (§7.2/§8.3 do design).
 

