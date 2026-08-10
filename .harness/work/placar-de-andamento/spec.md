@@ -1,7 +1,7 @@
 ---
 slug: placar-de-andamento
 approved_by: Daniel Seto
-approved_at: 2026-08-10T01:38:49Z
+approved_at: 2026-08-10T02:34:00Z
 stop_conditions:
   - "2 tentativas de correção estrutural seguidas na MESMA falha, fora do retry transiente"
   - "qualquer mudança sair da camada de apresentação — tocar veredito, gate, disjuntor ou fluxo de aprovação — parar e escalar"
@@ -98,6 +98,18 @@ falso". `harness finish` hoje não tem canal humano nenhum (só JSON): ganha um
 falta em linguagem de resultado. O stdout JSON dos três comandos permanece
 byte-idêntico ao atual.
 
+**Documentação do plugin (`TUTORIAL.md`, `GUIDE.md`, `ARCHITECTURE.md`).** O
+placar precisa existir onde o humano procura o que a ferramenta faz, não só
+no `README.md`: o tutorial ganha os três renders no material de comando e a
+statusline na tabela de artefatos gerados; o guia, a distinção entre `harness
+status` (JSON, kill-switch) e o placar opt-in; a arquitetura, `panel.py` e
+`statusline.py` na tabela de camadas e a statusline no mapa de hooks. A
+**Versão e CHANGELOG (`v0.34.0`).** Por decisão explícita do humano nesta
+demanda, o bump entra no PR em vez de ficar como chore posterior na `main`: as
+três fontes manuais (`__init__.py`, `plugin.json`, `marketplace.json`), os
+marcadores de versão da documentação que `test_version_sync` enumera, e a
+entrada de CHANGELOG descrevendo o placar.
+
 ## Critérios de aceitação
 - `harness status --brief` imprime o placar com progresso X/N, lista de
   tarefas com estado, tarefa atual com tentativa n/teto, última prova com a
@@ -121,10 +133,38 @@ byte-idêntico ao atual.
 - O lifecycle instrui colar `harness status --brief` na abertura de cada
   iteração, na transição de fatia e em parada, e proíbe redigir placar de
   cabeça — `pytest tests/test_lifecycle.py -q`
+- `TUTORIAL.md`, `GUIDE.md` e `ARCHITECTURE.md` documentam os três renders do
+  placar (`--brief`, `--panel`/`--watch`, statusline), a statusline entra na
+  tabela de artefatos gerados do tutorial e no mapa de hooks da arquitetura, e
+  `panel.py`/`statusline.py` entram na tabela de módulos —
+  `pytest tests/test_docs_placar.py -q`
+- `.harness/attempts/` é tratado como artefato gerenciado do harness: o rastro
+  de tentativas sujo não vira `tree_residue` em `harness finish` nem impede a
+  criação da branch do contrato, do mesmo modo que a evidência e o veredito
+  cego já não impedem — `pytest tests/test_branching.py -q`
+- A versão sobe para v0.34.0 nas três fontes manuais (`__init__.py`,
+  `plugin.json`, `marketplace.json`) e em todos os marcadores de versão da
+  documentação, com a entrada de CHANGELOG do placar —
+  `pytest tests/test_version_sync.py -q`
 - Canal humano (stderr) de escalada, finish e disjuntor fala resultado (sem
   `verify_cmd`/slug/veredito cru sem tradução) e `finish` passa a ter esse
   canal; o stdout JSON dos três permanece byte-idêntico ao atual —
   `pytest tests/test_escalation.py tests/test_finish.py tests/test_budget.py -q`
+
+**Rastro de tentativas não é resíduo (achado do próprio dogfood).** Fechar
+esta demanda esbarrou num defeito que ela mesma expôs: `.harness/attempts/` não
+está entre os prefixos que o harness reconhece como artefato SEU
+(`branching.HARNESS_MANAGED_PREFIXES` isenta `.harness/evidence/` e
+`.harness/blind-review/`, e para aí). Depois do primeiro commit de uma demanda,
+qualquer `harness verify` seguinte suja um arquivo tracked que o `finish` passa
+a chamar de "trabalho de outro contexto" — e `harness task add-file` recusa
+`.harness/**`, corretamente. Toda demanda longa trava no fecho pelo rastro que
+o próprio harness escreve.
+
+Isto TOCA o gate de fecho, ou seja, cai na stop condition deste contrato: foi
+escalado e autorizado explicitamente pelo humano antes de qualquer linha ser
+escrita. O escopo é uma entrada na tupla e o teste que a fixa — nenhuma regra
+de decisão do `finish` muda.
 
 ## Não-objetivos
 - **Painel HTML / navegador** — fora do primeiro corte; os três renders de

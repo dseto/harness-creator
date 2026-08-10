@@ -727,6 +727,36 @@ só existe dentro da sessão do Claude Code.
 máquina — o número que diz se o produto ainda precisa de mais alguma porta de
 escape ou se as que existem bastam.
 
+### 11.1 O mesmo comando, com o placar de andamento
+
+`harness status` **sem flag** é o que está descrito acima: JSON estruturado,
+fonte de verdade do kill-switch, feito para ser lido por ferramenta. Ele não
+mudou e não muda.
+
+O **placar de andamento** é opt-in por flag, e responde outra pergunta — não
+"o harness está ligado?", mas "onde este loop está?":
+
+```powershell
+harness status --brief --dir <alvo>            # markdown, para o agente colar no chat
+harness status --panel --dir <alvo>            # painel de terminal, cor só em TTY
+harness status --panel --watch 5 --dir <alvo>  # re-render a cada 5s num segundo terminal
+```
+
+Os dois renders saem do mesmo estado: progresso `X/N`, tarefas com estado,
+tarefa atual com `tentativa n/teto`, a primeira linha do erro da última prova,
+a trajetória da métrica quando a tarefa tem uma, e o próximo passo. `--brief`
+nunca emite ANSI (o chat mostraria os escape codes como lixo); `--panel` só
+colore quando a saída é um TTY, então redirecionar para arquivo dá texto puro.
+Pedir `--brief` e `--panel` juntos é erro de uso, e `--watch` é do painel.
+
+O terceiro render é a statusline: `harness compile-session` instala
+`.harness/hooks/statusline.py` e registra a entrada `statusLine` no settings
+machine-local. Statusline que **você** configurou nunca é sobrescrita.
+
+> Por que o placar não virou a saída padrão: quem consome `harness status` por
+> script lê o JSON, e é esse JSON que responde se a governança estava ligada.
+> Um painel bonito no lugar dele trocaria a fonte de verdade por estética.
+
 ## 12. Deixar o plugin sempre disponível (opcional)
 
 Em vez de repetir `--plugin-dir` toda sessão — e é o ÚNICO jeito de usar o
@@ -741,7 +771,7 @@ registre um marketplace local apontando pro diretório do plugin.
      "name": "harness-creator-local",
      "owner": { "name": "<seu nome>" },
      "plugins": [
-       { "name": "harness-creator", "source": "./", "version": "0.33.0" }
+       { "name": "harness-creator", "source": "./", "version": "0.34.0" }
      ]
    }
    ```

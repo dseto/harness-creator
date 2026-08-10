@@ -1,7 +1,7 @@
 {
   "contract": "placar-de-andamento",
-  "compiled_at": "2026-08-10T02:17:11.600333+00:00",
-  "compiled_with_version": "0.33.0",
+  "compiled_at": "2026-08-10T02:56:54.842051+00:00",
+  "compiled_with_version": "0.34.0",
   "stop_conditions": {
     "typed": [],
     "advisory": [
@@ -66,6 +66,59 @@
       "verify_cmd": "pytest tests/test_lifecycle.py -q",
       "depends": [
         "T-01"
+      ],
+      "cwd": null,
+      "passes": true
+    },
+    {
+      "id": "T-06",
+      "desc": "Quem lê a documentação do plugin encontra o placar: tutorial, guia e arquitetura passam a mostrar os três renders, a statusline entre os artefatos gerados e os dois módulos novos na tabela de camadas",
+      "files": [
+        "docs/plugin/TUTORIAL.md",
+        "docs/plugin/GUIDE.md",
+        "docs/plugin/ARCHITECTURE.md",
+        "tests/test_docs_placar.py",
+        ".harness/work/placar-de-andamento/spec.md",
+        ".harness/work/placar-de-andamento/Plans.md"
+      ],
+      "verify_cmd": "pytest tests/test_docs_placar.py -q",
+      "depends": [
+        "T-01"
+      ],
+      "cwd": null,
+      "passes": true
+    },
+    {
+      "id": "T-08",
+      "desc": "O rastro de tentativas que o próprio harness escreve deixa de travar o fecho da demanda: `.harness/attempts/` passa a ser artefato gerenciado, como a evidência e o veredito cego",
+      "files": [
+        "src/harness/branching.py",
+        "tests/test_branching.py"
+      ],
+      "verify_cmd": "pytest tests/test_branching.py -q",
+      "depends": [
+        "T-01"
+      ],
+      "cwd": null,
+      "passes": true
+    },
+    {
+      "id": "T-07",
+      "desc": "O produto se apresenta na versão que ele realmente é: v0.34.0 nas três fontes manuais, nos marcadores de versão da documentação e com a entrada de CHANGELOG do placar",
+      "files": [
+        "src/harness/__init__.py",
+        ".claude-plugin/plugin.json",
+        ".claude-plugin/marketplace.json",
+        "README.md",
+        "docs/plugin/ARCHITECTURE.md",
+        "docs/plugin/arquitetura-visual.html",
+        "docs/plugin/GUIDE.md",
+        "docs/reference/CHANGELOG.md",
+        "tests/test_version_sync.py"
+      ],
+      "verify_cmd": "pytest tests/test_version_sync.py -q",
+      "depends": [
+        "T-06"
       ],
       "cwd": null,
       "passes": true
