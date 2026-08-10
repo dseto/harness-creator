@@ -58,7 +58,7 @@ contagem de tokens a hooks.
 |---|---|---|---|
 | **0 · Host** | Claude Code | Executa: lê `permissions`, dispara hooks, carrega skills e subagentes | — |
 | **1a · Skills** | `skills/` (7) | Conduz a conversa com o humano | Não escreve nada direto — toda escrita passa pela CLI |
-| **1b · CLI** | `cli.py` | Dispatch dos 26 subcomandos, validação de `--dir` | Não decide `allow`/`deny` em runtime |
+| **1b · CLI** | `cli.py` | Dispatch dos 27 subcomandos, validação de `--dir` | Não decide `allow`/`deny` em runtime |
 | **2 · Compiladores** | `compiler`, `contract`, `analyzer`, `session_permissions`, `lifecycle`, `templates`, `branching`, `profile_edit`, `install_command`, `autoupdate` | Transformam entrada humana em artefato. Determinísticos, zero LLM, zero rede | Não rodam no caminho da tool call |
 | **3 · Enforcement** | `boundary_guard`, `session_start`, `stop_hook` | Decidem `allow`/`ask`/`deny` a cada tool call | Não importam a biblioteca — stdlib puro |
 | **4 · Prova e controle** | `verify`, `attempts`, `budget`, `reconcile`, `regression`, `blind`, `review`, `supervisor`, `teams`, `finish`, `pr_draft`, `spine` | Produzem e consomem evidência; ordenam o trabalho | Nenhum chama git de escrita |

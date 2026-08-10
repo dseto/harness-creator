@@ -32,33 +32,27 @@ Pergunte, com defaults sensatos:
 4. **TDD enforcement** (`enforce_tdd`) — default true (hook pede confirmação
    humana ao rodar a suíte direto e ao editar arquivos de teste).
 
-## Passo 2 — Escrever `.harness/harness.yaml` no alvo
+## Passo 2 — Gerar `.harness/harness.yaml` no alvo
 
-Apenas as seções compiláveis (NÃO inclua sandbox/routing/eet — são do modo de
-execução congelado e só gerariam warning):
+**Não escreva o YAML à mão.** Até a v0.33.0 este passo mandava copiar um
+template em prosa que cobria 6 das 11 chaves do schema real
+(`harness.config.HarnessConfig`) — as 5 ausentes só eram descobertas lendo
+Python. Agora o arquivo nasce de `harness.templates.render_harness_yaml`, que
+introspecciona o schema: toda chave sai no arquivo, com o valor e um
+comentário de uma linha, e uma chave nova em `config.py` aparece sozinha na
+próxima geração.
 
-```yaml
-governance:
-  approval_policy: <resposta>
-  budget:
-    max_tokens_per_task: 500000      # orientação (advisory), não enforcement
-    max_tool_calls_per_task: 120
+Rode, substituindo `<alvo>` pelo diretório-alvo e as 4 respostas da
+entrevista (aspas simples nos textos, `True`/`False` nos booleanos Python):
 
-  # Comandos permanentes deste repo, além do que já sai do verify_cmd/lint/
-  # build/instalação. O guard lê esta lista A CADA tool call: acrescentar uma
-  # linha aqui vale na chamada seguinte, sem recompilar. Casa por PREFIXO —
-  # `alembic upgrade` libera `alembic upgrade head`, `--sql`, etc.
-  # Deixe COMENTADO se não houver nenhum ainda: quando o agente esbarrar num
-  # comando de que precisa, o próprio deny devolve estas duas linhas prontas
-  # para colar, com o comando já preenchido.
-  # extra_allowed_commands:
-  #   - <binario> <subcomando>
-
-verification:
-  enforce_tdd: <resposta>
-  test_command: "<resposta>"
-  test_glob: "<resposta>"
 ```
+python -c "from pathlib import Path; from harness.config import GovernanceConfig, HarnessConfig, VerificationConfig; from harness.templates import render_harness_yaml; cfg = HarnessConfig(governance=GovernanceConfig(approval_policy='<resposta>'), verification=VerificationConfig(enforce_tdd=<resposta>, test_command='<resposta>', test_glob='<resposta>')); path = Path('<alvo>') / '.harness' / 'harness.yaml'; path.parent.mkdir(parents=True, exist_ok=True); path.write_text(render_harness_yaml(cfg), encoding='utf-8')"
+```
+
+Todo campo que a entrevista não perguntou (orçamento, `extra_allowed_commands`,
+`branch_per_contract`, `protected_branches`, `allowed_skips`) sai com o
+default do schema — visível e comentado no arquivo gerado, não escondido.
+Se der `ModuleNotFoundError`, aplique o pré-requisito no topo desta skill.
 
 ## Passo 3 — Compilar
 

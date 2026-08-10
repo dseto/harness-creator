@@ -1,0 +1,17 @@
+{
+  "contract": "skips-nunca-silenciosos",
+  "verdicts": [
+    {
+      "verdict": "fail",
+      "evidence": "7/8 tarefas conferem com prova real (T-01..T-07). T-08 nao confere: docs/plugin/arquitetura-visual.html:333,335,337 KPI badges declaram 41 modulos/26 subcomandos/1356 testes (real: 42/27/1399) -- numero e palavra separados por tag HTML, o regex do teste nao casa; linha 1392 diz 'Vinte e seis subcomandos' por extenso, tambem fora do regex. O teste passa verde com numeros errados na pagina.",
+      "files_hash": "sha256:fbf6a7e80041bae7b21608b7a1e3dc196fe68f00fde5ceb400490c15fce295d7",
+      "recorded_at": "2026-08-10T19:19:13.681938+00:00"
+    },
+    {
+      "verdict": "pass",
+      "evidence": "8/8 tarefas conferem com prova real (arquivo:linha em cada). T-08 re-conferido apos correcao dos KPI badges de docs/plugin/arquitetura-visual.html:333-338 (42/27/1399) e do texto por extenso na linha 1392 ('Vinte e sete'). Suite agregada das 8 tarefas: 47 passed.",
+      "files_hash": "sha256:fbf6a7e80041bae7b21608b7a1e3dc196fe68f00fde5ceb400490c15fce295d7",
+      "recorded_at": "2026-08-10T19:20:48.980579+00:00"
+    }
+  ]
+}

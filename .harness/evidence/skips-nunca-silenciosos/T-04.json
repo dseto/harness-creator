@@ -1,0 +1,14 @@
+{
+  "feature_id": "T-04",
+  "contract": "skips-nunca-silenciosos",
+  "desc": "Um teste que começa a pular do nada derruba a verificação e nomeia o que pulou; o que já era conhecido passa sem atrito, e o que deixou de pular só informa",
+  "files": [
+    "src/harness/verify.py",
+    "src/harness/skips.py",
+    "tests/test_skips_delta.py"
+  ],
+  "verify_cmd": "pytest tests/test_skips_delta.py -q",
+  "recorded_at": "2026-08-10T19:21:09.222042+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:bacfad5082f8301019352691a311688a7437ec81f1abec7166679c19777b17e4"
+}

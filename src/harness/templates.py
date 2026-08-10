@@ -44,6 +44,7 @@ nunca quando ela existe com valor `None`.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from typing import Any
@@ -55,6 +56,110 @@ from harness.spine import (
     LESSONS_FILE,
     LESSONS_HEADER,
 )
+
+
+# ---------------------------------------------------------------------------
+# `.harness/harness.yaml` gerado do schema (T-07, contrato skips-nunca-
+# silenciosos)
+# ---------------------------------------------------------------------------
+#
+# Antes desta função, o arquivo nascia de um LLM copiando o template em
+# prosa de `skills/init/SKILL.md` — que cobria 6 das 11 chaves do schema real
+# (`harness.config.HarnessConfig`). As 5 ausentes eram descobertas só lendo
+# Python. Aqui o arquivo nasce da INTROSPECÇÃO do schema: campo novo em
+# `config.py` aparece sozinho na próxima geração, sem precisar lembrar de
+# atualizar um template em outro arquivo — mesmo padrão da decisão D-006
+# ("importar a lista, não comparar duas listas").
+
+
+def _comment_line(indent: int, description: str | None) -> list[str]:
+    """Linha de comentário a partir do `description=` do `Field` do schema —
+    fonte ÚNICA (ver docstring de `config.py`). `description` ausente é erro
+    de schema, não caso a tratar em silêncio: gerar o YAML sem comentário
+    reproduziria o defeito que esta função existe para fechar."""
+    if not description:
+        raise ValueError(
+            "campo do HarnessConfig sem `description` — adicione-a em "
+            "harness.config antes de gerar o harness.yaml"
+        )
+    return [f"{' ' * indent}# {description}"]
+
+
+def _scalar_field_lines(indent: int, name: str, value: Any, description: str | None) -> list[str]:
+    pad = " " * indent
+    return _comment_line(indent, description) + [f"{pad}{name}: {json.dumps(value)}"]
+
+
+def _list_field_lines(
+    indent: int, name: str, values: list[str], description: str | None, *, example: str
+) -> list[str]:
+    """Lista não vazia sai ATIVA; lista vazia sai COMENTADA com um exemplo —
+    `key: []` não convida ninguém a editar, e é assim que a maioria das
+    chaves opcionais deste schema nasce (nenhum comando extra, nenhum skip
+    liberado, no repositório recém-instalado)."""
+    pad = " " * indent
+    lines = _comment_line(indent, description)
+    if values:
+        lines.append(f"{pad}{name}:")
+        lines.extend(f"{pad}  - {json.dumps(v)}" for v in values)
+    else:
+        lines.append(f"{pad}# {name}:")
+        lines.append(f"{pad}#   - {example}")
+    return lines
+
+
+def render_harness_yaml(config: Any = None) -> str:
+    """`.harness/harness.yaml` completo a partir de `config` (default
+    `HarnessConfig()`) — toda chave do schema presente, com o valor ATUAL
+    (default, ou o que a entrevista do `/harness-creator:init` escolheu) e
+    um comentário de uma linha. `config: Any` (não `HarnessConfig` no
+    type hint) só para não forçar quem chama a importar o schema quando só
+    quer o default — a validação real é o próprio pydantic, na construção
+    do objeto que chega aqui.
+    """
+    from harness.config import BudgetConfig, GovernanceConfig, HarnessConfig, VerificationConfig
+
+    cfg = config if config is not None else HarnessConfig()
+    gov_fields = GovernanceConfig.model_fields
+    budget_fields = BudgetConfig.model_fields
+    ver_fields = VerificationConfig.model_fields
+
+    lines = [
+        "# harness-init — configuração operacional",
+        "# Toda política de governança vive aqui, nunca hard-coded.",
+        "# Gerado por harness.templates.render_harness_yaml a partir do schema em",
+        "# harness.config.HarnessConfig — toda chave que o harness aceita está aqui.",
+        "",
+        "governance:",
+    ]
+    lines += _scalar_field_lines(
+        2, "approval_policy", cfg.governance.approval_policy, gov_fields["approval_policy"].description
+    )
+    lines.append("  budget:")
+    for name, field in budget_fields.items():
+        lines += _scalar_field_lines(4, name, getattr(cfg.governance.budget, name), field.description)
+    lines.append("")
+    lines += _list_field_lines(
+        2, "extra_allowed_commands", cfg.governance.extra_allowed_commands,
+        gov_fields["extra_allowed_commands"].description, example="<binario> <subcomando>",
+    )
+    lines += _scalar_field_lines(
+        2, "branch_per_contract", cfg.governance.branch_per_contract, gov_fields["branch_per_contract"].description
+    )
+    lines += _list_field_lines(
+        2, "protected_branches", cfg.governance.protected_branches,
+        gov_fields["protected_branches"].description, example="<nome-da-branch>",
+    )
+    lines.append("")
+    lines.append("verification:")
+    for name, field in ver_fields.items():
+        value = getattr(cfg.verification, name)
+        if isinstance(value, list):
+            lines += _list_field_lines(2, name, value, field.description, example="<trecho do motivo do skip>")
+        else:
+            lines += _scalar_field_lines(2, name, value, field.description)
+
+    return "\n".join(lines) + "\n"
 
 HARNESS_DIR = ".harness"
 

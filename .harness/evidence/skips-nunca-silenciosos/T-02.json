@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-02",
+  "contract": "skips-nunca-silenciosos",
+  "desc": "Toda execução de `harness verify` diz quantos testes pularam, verde ou vermelho, sem precisar de flag — e quando os motivos não estão visíveis na saída, diz isso e ensina como revelá-los",
+  "files": [
+    "src/harness/verify.py",
+    "tests/test_verify_skips.py"
+  ],
+  "verify_cmd": "pytest tests/test_verify_skips.py -q",
+  "recorded_at": "2026-08-10T19:01:32.257158+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:8937714d81880dcdc75e52450387d8e5604dc14bfcf817f87cec8732c50f14fa"
+}

@@ -216,6 +216,10 @@ HARNESS_CLI_VERBS: tuple[str, ...] = (
     # sequer descobrir os subcomandos disponiveis (relatado ao vivo no deadlock
     # de bootstrap). 'doctor'/'status' sao read-only.
     "doctor", "status", "--help", "-h", "--version",
+    # 'skips baseline' roda o verify_cmd de UMA feature (mesma superficie que
+    # 'verify' ja libera) so para descobrir o que pulou e gravar em
+    # .harness/skips-baseline/ -- mesmo escopo de escrita de 'blind' acima.
+    "skips",
 )
 
 VENV_DIR_NAMES = (".venv", "venv")

@@ -37,7 +37,7 @@
     }
   },
   "unknowns": [],
-  "analyzed_at": "2026-08-09T20:23:17.052992+00:00",
+  "analyzed_at": "2026-08-10T18:34:57.436574+00:00",
   "manifest_snapshot": {
     "pyproject.toml": "18f9d46085af907c5ae185397588b1e46b1aae08e829d9877de78a97cd8d348b"
   }

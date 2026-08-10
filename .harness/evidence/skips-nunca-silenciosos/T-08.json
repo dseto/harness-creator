@@ -1,0 +1,17 @@
+{
+  "feature_id": "T-08",
+  "contract": "skips-nunca-silenciosos",
+  "desc": "A documentação continua batendo com o código depois do módulo e do subcomando novos: as contagens que ela declara conferem",
+  "files": [
+    "README.md",
+    "docs/reference/loop-engineering-design.md",
+    "AGENTS.md",
+    "docs/plugin/TUTORIAL.md",
+    "docs/plugin/ARCHITECTURE.md",
+    "docs/plugin/arquitetura-visual.html"
+  ],
+  "verify_cmd": "pytest tests/test_docs_derived_facts.py -q",
+  "recorded_at": "2026-08-10T19:20:56.268237+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:ea42e7766519b28f443edeb9a1aaf4303dfd0fb0a826fb49bf365707054ede37"
+}
