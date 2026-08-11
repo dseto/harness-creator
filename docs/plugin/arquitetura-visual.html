@@ -330,11 +330,21 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
   sem chave de API, sem confiar em "o agente vai obedecer".</p>
   <div class="formula"><b>Agente</b> <span>=</span> <i>Modelo</i> <span>+</span> <b>Harness</b></div>
   <div class="kpis">
-    <div class="kpi"><div class="n">42</div><div class="l">módulos Python</div></div>
+    <!-- Os `title` abaixo não são decoração: o guard de fatos derivados
+         (tests/test_docs_derived_facts.py) procura o número e a palavra como
+         texto CONTÍGUO. Com os dois em nós separados, o regex nunca casava e
+         o KPI envelhecia em silêncio — foi assim que a contagem de módulos
+         ficou duas levas atrás sem nenhum teste reclamar. Mantenha cada title
+         em sincronia com o número visível ao lado.
+         Cuidado ao editar este comentário: escrever aqui um número seguido de
+         "módulos", "subcomandos" ou "casos" faz o guard ler a frase como
+         afirmação e reprovar. O guard não separa narrativa de asserção — é o
+         preço de ele ser um grep, e é barato perto de não ter guard. -->
+    <div class="kpi" title="44 módulos Python"><div class="n">44</div><div class="l">módulos Python</div></div>
     <div class="kpi"><div class="n">7</div><div class="l">skills</div></div>
-    <div class="kpi"><div class="n">27</div><div class="l">subcomandos CLI</div></div>
-    <div class="kpi"><div class="n">5</div><div class="l">hooks gerados</div></div>
-    <div class="kpi"><div class="n">1480</div><div class="l">testes</div></div>
+    <div class="kpi" title="27 subcomandos CLI"><div class="n">27</div><div class="l">subcomandos CLI</div></div>
+    <div class="kpi"><div class="n">4</div><div class="l">hooks gerados</div></div>
+    <div class="kpi" title="1480 casos de teste"><div class="n">1480</div><div class="l">testes</div></div>
     <div class="kpi"><div class="n">17</div><div class="l">passos do ciclo</div></div>
   </div>
 </div>
@@ -553,8 +563,8 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
       <g class="layerbox" data-layer="guard">
         <rect x="20" y="252" width="920" height="82" rx="11" fill="var(--panel2)" stroke="var(--bad)" stroke-width="1.5"/>
         <text x="40" y="277" class="sv-tx">CAMADA 3 · ENFORCEMENT RUNTIME (hooks gerados, stdlib puro)</text>
-        <text x="40" y="299" class="sv-mono">boundary_guard.py · session_start.py · stop_hook.py</text>
-        <text x="40" y="320" class="sv-tx3">rodam FORA do pacote instalado, a cada tool call — decidem allow / ask / deny</text>
+        <text x="40" y="299" class="sv-mono">boundary_guard.py · session_start.py · stop_hook.py · statusline.py</text>
+        <text x="40" y="320" class="sv-tx3">rodam FORA do pacote instalado — só o boundary_guard decide allow / ask / deny</text>
       </g>
       <!-- L4 prova -->
       <g class="layerbox" data-layer="prova">
@@ -850,20 +860,26 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
       <path d="M472,490 L472,516 L640,516 L640,470" class="sv-ln" stroke="var(--bad)" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#fab)"/>
       <text x="556" y="532" class="sv-tx3" text-anchor="middle">falhou → autocorrige até a stop condition</text>
 
-      <!-- approval commit -->
-      <rect x="38" y="392" width="240" height="46" rx="9" fill="var(--panel)" stroke="var(--amb)" stroke-width="1.4"/>
-      <text x="158" y="412" class="sv-tx" text-anchor="middle">aprova o commit</text>
-      <text x="158" y="428" class="sv-tx3" text-anchor="middle">descrição funcional + link file:line</text>
-      <path d="M352,462 L300,462 L300,415 L280,415" class="sv-ln" stroke="var(--good)" stroke-width="1.6" marker-end="url(#fag)"/>
-
-      <!-- finish -->
+      <!-- finish: o gate do commit é a auditoria, não mais um humano olhando o diff -->
       <rect x="352" y="552" width="240" height="46" rx="9" fill="var(--panel)" stroke="var(--vio)" stroke-width="1.4"/>
       <text x="472" y="572" class="sv-tx" text-anchor="middle">harness finish</text>
       <text x="472" y="588" class="sv-tx3" text-anchor="middle">audita o fecho + varre descartáveis</text>
-      <path d="M158,438 L158,575 L350,575" class="sv-ln" stroke-width="1.6" marker-end="url(#fa)"/>
-      <text x="240" y="566" class="sv-tx3" text-anchor="middle">tudo verde</text>
+      <path d="M440,490 L440,550" class="sv-ln" stroke-width="1.6" marker-end="url(#fa)"/>
+      <text x="434" y="524" class="sv-tx3" text-anchor="end">tudo verde</text>
+
+      <!-- commit e push: do agente, sem pedir autorizacao -->
+      <rect x="666" y="552" width="256" height="46" rx="9" fill="var(--panel)" stroke="var(--good)" stroke-width="1.4"/>
+      <text x="794" y="572" class="sv-tx" text-anchor="middle">commita e faz push</text>
+      <text x="794" y="588" class="sv-tx3" text-anchor="middle">só com blockers: [] · floor limita à branch</text>
+      <path d="M594,575 L664,575" class="sv-ln" stroke="var(--good)" stroke-width="1.6" marker-end="url(#fag)"/>
+
+      <!-- unico toque humano do fecho -->
+      <rect x="38" y="552" width="240" height="46" rx="9" fill="var(--panel)" stroke="var(--amb)" stroke-width="1.4"/>
+      <text x="158" y="572" class="sv-tx" text-anchor="middle">abre o PR</text>
+      <text x="158" y="588" class="sv-tx3" text-anchor="middle">harness pr-draft monta o corpo</text>
+      <path d="M794,598 L794,612 L158,612 L158,600" class="sv-ln" stroke="var(--amb)" stroke-width="1.4" marker-end="url(#fa)"/>
     </svg>
-    <div class="figcap">Fig. 5 — O ciclo. Dois portões read-only antes de qualquer escrita (preflight no repo, assess na demanda); e a CLI, não o agente, é quem cria branch, compila contrato e grava evidência.</div>
+    <div class="figcap">Fig. 5 — O ciclo. Dois portões read-only antes de qualquer escrita (preflight no repo, assess na demanda); e a CLI, não o agente, é quem cria branch, compila contrato e grava evidência. No fecho não há mais gate humano sobre o diff: quem autoriza o commit é <code>harness finish</code> saindo com <code>blockers: []</code> e nenhum <code>verify_cmd</code> vermelho. O toque humano que sobra é abrir o PR.</div>
   </div>
 
   <div class="grid g3">
@@ -874,8 +890,9 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
       <p>Uma feature por vez, dentro do raio declarado, com autocorreção limitada por
       stop conditions vindas do próprio <code>spec.md</code>.</p></div>
     <div class="card"><h5><span class="tag t-ok">REVIEW</span></h5>
-      <p>Prova executável + revisão independente (opcional) + aprovação humana do commit +
-      encerramento auditado da demanda.</p></div>
+      <p>Prova executável + verificação independente por um subagente que não implementou
+      (camada 3) + encerramento auditado da demanda. O commit é liberado por
+      <code>harness finish</code> com <code>blockers: []</code>, não por um humano lendo o diff.</p></div>
   </div>
 </section>
 
@@ -1279,13 +1296,13 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
         <text x="770" y="150">Driver</text><text x="770" y="164">de loop</text>
         <text x="890" y="150">Sinais por</text><text x="890" y="164">máquina</text>
       </g>
-      <text x="275" y="212" class="sv-tx2" text-anchor="middle">ENTREGUE · v0.11 → v0.32</text>
+      <text x="275" y="212" class="sv-tx2" text-anchor="middle">ENTREGUE · v0.11 → v0.34</text>
       <text x="770" y="212" class="sv-tx2" text-anchor="middle">BACKLOG · rumo à autonomia total</text>
       <rect x="40" y="228" width="880" height="56" rx="10" fill="var(--bg2)" stroke="var(--line2)" stroke-dasharray="5 4"/>
       <text x="60" y="252" class="sv-tx3">Objetivo final: o humano fornece uma demanda complexa + critérios de qualidade; o agente executa</text>
       <text x="60" y="272" class="sv-tx3">planejar → executar → verificar → corrigir por múltiplas sessões, sem prompts de aprovação no meio.</text>
     </svg>
-    <div class="figcap">Fig. 8 — Fases 1–4 entregues e em uso (o projeto se governa a si mesmo). Fases 5–7 são backlog documentado.</div>
+    <div class="figcap">Fig. 8 — Fases 1–3 entregues e em uso diário (o projeto se governa a si mesmo). A Fase 4 foi entregue em v0.14.1 e está <b>dormente</b>: nenhum projeto tem time compilado e nenhum passo do lifecycle a aciona. Fases 5–7 são backlog documentado.</div>
   </div>
 
   <h3>Onde a autonomia ainda trava — diagnóstico honesto do próprio projeto</h3>
@@ -1298,15 +1315,22 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
     <div class="card"><h5><span class="tag t-wr">2</span> Não existe driver de loop</h5>
       <p>O supervisor é um leitor síncrono deliberado. Ninguém encadeia feature→feature,
       sessão→sessão. Hoje o orquestrador real só existe dentro do teste E2E.</p></div>
-    <div class="card"><h5><span class="tag t-wr">3</span> Nenhum sinal é consumido por máquina</h5>
-      <p>Orçamento é texto advisory; stop conditions são strings que ninguém conta; o
-      <code>verify</code> só grava sucesso — a falha não deixa rastro estruturado.</p></div>
+    <div class="card"><h5><span class="tag t-wr">3</span> Nem todo sinal é consumido por máquina <em>— parcial</em></h5>
+      <p><b>Já resolvido (v0.28→v0.33):</b> o <code>verify</code> grava toda tentativa
+      <em>falha</em> em <code>.harness/attempts/</code>; as stop conditions aceitam forma
+      tipada (<code>consecutive_verify_failures</code>, <code>same_failure_signature</code>)
+      e o <code>harness budget</code> conta por máquina, com seis vereditos.</p>
+      <p><b>Falta:</b> os tipos <code>budget_usd</code> e <code>wall_clock_minutes</code>,
+      que dependem do medidor de custo/tempo da Fase 6; o orçamento de <em>tokens</em>
+      segue advisory declarado.</p></div>
   </div>
-  <div class="note lv-arch"><b>Achado central da investigação:</b> os módulos que resolvem o item 3
-  não têm dependência dura de Docker nem de chave de API. O que os prendia à era congelada era o
-  <em>sinal</em> que consumiam, não a infraestrutura. A Fase 5–7 é, em essência, re-plumbar esses
-  sinais a partir das primitivas nativas do Claude Code — <code>--max-budget-usd</code>,
-  <code>--resume</code>, <code>--output-format json</code>, hooks Stop/PostToolUse/SubagentStop.</div>
+  <div class="note lv-arch"><b>Achado central da investigação, confirmado pela prática:</b> os módulos
+  que resolvem o item 3 não têm dependência dura de Docker nem de chave de API. O que os prendia à
+  era congelada era o <em>sinal</em> que consumiam, não a infraestrutura — e foi exatamente assim que
+  a metade já entregue do item 3 chegou, re-plumbando o rastro de tentativas a partir do próprio
+  repositório. O que resta das Fases 5–7 é o mesmo movimento sobre as primitivas nativas do Claude
+  Code — <code>--max-budget-usd</code>, <code>--resume</code>, <code>--output-format json</code>,
+  hooks Stop/PostToolUse/SubagentStop.</div>
 </section>
 
 <!-- ==================== 15. GLOSSARIO ==================== -->
@@ -1626,8 +1650,8 @@ const STEPS=[
  ['Atualizar progress.md','Documenta o que foi feito nesta sessão, para que a próxima retome sem perder contexto.','Fecha o ciclo com o passo 3. É bookkeeping do próprio harness — por isso o arquivo é sempre gravável, mesmo fora da superfície do contrato.'],
  ['Marcar a feature concluída','passes:true no feature_list.json — só acontece com evidência fresca do passo 11.','O feature-lock enforça isto por mecanismo: sem evidência mais nova que o último commit, a edição é negada citando o id.'],
  ['Documentar o que quebrou','Transparência: o que ficou incompleto ou quebrado é registrado explicitamente.','Nunca escondido atrás de um commit "limpo". Um relatório honesto de falha vale mais que um verde que ninguém confia.'],
- ['Parar e pedir aprovação humana','Gate obrigatório antes do commit. A mensagem PRECISA conter descrição funcional em linguagem natural do comportamento que mudou e o link file:line do teste que prova.','Mostrar só o T-ID e o JSON cru do verify não é suficiente — ninguém entende o que está aprovando com isso. Foi uma correção vinda de uso real.'],
- ['Commit em estado retomável','O commit local só acontece depois do sinal verde, e apenas com o repositório num estado que a próxima sessão consegue retomar sem arqueologia.','Push segue restrito pelo floor à branch do contrato; commit em branch protegida é negado incondicionalmente.'],
+ ['Mostrar o trabalho a quem não o escreveu','Duas metades. (a) Camada 3: harness blind package monta o pacote sem o raciocínio de quem implementou, um subagente limpo julga, e o veredito volta por harness blind verdict. (b) A mensagem do commit precisa de descrição funcional do comportamento que mudou e o link file:line do teste que prova.','As camadas 1 e 2 provam que o teste passa — e o teste saiu da mesma cabeça que escreveu o código. É o único ponto de independência que o design chama de obrigatório. Mostrar só o T-ID e o JSON cru do verify nunca bastou: ninguém acompanha o que foi feito com isso.'],
+ ['Commit e push na branch do contrato','Acontecem sem pedir autorização, mas não incondicionalmente: exigem harness finish com blockers vazio e nenhum verify_cmd vermelho. Sem isso o agente para e chama a pessoa.','Essas duas pré-condições são o que substituiu o antigo gate humano sobre o diff — uma auditoria mecânica no lugar de uma leitura que ninguém fazia com atenção. Push segue restrito pelo floor à branch do contrato; commit em branch protegida é negado incondicionalmente, e abrir o PR continua sendo do humano.'],
  ['Deixar a working tree limpa','Nenhuma mudança solta fora de commit, nenhum arquivo temporário esquecido.','O handoff para a próxima sessão começa de um estado previsível. Artefatos temporários têm destino próprio: .harness/scratch/.']
 ];
 let cur=0;
