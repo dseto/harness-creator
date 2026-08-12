@@ -86,6 +86,121 @@ def _fail(line: str, *, classification: str = "structural") -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# REGRA 0 — a tarefa parada esperando a PESSOA aparece como tal, e a ação que
+# cabe a ela vem junto
+#
+# Contrato `parei-e-sua-vez`. O placar já tinha um estado "blocked", que quer
+# dizer OUTRA coisa (dependência de tarefa não satisfeita). Confundir os dois
+# devolveria o defeito: "esperando a T-01 passar" e "esperando você editar um
+# arquivo" pedem reações opostas de quem lê.
+# ---------------------------------------------------------------------------
+
+NEEDS = "editar test_glob na linha 27 de .harness/harness.yaml e rodar harness compile-session"
+
+
+def _write_block(tmp_path: Path, feature_id: str, *, contract: str = "demo") -> None:
+    _write(
+        tmp_path / ".harness" / "blocks" / contract / f"{feature_id}.json",
+        json.dumps(
+            {
+                "feature_id": feature_id,
+                "contract": contract,
+                "needs": NEEDS,
+                "recorded_at": "2026-08-12T01:00:00+00:00",
+                "watch": None,
+            },
+            ensure_ascii=False,
+        ),
+    )
+
+
+def test_a_blocked_feature_has_its_own_state(tmp_path: Path) -> None:
+    _write_contract(tmp_path, [_feature("T-01", "primeira"), _feature("T-02", "segunda")])
+    _write_block(tmp_path, "T-01")
+
+    state = collect_state(tmp_path)
+    by_id = {f["id"]: f for f in state["features"]}
+
+    assert by_id["T-01"]["state"] == "waiting_human"
+    assert by_id["T-01"]["needs"] == NEEDS
+    assert by_id["T-02"]["state"] != "waiting_human"
+    assert by_id["T-02"].get("needs") is None
+
+
+def test_a_blocked_feature_is_not_the_current_one(tmp_path: Path) -> None:
+    """`dispatch_next` já pula a fatia parada (T-02); o placar tem de mostrar a
+    mesma coisa que o despacho, senão as duas leituras contam histórias
+    diferentes sobre o mesmo estado."""
+    _write_contract(tmp_path, [_feature("T-01", "primeira"), _feature("T-02", "segunda")])
+    _write_block(tmp_path, "T-01")
+
+    state = collect_state(tmp_path)
+
+    assert state["current"] is not None and state["current"]["id"] == "T-02"
+
+
+def test_the_dependency_wait_is_not_confused_with_the_human_wait(tmp_path: Path) -> None:
+    _write_contract(
+        tmp_path,
+        [_feature("T-01", "primeira"), _feature("T-02", "segunda", depends=["T-01"])],
+    )
+
+    by_id = {f["id"]: f for f in collect_state(tmp_path)["features"]}
+
+    assert by_id["T-02"]["state"] == "blocked", "dependência não satisfeita continua 'blocked'"
+    assert by_id["T-02"].get("needs") is None
+
+
+@pytest.mark.parametrize("render", [render_brief, render_terminal], ids=["brief", "terminal"])
+def test_every_render_shows_what_the_person_has_to_do(tmp_path: Path, render: Any) -> None:
+    _write_contract(tmp_path, [_feature("T-01", "primeira")])
+    _write_block(tmp_path, "T-01")
+
+    text = strip_ansi(render(collect_state(tmp_path)))
+
+    assert NEEDS in text
+    assert "T-01" in text
+
+
+def test_the_progress_file_shows_the_wait_in_the_status_column(tmp_path: Path) -> None:
+    """A tabela do `.harness/progress.md` é o que a sessão SEGUINTE lê. Se a
+    espera não aparecer ali, a sessão nova abre achando que a fatia é só
+    'pending' e recomeça a bater na mesma parede."""
+    from harness.templates import PROGRESS_FILE, render_progress_template
+
+    feature_list = {"contract": "demo", "features": [_feature("T-01", "primeira")]}
+    _write(tmp_path / PROGRESS_FILE, render_progress_template(feature_list))
+    _write_contract(tmp_path, [_feature("T-01", "primeira")])
+    _write_block(tmp_path, "T-01")
+
+    from harness.cli import main
+
+    sys_argv = ["harness", "block", "T-01", "--needs", NEEDS, "--dir", str(tmp_path)]
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(sys, "argv", sys_argv)
+        with pytest.raises(SystemExit):
+            main()
+
+    table = (tmp_path / PROGRESS_FILE).read_text(encoding="utf-8")
+    row = next(line for line in table.splitlines() if line.startswith("| T-01 "))
+    assert "aguardando você" in row.lower()
+    assert NEEDS in row
+
+
+def test_the_next_step_points_at_the_person_when_everything_is_blocked(
+    tmp_path: Path,
+) -> None:
+    """Com tudo parado, o próximo passo não pode continuar dizendo "trabalhe na
+    T-01" — não há o que trabalhar até a pessoa agir."""
+    _write_contract(tmp_path, [_feature("T-01", "primeira")])
+    _write_block(tmp_path, "T-01")
+
+    next_step = collect_state(tmp_path)["next_step"]
+
+    assert NEEDS in next_step
+
+
+# ---------------------------------------------------------------------------
 # REGRA 1 — o placar é derivado do disco: progresso, estado por tarefa e a
 # tarefa atual saem do `feature_list.json`, não de quem está narrando
 # ---------------------------------------------------------------------------

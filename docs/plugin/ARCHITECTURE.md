@@ -58,12 +58,24 @@ contagem de tokens a hooks.
 |---|---|---|---|
 | **0 · Host** | Claude Code | Executa: lê `permissions`, dispara hooks, carrega skills e subagentes | — |
 | **1a · Skills** | `skills/` (7) | Conduz a conversa com o humano | Não escreve nada direto — toda escrita passa pela CLI |
-| **1b · CLI** | `cli.py` | Dispatch dos 27 subcomandos, validação de `--dir` | Não decide `allow`/`deny` em runtime |
+| **1b · CLI** | `cli.py` | Dispatch dos 29 subcomandos, validação de `--dir` | Não decide `allow`/`deny` em runtime |
 | **2 · Compiladores** | `compiler`, `contract`, `analyzer`, `session_permissions`, `lifecycle`, `templates`, `branching`, `profile_edit`, `install_command`, `autoupdate` | Transformam entrada humana em artefato. Determinísticos, zero LLM, zero rede | Não rodam no caminho da tool call |
-| **3 · Enforcement** | `boundary_guard`, `session_start`, `stop_hook`, `statusline` | Decidem `allow`/`ask`/`deny` a cada tool call — e, no caso da `statusline`, mostram o estado do loop na barra do CLI | Não importam a biblioteca — stdlib puro |
-| **4 · Prova e controle** | `verify`, `attempts`, `budget`, `reconcile`, `regression`, `blind`, `review`, `supervisor`, `teams`, `finish`, `pr_draft`, `spine`, `panel` | Produzem e consomem evidência; ordenam o trabalho | Nenhum chama git de escrita; `panel` também não escreve nada |
-| **5 · Diagnóstico** | `preflight`, `audit`, `runtime_audit`, `team_audit`, `doctor`, `health`, `metrics` | Emitem laudo + o comando exato de correção | Nunca corrigem sozinhos |
-| **Base** | `config`, `governance/approval`, `patterns`, `settings_paths`, `hook_launcher`, `killswitch` | Cada um é fonte **única** de uma verdade | — |
+| **3 · Enforcement** | `boundary_guard`, `session_start`, `stop_hook`, `statusline` | Só o `boundary_guard` decide a cada tool call (`PreToolUse`); os outros três rodam nos eventos `SessionStart`, `Stop` e na chave `statusLine` | Não importam a biblioteca — stdlib puro. Nenhum emite `ask`: esse bucket é de `permissions`, compilado na camada 2 |
+| **4 · Prova e controle** | `verify`, `attempts`, `budget`, `convergence`, `escalation`, `skips`, `reconcile`, `regression`, `blind`, `supervisor`, `finish`, `pr_draft`, `spine`, `panel`, `review`†, `teams`† | Produzem e consomem evidência; ordenam o trabalho | Nenhum chama git de escrita; `panel` também não escreve nada; `budget`/`escalation` não bloqueiam — respondem |
+| **5 · Diagnóstico** | `preflight`, `audit`, `runtime_audit`, `team_audit`†, `doctor`, `health`, `metrics` | Emitem laudo + o comando exato de correção | Nunca corrigem sozinhos |
+| **Base** | `config`, `governance/approval`, `patterns`, `findings`, `settings_paths`, `hook_launcher`, `killswitch` | Cada um é fonte **única** de uma verdade | — |
+
+A tabela nomeia os 45 módulos de `src/harness/` (sem `__init__.py`), mais o
+pacote `governance/`. Ela é o mapa completo, não uma seleção: módulo que não
+aparece aqui é módulo que ninguém colocou numa camada, e essa é a forma de
+dívida que este documento existe para não acumular.
+
+† **Marcados como dormentes.** `teams`, `review` e `team_audit` são a Fase 4
+(Produtor-Revisor). Existem, têm suíte, e **nenhum projeto os ativou**: sem
+`.harness/team/manifest.json` o veto do revisor no `boundary_guard` é no-op por
+construção, e nenhum dos 17 passos do `.harness/LIFECYCLE.md` chama `harness
+team`, `harness review` ou `harness audit-team`. Ler as três linhas como
+descrição do que roda hoje seria ler errado — ver §10.
 
 ### O placar: uma fonte, três renders
 
@@ -98,8 +110,15 @@ existe para prevenir:
 
 - `_POLICY_MATRIX` / `_ALWAYS_GATED` (`governance/approval.py`) — quais classes
   de risco cada modo gateia. O `compiler` importa, não recria.
-- `_glob_to_regex` (`patterns.py`) — matching de arquivo de teste, compartilhado
-  por compiler, analyzer, audit e pelos guards gerados.
+- `_glob_to_regex` (`patterns.py`) — matching de arquivo de teste, importado por
+  `analyzer`, `audit` e `review`, e bakeado nos guards gerados (que não podem
+  importar). O `compiler` **não** entra: ele só interpola o `test_glob` como
+  texto no `AGENTS.md`, nunca o compila para regex.
+- `Finding` / `Report` / `PENALTY` (`findings.py`) — a forma do achado e do
+  laudo, compartilhada por `audit`, `runtime_audit` e `team_audit`. Os três
+  mecanismos de auditoria são genuinamente distintos; só a estrutura do
+  relatório era idêntica byte a byte nos três, e três cópias de um dataclass
+  são três chances de as severidades deixarem de significar a mesma coisa.
 - `is_floor_bash_command` / `is_floor_secret_path` (`boundary_guard.py`) —
   importados por `session_permissions.py`, para as duas camadas nunca
   divergirem sobre o que é floor.
@@ -134,14 +153,22 @@ fechar de dentro do Python o caso em que o Python nunca inicia. A única
 superfície de correção é o comando registrado:
 
 ```
-"<interpretador absoluto>" "<script>" || exit 2
+"<interpretador absoluto>" -S -E "<script>" || exit 2
 ```
 
-O caminho absoluto vem do `sys.executable` que rodou o `compile-session`. O
-sufixo `|| exit 2` é sintaxe comum a `sh` e a `cmd.exe`, então o mesmo string
+O caminho absoluto vem do `sys.executable` que rodou a compilação (`harness
+compile` grava o `boundary_guard`; `harness compile-session` regrava os quatro).
+O sufixo `|| exit 2` é sintaxe comum a `sh` e a `cmd.exe`, então o mesmo string
 funciona nos dois shells que o Claude Code pode usar — sem gerar arquivo de
 lançador, que teria o problema simétrico (`.cmd` não roda sob `sh`, `.sh` não
 roda sob `cmd.exe`).
+
+As duas flags não são higiene, são parte do contrato da camada 3. `-S` pula a
+varredura de `site-packages`/`.pth`, que custa dezenas de milissegundos **por
+tool call** numa máquina com outros projetos Python instalados; `-E` descarta o
+`PYTHONPATH` herdado do ambiente que disparou a tool call, porque um hook que
+consegue importar do repositório-alvo é um hook que o repositório-alvo pode
+reescrever.
 
 `harness doctor` diagnostica o resíduo desse problema: hook registrado cujo
 interpretador não existe mais.
@@ -171,8 +198,15 @@ explicitamente:
 | `NotebookEdit` | `_evaluate_file` sobre `notebook_path`, com fallback para `file_path` |
 | `PowerShell` | `_evaluate_powershell` |
 | `Bash` | `_evaluate_bash` |
-| `Read`, `Glob`, `Grep`, `Task`, `WebFetch`, `TodoWrite` | allowlist fixa read-only/utilitária — passa sem análise |
+| `Read`, `Glob`, `Grep`, `Task`, `WebFetch`, `TodoWrite`, `TaskCreate`, `TaskGet`, `TaskList`, `TaskOutput`, `TaskStop`, `TaskUpdate` | allowlist fixa read-only/utilitária — passa sem análise |
 | qualquer outra | nome com cara de escrita (`write`/`create`/`edit`) → `deny`; resto → **allow logado** |
+
+A família `Task*` está enumerada na allowlist pela razão oposta ao risco
+residual abaixo: são tools nativas de acompanhamento de tarefa, não escrevem no
+repositório-alvo, e sem a entrada explícita `TaskCreate` cairia no fallback e
+seria negada **só por conter `create` no nome**. Aconteceu numa sessão real
+deste projeto. A regra por-nome é política mínima, e política mínima erra nas
+duas direções — a allowlist é o que corrige o lado do falso-deny.
 
 **Risco residual assumido, por escrito:** uma tool MCP de escrita cujo nome não
 contenha `write`/`create`/`edit` (ex.: `mcp__foo__persist`) passa sem análise.
@@ -196,9 +230,13 @@ escrita em segredo liberados. Era uma falha real de segurança. O floor é
 avaliado primeiro, sem exceção, com ou sem contrato ativo.
 
 **A única exceção do floor** é estreita: `git push` da branch do contrato ativo
-(`contract/<slug>`) para ela mesma, com `-u`/`--set-upstream`. Branch protegida,
-outra branch, branch indeterminada (detached HEAD, worktree linkado — postura
-fail-**closed** aqui), refspec explícito, `--force`/`--mirror`/`--delete` e push
+(`contract/<slug>`) para ela mesma. `-u`/`--set-upstream` são as únicas flags
+**toleradas** — não são exigidas, e um push sem flag nenhuma passa igual; quem
+lê "com `-u`" como requisito vai caçar a flag quando o deny vier de outro lugar
+(já custou uma investigação inteira: a causa real era metacaractere de shell no
+comando). Branch protegida, outra branch, branch indeterminada (detached HEAD,
+worktree linkado — postura fail-**closed** aqui), refspec explícito,
+`--force`/`--force-with-lease`/`--mirror`/`--delete`/`--all`/`--tags` e push
 encadeado a outro comando seguem negados.
 
 ### Ancoragem da raiz
@@ -262,7 +300,13 @@ Toda autoridade humana se concentra em **um** artefato aprovável: o par
         │
         ▼  harness compile-contract --slug <slug>
 .harness/feature_list.json       id, desc, files[], verify_cmd, depends[], cwd, passes
+                                 + metric_cmd, metric_target  (opt-in, §4.3)
 ```
+
+Os dois últimos campos são o único slot opt-in do contrato: tarefa que não
+declara `metric` no `Plans.md` nunca os recebe, e o resto do harness se comporta
+exatamente como antes. Eles existem para alimentar os vereditos de trajetória do
+disjuntor, mais abaixo.
 
 **O gate é enforçado no código, não por instrução.** `compile_contract` levanta
 exceção e **não escreve um byte** se `approved_by`/`approved_at` estiverem
@@ -283,7 +327,10 @@ numa edição em massa.
 
 Com time `producer`+`reviewer` compilado, o lock **aperta**: exige também
 aprovação do revisor mais recente que a evidência. Aprovação obsoleta frente a
-uma evidência regravada depois dela → `deny`.
+uma evidência regravada depois dela → `deny`. Este parágrafo descreve um caminho
+**dormente**: a checagem só liga quando `.harness/team/manifest.json` declara os
+dois papéis, e esse arquivo não existe em projeto nenhum — sem ele o guard pula
+o veto inteiro, com comportamento idêntico ao da Fase 3.
 
 ### O disjuntor: a assimetria entre prova e tentativa
 
@@ -307,11 +354,49 @@ A separação agora é por natureza do dado, não por resultado do comando:
 | `.harness/attempts/` | erro cru + `failure_signature` | marcador que encerra a sequência |
 
 `attempts` é append puro e o verde **não apaga** o histórico — ele só encerra a
-sequência aberta. `budget` lê esse rastro e conta duas coisas distintas:
-quantas falhas desde o último verde (o teto de iterações) e quantas seguidas
-com a mesma assinatura (`stop_same_failure`). São perguntas diferentes de
-propósito: a primeira diz que o tempo acabou, a segunda diz *o que fazer* —
-trocar de abordagem, porque insistir já provou não levar a lugar nenhum.
+sequência aberta. `budget` lê esse rastro e devolve **um** veredito entre seis:
+
+| veredito | quando | vem de |
+|---|---|---|
+| `continue` | ainda há folga | `attempts` |
+| `stop_same_failure` | a MESMA assinatura se repetiu até o teto | `attempts` |
+| `stop_iterations` | as falhas desde o último verde estouraram o teto | `attempts` |
+| `stop_transient_exhausted` | o mesmo erro **transiente** se repetiu até o teto | `attempts` |
+| `stop_worsening` | duas medições piores que o melhor já registrado | `convergence` (opt-in) |
+| `stop_plateau` | três medições sem superar o melhor | `convergence` (opt-in) |
+
+Os dois vereditos estruturais respondem perguntas deliberadamente diferentes.
+`stop_iterations` diz que *o tempo acabou*; `stop_same_failure` diz *o que
+fazer* — trocar de abordagem, porque insistir já provou não levar a lugar
+nenhum. Contá-los junto os apagaria: um teto atingido e uma abordagem falida
+pedem coisas distintas de quem lê o veredito.
+
+**`stop_transient_exhausted` vence qualquer outro veredito**, e a precedência é
+a decisão de desenho da seção. Erro de ambiente que se repete não é o loop de
+correção batendo num teto (§8.2): é o §8.3 entrando por outra porta. Se
+`stop_same_failure` ganhasse a disputa, o loop gastaria o resto do orçamento
+reescrevendo código que está correto, guiado por uma falha que nunca esteve no
+código. Os dois diagnósticos exigem ações opostas, então o mais específico
+precisa ganhar por regra, não por ordem de avaliação acidental.
+
+Os dois vereditos de trajetória vêm de `convergence.py` e existem só quando a
+tarefa declarou `metric`. Eles respondem a terceira pergunta do design — não
+"chegou?" nem "esgotou?", mas *"está se aproximando ou se afastando?"* — e a
+fronteira é estreita de propósito: `target` atingido informa `target_met` e
+**não muda veredito nenhum**. A métrica guia; quem decide continua sendo o
+`verify_cmd`. `convergence` também nunca executa o `metric_cmd`, nunca chama
+git e nunca gera timestamp: recebe tudo pronto, exatamente como
+`attempts.record_failure`, porque um módulo de leitura de trajetória que
+consegue medir sozinho é um módulo que pode discordar da medição gravada.
+
+A parada tem forma obrigatória, e ela mora em `escalation.py`. Um veredito de
+parada com a razão em prosa livre é indistinguível de uma desistência: quem
+recebe não sabe o que já foi tentado nem por onde continuar. O módulo renderiza
+as seis partes que o §8 exige, na ordem que ele exige (o que se tentava, o que
+foi tentado, o último erro cru, a classificação, o estado da spine, o próximo
+passo), e as monta **só do que já está em disco** — contrato compilado, rastro
+de `attempts`, `git status --porcelain` em leitura. Não decide veredito (isso é
+`budget`) e não executa nada.
 
 Duas escolhas de fronteira valem registro:
 
@@ -323,6 +408,27 @@ Duas escolhas de fronteira valem registro:
   default do schema, e condição tipada com `type` desconhecido **reprova a
   compilação** em vez de virar advisory mudo. Rebaixamento silencioso é o modo
   de falha perigoso aqui: o contrato pareceria ter disjuntor sem ter.
+
+### O verde também mente: `skips`
+
+Todo o desenho acima assume que o verde significa alguma coisa, e o exit code
+sozinho não garante isso. pytest, `dotnet test` e jest saem **0** com dezenas de
+testes pulados, e saem 0 quando não coletaram teste nenhum — o caso em que a
+prova é literalmente vazia. Enquanto o `verify` decidia o verde só pelo exit
+code, a moeda de "pronto" podia ser cunhada sem lastro.
+
+`skips.py` é a leitura de texto que fecha isso, e é só isso: multi-runner por
+padrão de saída (nunca presumindo pytest — há dogfood .NET), nunca executa
+processo, nunca decide o que fazer com o resultado. Quem decide é o `verify`,
+que já tem o stdout em mão. A separação importa porque a contagem e o motivo têm
+disponibilidade diferente: pytest sempre imprime `N skipped`, mas só mostra o
+motivo com `-rs`/`-ra`. "Motivo invisível" é um estado declarado
+(`reasons_visible=False`), não um erro de parsing — e confundir os dois faria o
+harness reportar ausência de motivo como defeito do teste.
+
+O conjunto conhecido de skips é gravado por `harness skips baseline`, **nunca**
+pelo `harness verify`. É deliberado: um baseline que o próprio loop pudesse
+escrever seria um loop autorizado a normalizar o que acabou de pular.
 
 ### A mesma regra em dois momentos: fecho e abertura
 
@@ -460,8 +566,11 @@ O que ele mecaniza é o que o verificador **não** recebe:
   faz o loop consertar o que ninguém chegou a olhar.
 
 `blind` é módulo próprio, e não uma extensão de `review`: aquele é o state
-machine **por feature** do padrão Produtor-Revisor (Fase 4, opt-in de time), com
-iteração e teto de re-submissão; este é **por demanda**, uma passada, no gate.
+machine **por feature** do padrão Produtor-Revisor (Fase 4, hoje dormente — ver
+§10), com iteração e teto de re-submissão; este é **por demanda**, uma passada,
+no gate. A separação também é o que mantém a camada 3 viva enquanto a Fase 4 não
+está: fosse `blind` uma extensão de `review`, a verificação independente teria
+herdado a dormência do time.
 
 **Limite declarado.** O harness não prova que o subagente recebeu só o pacote —
 prova que o pacote existe, que saiu de código, e que o veredito está preso ao
@@ -490,10 +599,13 @@ diretório inexistente — o repositório parecia governado e nenhum guard rodav
 
 Duas garantias, ambas idempotentes e não-destrutivas:
 
-1. `prepare_managed_settings` é o **único** ponto por onde os cinco escritores
+1. `prepare_managed_settings` é o **único** ponto por onde os seis escritores
    (`compiler`, `boundary_guard`, `session_start`, `stop_hook`,
-   `session_permissions`) resolvem o arquivo — a troca de destino não pode ficar
-   pela metade em um deles.
+   `session_permissions`, `statusline`) resolvem o arquivo — a troca de destino
+   não pode ficar pela metade em um deles. O `statusline` é o mais recente e
+   grava numa chave de topo (`statusLine`), não sob `hooks`; entrou pela mesma
+   porta justamente para que a exceção de formato não virasse exceção de
+   destino.
 2. `ensure_machine_local_gitignores` escreve as regras em arquivos
    **tool-owned** (`.claude/.gitignore`, `.harness/.gitignore`), nunca no
    `.gitignore` da raiz do usuário.
@@ -529,10 +641,14 @@ demanda ──assess──► laudo ──► spec + Plans ──compile-contrac
                              (approved_by/at)                        │                     decisão allow/deny
                                                                      │                     por tool call
                                                                      ▼
-                                                      verify ──► evidence/<contrato>/<id>.json
-                                                                     │
+                                              verify ─┬──► evidence/<contrato>/<id>.json   (verde)
+                                                      └──► attempts/<contrato>/<id>.jsonl  (vermelho)
+                                                                     │            │
+                                                                     │            ▼
+                                                                     │      budget ──► veredito
+                                                                     │      (escalation formata a parada)
                                                                      ▼
-                                       feature-lock  ·  review  ·  supervise  ·  finish
+                            feature-lock  ·  regression  ·  supervise  ·  blind  ·  finish
                                                                      │
                                                      blockers: [] ───┼──► commit + push
                                                                      ▼    (branch do contrato)
@@ -545,6 +661,10 @@ Os dois pontos onde o fluxo pode parar antes de qualquer escrita são os
 portões: `preflight` com `NOT_READY` e `assess` com `FORA_DE_ESCOPO`. Todo o
 resto ou segue, ou para no gate humano do contrato.
 
+`review` não aparece no diagrama de propósito: ele só entra no fluxo de um
+projeto que compilou um time, e nenhum compilou (§10). O diagrama descreve o que
+roda, não o que existe.
+
 Depois do gate, o fluxo não pede humano de novo. O que autoriza o commit é
 `harness finish` com `blockers: []` — condição de máquina, não aprovação de
 conversa. A única coisa reservada ao humano no fim é **abrir o PR**, e o
@@ -553,15 +673,26 @@ evidência já gravada e devolve corpo e comando prontos.
 
 ---
 
-## 8. Diagnóstico: quatro laudos, nenhum conserta sozinho
+## 8. Diagnóstico: seis laudos, nenhum conserta sozinho
 
 | Comando | Mecanismo | Detecta |
 |---|---|---|
 | `preflight` | 4 categorias sobre o repo **cru**, read-only | Falta de git, manifest, runner de teste ou linter — antes de instalar |
+| `health` | Resolve executável e importa módulo, na abertura | Ferramenta de `verify_cmd` que não responde, governança não compilada, harness em no-op |
 | `audit` | **Dogfooding**: recompila em memória e faz diff byte-exato contra o disco | Drift de artefato compilado editado à mão |
 | `audit-runtime` | Schema + frescor + invariantes | `passes:true` sem evidência, 2+ features em progresso, `progress.md` ausente |
-| `audit-team` | Catálogo vs. artefatos gerados | Papel órfão, papel sem agente, revisor com `Edit`/`Write` |
+| `audit-team`† | Catálogo vs. artefatos gerados | Papel órfão, papel sem agente, revisor com `Edit`/`Write` |
 | `doctor` | Compara as 3 camadas de distribuição | Versão dessincronizada, compilação ausente, hook que não roda |
+
+† Dormente com o resto da Fase 4 (ver §2 e §10): audita artefatos de time que
+nenhum projeto gerou.
+
+`health` é o passo 2 do lifecycle e o único que roda **antes** de qualquer
+decisão da sessão. Ele deliberadamente **não** executa o `verify_cmd`: um check
+caro vira opcional na prática, e um check opcional não cobre o modo de falha que
+ele existe para pegar. Sem ele, ferramenta ausente entra no loop disfarçada de
+teste vermelho — e o desenho dá respostas opostas aos dois casos (o disjuntor
+classifica um como transiente e o outro como estrutural).
 
 O `audit` não reimplementa as regras do compilador — ele **é** o compilador,
 rodado em memória. Regra nova no `compiler.render()` passa a ser auditada de
@@ -643,12 +774,24 @@ aviso completo sobre esquecer o kill-switch ligado estão em
 
 ## 10. Estado atual e limites conhecidos
 
-**Fases 1–4 entregues** (v0.11 → v0.32) e em uso: o projeto se governa com o
-próprio harness — os contratos em `.harness/work/` deste repositório são o
-histórico real de uso.
+**Fases 1–3 entregues e em uso:** o projeto se governa com o próprio harness —
+os contratos em `.harness/work/` deste repositório são o histórico real de uso.
 
-**Fases 5–7 são backlog documentado** (`docs/roadmap-autonomous.md`). O
-diagnóstico honesto de onde a autonomia ainda trava:
+**Fase 4 (Produtor-Revisor) está entregue em código e dormente.** `teams`,
+`review` e `team_audit` existem, têm suíte, e os padrões de time estão em
+`src/harness/teams/patterns/`. Nada os aciona: não há
+`.harness/team/manifest.json` em projeto nenhum, nenhum dos 17 passos do
+lifecycle chama `harness team`/`review`/`audit-team`, e sem manifesto o veto do
+revisor no `boundary_guard` é no-op por construção. A distinção importa porque
+o custo de uma capacidade dormente não é zero — ela aparece em tabela de
+arquitetura, em tabela de diagnóstico e no feature-lock, e cada aparição
+convida a raciocinar sobre uma proteção que não está ligada. Enquanto ninguém
+gerar o manifesto, a Fase 4 é código com teste, não mecanismo em operação.
+
+**Fases 5–7 são backlog documentado** (`docs/roadmap-autonomous.md`), com uma
+ressalva: parte do que a Fase 6 previa para o item 3 abaixo já saiu, fora do
+roadmap, pelo design de loop engineering. O diagnóstico honesto de onde a
+autonomia ainda trava:
 
 1. **O gate de aprovação exige humano.** É enforçado só na compilação;
    mecanicamente nada impede um agente de preencher o frontmatter — pré-contrato
@@ -664,16 +807,26 @@ diagnóstico honesto de onde a autonomia ainda trava:
 2. **Não existe driver de loop.** `supervisor.py` é leitor síncrono deliberado;
    ninguém encadeia feature→feature, sessão→sessão. O orquestrador real só
    existe hoje dentro do teste E2E.
-3. **Nenhum sinal é consumido por máquina.** Orçamento é advisory; stop
-   conditions são strings que ninguém conta; `verify` só grava sucesso — falha
-   não deixa rastro estruturado.
+3. **O sinal existe; falta o consumidor bloqueante.** Este item era, até v0.28,
+   "nenhum sinal é consumido por máquina" — e não é mais verdade, como a §5
+   descreve em detalhe. `verify` grava toda tentativa FALHA em
+   `.harness/attempts/` com `failure_signature`; `stop_conditions` aceita forma
+   tipada, compilada para o `feature_list.json` e **contada** por `budget`, que
+   devolve um entre seis vereditos; `escalation` dá formato obrigatório à
+   parada; `convergence` acrescenta a trajetória opt-in. O que falta é o outro
+   lado: **nada obriga**. `budget` responde e o lifecycle obedece por prosa —
+   ligar o hook `Stop` bloqueante (Fase 6) é a decisão de ativação que
+   transforma o veredito em mecanismo. Enquanto isso, o disjuntor é um
+   instrumento que o agente pode escolher não ler.
 
-**Achado central da investigação:** os módulos que resolveriam o item 3 não têm
-dependência dura de Docker nem de chave de API. O que os prendia à era congelada
-era o *sinal* que consumiam, não a infraestrutura. As Fases 5–7 são, em essência,
-re-plumbar esses sinais a partir de primitivas nativas do Claude Code —
-`--max-budget-usd`, `--resume`, `--output-format json`, Stop bloqueante,
-PostToolUse, SubagentStop.
+**Achado central da investigação:** os módulos que resolveriam o item 3 não
+tinham dependência dura de Docker nem de chave de API. O que os prendia à era
+congelada era o *sinal* que consumiam, não a infraestrutura — e o item 3 acima é
+a confirmação empírica: re-plumbados a partir do que já existe em disco
+(`attempts/`, `feature_list.json`, `git status`), eles voltaram a funcionar sem
+nenhuma infraestrutura nova. O que resta das Fases 5–7 é o mesmo exercício sobre
+as primitivas nativas do Claude Code — `--max-budget-usd`, `--resume`,
+`--output-format json`, Stop bloqueante, PostToolUse, SubagentStop.
 
 ---
 

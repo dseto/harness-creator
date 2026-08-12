@@ -1,6 +1,6 @@
 # Claude Progress
 
-Contrato: `skips-nunca-silenciosos`
+Contrato: `parei-e-sua-vez`
 
 _Demanda ENCERRADA por `harness finish`._
 
@@ -8,14 +8,13 @@ _Demanda ENCERRADA por `harness finish`._
 
 | id | desc | status |
 | --- | --- | --- |
-| T-01 | A saída de qualquer runner de teste passa a ser lida: quantos testes pularam, por quê quando o motivo aparece, e se nenhum teste chegou a ser coletado | done |
-| T-02 | Toda execução de `harness verify` diz quantos testes pularam, verde ou vermelho, sem precisar de flag — e quando os motivos não estão visíveis na saída, diz isso e ensina como revelá-los | done |
-| T-03 | Um comando explícito roda a suíte, mostra ao humano tudo o que pulou e grava essa lista como o conjunto conhecido; a verificação normal nunca escreve essa lista sozinha | done |
-| T-04 | Um teste que começa a pular do nada derruba a verificação e nomeia o que pulou; o que já era conhecido passa sem atrito, e o que deixou de pular só informa | done |
-| T-05 | Teste pulado por falta de variável de ambiente, credencial ou ferramenta para o trabalho já na primeira vez, nomeando o que falta — e o dono do repositório libera os pulos legítimos uma única vez no arquivo de configuração | done |
-| T-06 | A prova gravada em disco passa a registrar o que pulou, para que quem abrir a evidência semanas depois veja a mesma coisa que quem rodou viu | done |
-| T-07 | O arquivo de configuração do harness passa a nascer com todas as opções que ele aceita, cada uma com seu valor padrão e uma linha explicando — nenhuma opção fica descobrível só lendo o código | done |
-| T-08 | A documentação continua batendo com o código depois do módulo e do subcomando novos: as contagens que ela declara conferem | done |
+| T-01 | O agente passa a poder declarar que parou por depender de uma pessoa, nomeando em uma frase o que essa pessoa precisa fazer — e declaração sem motivo é recusada | done |
+| T-02 | Uma tarefa parada esperando a pessoa deixa de ser oferecida como próxima a trabalhar; as demais continuam na mesma ordem | done |
+| T-03 | O aviso de fim de sessão para de cobrar verificação da tarefa parada e passa a mostrar o que está na mão da pessoa; sem nenhuma tarefa parada, o texto é o de sempre | done |
+| T-04 | O placar de andamento e o arquivo de progresso mostram a tarefa parada com a ação que cabe à pessoa, distinta de tarefa por fazer | done |
+| T-05 | A tarefa volta a andar por três caminhos e só por eles: a pessoa libera, o arquivo que estava sendo esperado muda, ou a verificação passa | done |
+| T-06 | O encerramento da demanda não acontece enquanto houver tarefa parada esperando a pessoa — a pendência aparece nomeada, com a ação esperada | done |
+| T-07 | O documento de governança lido no início de toda sessão ensina o gesto: ao esbarrar em dependência humana, declarar a parada em vez de repetir a tentativa | done |
 
 ## Última atualização
 

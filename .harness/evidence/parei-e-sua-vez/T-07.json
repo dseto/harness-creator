@@ -1,0 +1,18 @@
+{
+  "feature_id": "T-07",
+  "contract": "parei-e-sua-vez",
+  "desc": "O documento de governança lido no início de toda sessão ensina o gesto: ao esbarrar em dependência humana, declarar a parada em vez de repetir a tentativa",
+  "files": [
+    "src/harness/lifecycle.py",
+    "tests/test_lifecycle.py",
+    "README.md",
+    "docs/plugin/TUTORIAL.md",
+    "docs/plugin/ARCHITECTURE.md",
+    "docs/plugin/arquitetura-visual.html",
+    "AGENTS.md"
+  ],
+  "verify_cmd": "pytest tests/test_lifecycle.py -q",
+  "recorded_at": "2026-08-12T02:27:23.141793+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:8e640d6365502b2e9d21f7c865a0494f608123b7dfa24874cdd337b7d48512d4"
+}

@@ -1,0 +1,15 @@
+{
+  "feature_id": "T-05",
+  "contract": "parei-e-sua-vez",
+  "desc": "A tarefa volta a andar por três caminhos e só por eles: a pessoa libera, o arquivo que estava sendo esperado muda, ou a verificação passa",
+  "files": [
+    "src/harness/blocks.py",
+    "src/harness/verify.py",
+    "src/harness/cli.py",
+    "tests/test_blocks.py"
+  ],
+  "verify_cmd": "pytest tests/test_blocks.py -q",
+  "recorded_at": "2026-08-12T02:27:16.627224+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:e36af8cd5b82ccd75f998b98d9132a3b9c7f9bd34e9eab5d6a74adb413a85e27"
+}

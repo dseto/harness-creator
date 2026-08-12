@@ -313,6 +313,7 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
   <div class="grp">Enforcement</div>
   <a href="#guard">Cascata de decisão</a>
   <a href="#prova">Prova executável</a>
+  <a href="#loop">Loop engineering</a>
   <a href="#seguranca">Floor &amp; kill-switch</a>
   <div class="grp">Operação</div>
   <a href="#diagnostico">Diagnóstico</a>
@@ -330,11 +331,21 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
   sem chave de API, sem confiar em "o agente vai obedecer".</p>
   <div class="formula"><b>Agente</b> <span>=</span> <i>Modelo</i> <span>+</span> <b>Harness</b></div>
   <div class="kpis">
-    <div class="kpi"><div class="n">42</div><div class="l">módulos Python</div></div>
+    <!-- Os `title` abaixo não são decoração: o guard de fatos derivados
+         (tests/test_docs_derived_facts.py) procura o número e a palavra como
+         texto CONTÍGUO. Com os dois em nós separados, o regex nunca casava e
+         o KPI envelhecia em silêncio — foi assim que a contagem de módulos
+         ficou duas levas atrás sem nenhum teste reclamar. Mantenha cada title
+         em sincronia com o número visível ao lado.
+         Cuidado ao editar este comentário: escrever aqui um número seguido de
+         "módulos", "subcomandos" ou "casos" faz o guard ler a frase como
+         afirmação e reprovar. O guard não separa narrativa de asserção — é o
+         preço de ele ser um grep, e é barato perto de não ter guard. -->
+    <div class="kpi" title="45 módulos Python"><div class="n">44</div><div class="l">módulos Python</div></div>
     <div class="kpi"><div class="n">7</div><div class="l">skills</div></div>
-    <div class="kpi"><div class="n">27</div><div class="l">subcomandos CLI</div></div>
-    <div class="kpi"><div class="n">5</div><div class="l">hooks gerados</div></div>
-    <div class="kpi"><div class="n">1480</div><div class="l">testes</div></div>
+    <div class="kpi" title="29 subcomandos CLI"><div class="n">27</div><div class="l">subcomandos CLI</div></div>
+    <div class="kpi"><div class="n">4</div><div class="l">hooks gerados</div></div>
+    <div class="kpi" title="1557 casos de teste"><div class="n">1557</div><div class="l">testes</div></div>
     <div class="kpi"><div class="n">17</div><div class="l">passos do ciclo</div></div>
   </div>
 </div>
@@ -403,7 +414,7 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
 <!-- ==================== 2. OUTCOMES ==================== -->
 <section id="outcomes">
   <h2><span class="num">02</span> Outcomes — o que o projeto entrega</h2>
-  <p class="lead">Nove resultados observáveis. Cada um tem um mecanismo concreto por trás, não
+  <p class="lead">Doze resultados observáveis. Cada um tem um mecanismo concreto por trás, não
   uma promessa de comportamento.</p>
 
   <div class="tbl-wrap">
@@ -432,10 +443,25 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
         <td><code>verify.py</code> · <code>.harness/evidence/</code></td>
         <td>…a evidência é mais velha que o último commit (feature-lock nega).</td></tr>
       <tr><td><strong>Teste não pode ser enfraquecido</strong></td>
-        <td>Arquivo que casa <code>test_glob</code> só é editável se uma tarefa o declarar;
-        aprovar diff de teste exige justificativa registrada.</td>
-        <td><code>boundary_guard</code> · <code>review.py</code></td>
+        <td>Arquivo que casa <code>test_glob</code> só é editável se uma tarefa do contrato
+        ativo o declarar em <code>files[]</code>; e um skip novo é bloqueado contra baseline.</td>
+        <td><code>boundary_guard</code> · <code>skips.py</code></td>
         <td>…o <code>test_glob</code> do perfil e do yaml divergirem (reconciliado no compile).</td></tr>
+      <tr><td><strong>O loop tem disjuntor</strong></td>
+        <td>Toda tentativa falha deixa rastro; a contagem decide por máquina quando parar, e a
+        parada sai no formato de escalada que o humano consegue acionar.</td>
+        <td><code>attempts.py</code> · <code>budget.py</code> · <code>escalation.py</code></td>
+        <td>…nunca em silêncio: sem teto configurado vale o default herdado do yaml.</td></tr>
+      <tr><td><strong>Regressão não espera o gate final</strong></td>
+        <td>Fechar uma fatia re-prova as fatias já verdes que compartilham arquivo com ela;
+        vermelho rebaixa para <code>passes:false</code> em vez de só avisar.</td>
+        <td><code>regression.py</code></td>
+        <td>…falha de ambiente sai como <code>SEM VEREDITO</code> e não derruba prova válida.</td></tr>
+      <tr><td><strong>Independência de quem implementou</strong></td>
+        <td>Antes do commit, um subagente sem contexto julga a entrega contra o contrato, a
+        partir de um pacote montado por código.</td>
+        <td><code>blind.py</code> · <code>.harness/blind-review/</code></td>
+        <td>…o veredito é anterior ao código (<code>blind_review_stale</code>) e o fecho cobra outro.</td></tr>
       <tr><td><strong>Piso de segurança incondicional</strong></td>
         <td><code>git push</code> fora da branch do contrato, rede não planejada e escrita
         em segredo são negados <em>antes</em> de qualquer outra avaliação.</td>
@@ -462,9 +488,12 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
 
   <div class="note good lv-arch">
     <b>Princípio de projeto que amarra tudo:</b> <em>sem teatro de enforcement</em>.
-    O que não é enforçável é declarado advisory — o orçamento de tokens, por exemplo, vira
-    orientação no <code>AGENTS.md</code> com a frase explícita de que o Claude Code não expõe
-    contagem de tokens a hooks. Nada finge ser um bloqueio.
+    O que não é enforçável é declarado advisory — o orçamento de <em>tokens</em>, por exemplo,
+    vira orientação no <code>AGENTS.md</code> com a frase explícita de que o Claude Code não
+    expõe contagem de tokens a hooks. Nada finge ser um bloqueio. Não confunda com o
+    <code>harness budget</code>: aquele conta <em>tentativas</em>, que o próprio harness grava,
+    e por isso é mecanismo de verdade — a diferença entre os dois é exatamente onde o sinal
+    nasce.
   </div>
 
   <div class="note lv-mgr">
@@ -521,7 +550,7 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
   responsabilidade ela <em>não</em> tem.</p>
 
   <div class="figure">
-    <svg viewBox="0 0 960 470" role="img" aria-label="Arquitetura em camadas">
+    <svg viewBox="0 0 960 492" role="img" aria-label="Arquitetura em camadas">
       <!-- L0 host -->
       <g class="layerbox" data-layer="host">
         <rect x="20" y="16" width="920" height="58" rx="11" fill="var(--bg2)" stroke="var(--vio)" stroke-width="1.4"/>
@@ -533,14 +562,14 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
       <g class="layerbox" data-layer="skills">
         <rect x="20" y="84" width="450" height="70" rx="11" fill="var(--panel2)" stroke="var(--line2)"/>
         <text x="40" y="109" class="sv-tx">CAMADA 1a · SKILLS</text>
-        <text x="40" y="128" class="sv-tx3">preflight · init · assess · plan · compile · audit · team</text>
+        <text x="40" y="128" class="sv-tx3">preflight · init · assess · plan · compile · audit · team (dormente)</text>
         <text x="40" y="145" class="sv-tx3">conversa com o humano, decide nada sozinha</text>
       </g>
       <g class="layerbox" data-layer="cli">
         <rect x="490" y="84" width="450" height="70" rx="11" fill="var(--panel2)" stroke="var(--line2)"/>
         <text x="510" y="109" class="sv-tx">CAMADA 1b · CLI</text>
         <text x="510" y="128" class="sv-tx3">harness compile | compile-contract | compile-session | verify</text>
-        <text x="510" y="145" class="sv-tx3">review | supervise | finish | audit* | doctor | disable/enable</text>
+        <text x="510" y="145" class="sv-tx3">supervise | budget | blind | reconcile | health | finish …</text>
       </g>
       <!-- L2 compiladores -->
       <g class="layerbox" data-layer="compile">
@@ -553,26 +582,28 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
       <g class="layerbox" data-layer="guard">
         <rect x="20" y="252" width="920" height="82" rx="11" fill="var(--panel2)" stroke="var(--bad)" stroke-width="1.5"/>
         <text x="40" y="277" class="sv-tx">CAMADA 3 · ENFORCEMENT RUNTIME (hooks gerados, stdlib puro)</text>
-        <text x="40" y="299" class="sv-mono">boundary_guard.py · session_start.py · stop_hook.py</text>
-        <text x="40" y="320" class="sv-tx3">rodam FORA do pacote instalado, a cada tool call — decidem allow / ask / deny</text>
+        <text x="40" y="299" class="sv-mono">boundary_guard.py · session_start.py · stop_hook.py · statusline.py</text>
+        <text x="40" y="320" class="sv-tx3">rodam FORA do pacote instalado — só o boundary_guard decide allow / ask / deny</text>
       </g>
       <!-- L4 prova -->
       <g class="layerbox" data-layer="prova">
-        <rect x="20" y="344" width="450" height="72" rx="11" fill="var(--panel2)" stroke="var(--good)" stroke-width="1.4"/>
-        <text x="40" y="369" class="sv-tx">CAMADA 4 · PROVA E CONTROLE</text>
-        <text x="40" y="389" class="sv-mono">verify · review · supervisor · finish</text>
-        <text x="40" y="407" class="sv-tx3">produz e consome evidência; ordena o trabalho</text>
+        <rect x="20" y="344" width="450" height="90" rx="11" fill="var(--panel2)" stroke="var(--good)" stroke-width="1.4"/>
+        <text x="40" y="367" class="sv-tx">CAMADA 4 · PROVA E CONTROLE</text>
+        <text x="40" y="386" class="sv-mono">verify · attempts · budget · escalation · convergence</text>
+        <text x="40" y="403" class="sv-mono">regression · blind · spine · supervisor · finish · panel</text>
+        <text x="40" y="423" class="sv-tx3">produz e consome evidência; ordena o trabalho · review dormente</text>
       </g>
       <g class="layerbox" data-layer="diag">
-        <rect x="490" y="344" width="450" height="72" rx="11" fill="var(--panel2)" stroke="var(--warn)" stroke-width="1.4"/>
-        <text x="510" y="369" class="sv-tx">CAMADA 5 · DIAGNÓSTICO</text>
-        <text x="510" y="389" class="sv-mono">preflight · audit · runtime_audit · team_audit · doctor · health · metrics</text>
-        <text x="510" y="407" class="sv-tx3">read-only; nunca corrige por conta própria</text>
+        <rect x="490" y="344" width="450" height="90" rx="11" fill="var(--panel2)" stroke="var(--warn)" stroke-width="1.4"/>
+        <text x="510" y="367" class="sv-tx">CAMADA 5 · DIAGNÓSTICO</text>
+        <text x="510" y="386" class="sv-mono">preflight · audit · runtime_audit · doctor · health · reconcile</text>
+        <text x="510" y="403" class="sv-mono">metrics · team_audit (dormente)</text>
+        <text x="510" y="423" class="sv-tx3">read-only; nunca corrige por conta própria</text>
       </g>
       <!-- transversal -->
       <g class="layerbox" data-layer="base">
-        <rect x="20" y="426" width="920" height="34" rx="9" fill="var(--bg2)" stroke="var(--line2)" stroke-dasharray="4 3"/>
-        <text x="40" y="448" class="sv-tx3">TRANSVERSAL · config (schema pydantic) · patterns (glob→regex) · settings_paths (fronteira machine-local) · hook_launcher (fail-closed) · killswitch</text>
+        <rect x="20" y="444" width="920" height="34" rx="9" fill="var(--bg2)" stroke="var(--line2)" stroke-dasharray="4 3"/>
+        <text x="40" y="466" class="sv-tx3">TRANSVERSAL · config · patterns (glob→regex) · findings (forma do achado) · settings_paths (machine-local) · hook_launcher · killswitch</text>
       </g>
     </svg>
     <div id="layerdetail" class="note" style="margin-top:4px">
@@ -634,15 +665,19 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
 
   <div class="lv-arch">
   <h3>Catálogo completo <span class="lvmark">filtrável</span></h3>
+  <p class="lead">Os 45 módulos de <code>src/harness/</code>, mais o
+  <code>governance/approval.py</code> — 45 entradas. Módulo marcado
+  <span class="pill">dormente</span> existe e é testado, mas nenhum passo do
+  ciclo o aciona hoje.</p>
   <div class="filter">
     <input id="modfilter" placeholder="Filtrar por nome, camada ou responsabilidade… (ex.: floor, evidência, hook)">
-    <span class="pill" id="modcount">44 módulos</span>
+    <span class="pill" id="modcount">45 entradas</span>
   </div>
   <div class="tbl-wrap">
   <table id="modtable">
     <thead><tr><th style="width:20%">Módulo</th><th style="width:11%">Camada</th><th>Responsabilidade</th></tr></thead>
     <tbody>
-      <tr><td><code>cli.py</code></td><td>Superfície</td><td>Dispatch dos 27 subcomandos; valida <code>--dir</code> num ponto só; força UTF-8 em stdout e stderr para não corromper JSON acentuado em console cp1252.</td></tr>
+      <tr><td><code>cli.py</code></td><td>Superfície</td><td>Dispatch dos 29 subcomandos; valida <code>--dir</code> num ponto só; força UTF-8 em stdout e stderr para não corromper JSON acentuado em console cp1252.</td></tr>
       <tr><td><code>config.py</code></td><td>Base</td><td>Schema pydantic do <code>harness.yaml</code>: política de aprovação, orçamento, comandos extras, branch por contrato, branches protegidas, TDD.</td></tr>
       <tr><td><code>compiler.py</code></td><td>Compilação</td><td>Coração do modo plugin: yaml → permissions + hooks TDD + bloco do AGENTS.md. Merge não-destrutivo via <code>compiled-state.json</code>.</td></tr>
       <tr><td><code>contract.py</code></td><td>Compilação</td><td>spec.md + Plans.md → <code>feature_list.json</code>. Gate de aprovação: sem <code>approved_by</code>, não escreve nada. Preserva <code>passes</code> só se a identidade da tarefa não mudou.</td></tr>
@@ -655,16 +690,25 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
       <tr><td><code>stop_hook.py</code></td><td>Enforcement</td><td>Hook Stop: avisa o agente se há trabalho não commitado numa feature sem verificação fresca. Deliberadamente não-bloqueante.</td></tr>
       <tr><td><code>verify.py</code></td><td>Prova</td><td>Roda o <code>verify_cmd</code> real e grava evidência com <code>exit_code</code>, <code>recorded_at</code> e <code>files_hash</code> sha256. Marca <code>passes:true</code> por padrão desde a v0.23.</td></tr>
       <tr><td><code>skips.py</code></td><td>Prova</td><td>Skip nunca silencioso: lê a saída do runner (pytest/dotnet/jest/go), baseline por comando explícito, delta bloqueia skip novo, e skip acionável (env var/credencial/ferramenta) bloqueia já na 1ª vez com veredito INFRA.</td></tr>
-      <tr><td><code>review.py</code></td><td>Prova</td><td>State machine do revisor: pending → in_review → rejected|approved. Teto duro de iterações; estourou, escala ao humano em vez de aprovar sozinho.</td></tr>
+      <tr><td><code>attempts.py</code></td><td>Prova</td><td>Rastro de tentativas: toda passada do <code>verify_cmd</code> deixa linha em <code>.harness/attempts/&lt;contrato&gt;/&lt;id&gt;.jsonl</code> — no vermelho, o erro CRU e a <code>failure_signature</code>; no verde, o marcador que fecha a sequência. Antes disso a falha não deixava rastro nenhum, e a sessão seguinte repetia a tentativa 1 de boa fé.</td></tr>
+      <tr><td><code>budget.py</code></td><td>Prova</td><td>O disjuntor mecânico do loop de autocorreção: conta o rastro e devolve <code>continue</code> ou um de cinco vereditos de parada. <code>stop_transient_exhausted</code> vence todos os outros — falha de ambiente não é o loop batendo num teto. Só leitura; exit 2 quando manda parar.</td></tr>
+      <tr><td><code>escalation.py</code></td><td>Prova</td><td>O formato obrigatório da escalada ao humano (§8): seis partes, na ordem que o design pede. Antes, o veredito de parada saía com uma razão em prosa livre — e prosa livre é o que ninguém consegue agir em cima às 3h da manhã.</td></tr>
+      <tr><td><code>convergence.py</code></td><td>Prova</td><td>Trajetória de métrica opt-in (§4.3): o terceiro sinal, ortogonal a "chegou?" e "esgotou?" — <em>está se aproximando ou se afastando?</em>. Rende <code>stop_worsening</code> e <code>stop_plateau</code>. Tarefa sem <code>metric_cmd</code> nunca passa por aqui.</td></tr>
+      <tr><td><code>regression.py</code></td><td>Prova</td><td>Re-prova incremental (§6): ao fechar uma fatia, re-roda o <code>verify_cmd</code> das fatias já provadas que compartilham caminho em <code>files[]</code>. Não é a suíte completa — o custo fica proporcional ao acoplamento declarado. Vermelho rebaixa a tarefa para <code>passes:false</code>.</td></tr>
+      <tr><td><code>blind.py</code></td><td>Prova</td><td>Camada 3 (§6/§9.1): monta o pacote cego a partir do <code>feature_list.json</code> — o que foi prometido, onde olhar, qual era a prova — sem nada do raciocínio de quem implementou, e prende o veredito ao hash do estado julgado.</td></tr>
+      <tr><td><code>spine.py</code></td><td>Prova</td><td>Os dois registros da spine cuja vida é o PROJETO (§5.2/§5.3): <code>decisions.md</code>, append-only, que volta sozinho no SessionStart, e <code>lessons.md</code>, que o agente anota e o humano compila. O <code>progress.md</code> não mora aqui porque o ciclo de vida dele é outro.</td></tr>
+      <tr><td><code>review.py</code> <span class="pill">dormente</span></td><td>Prova</td><td>State machine do revisor de time: pending → in_review → rejected|approved, com teto duro de iterações. Entregue na Fase 4 e sem uso: nenhum passo do lifecycle a aciona.</td></tr>
       <tr><td><code>supervisor.py</code></td><td>Prova</td><td>Devolve a próxima feature pronta respeitando <code>depends[]</code>. Chamada síncrona, não daemon.</td></tr>
       <tr><td><code>finish.py</code></td><td>Prova</td><td>Encerra a demanda: audita o fecho (read-only) e só então varre descartáveis. Nunca chama git. <code>blockers: []</code> é o que autoriza o commit — substituiu o antigo gate humano do diff.</td></tr>
       <tr><td><code>pr_draft.py</code></td><td>Prova</td><td>Contrato + evidência → <code>.harness/scratch/pr-body.md</code> e o <code>gh pr create</code> exato. Usa <code>--body-file</code>, nunca <code>--body</code> inline: acentuação em linha de comando no PowerShell 5.1 corrompe multi-byte. Abrir o PR continua sendo do humano.</td></tr>
       <tr><td><code>panel.py</code></td><td>Prova</td><td>Placar de andamento: render puro do estado real (contrato, tentativas, trajetória, kill-switch) em três saídas — <code>--brief</code> para o chat, painel ANSI para o terminal e a linha da statusline. Nunca escreve, nunca roda <code>verify_cmd</code>.</td></tr>
       <tr><td><code>statusline.py</code></td><td>Enforcement</td><td>Gera e registra o comando de <code>statusLine</code> do Claude Code: uma linha com demanda, progresso, tarefa, tentativa e veredito. Hook standalone stdlib-only; statusline configurada pelo usuário nunca é sobrescrita.</td></tr>
-      <tr><td><code>teams.py</code></td><td>Compilação</td><td>Catálogo de 6 padrões de time + análise de domínio e recomendação. Papéis de revisão nunca recebem Edit/Write.</td></tr>
-      <tr><td><code>team_audit.py</code></td><td>Diagnóstico</td><td>Papel órfão, papel sem agente gerado, ferramenta além do mínimo, drift do bloco gerenciado.</td></tr>
+      <tr><td><code>teams.py</code> <span class="pill">dormente</span></td><td>Compilação</td><td>Catálogo de 6 padrões de time + análise de domínio e recomendação. Papéis de revisão nunca recebem Edit/Write. Nenhum projeto tem time compilado.</td></tr>
+      <tr><td><code>team_audit.py</code> <span class="pill">dormente</span></td><td>Diagnóstico</td><td>Papel órfão, papel sem agente gerado, ferramenta além do mínimo, drift do bloco gerenciado. Sem manifesto de time, não tem o que auditar.</td></tr>
       <tr><td><code>audit.py</code></td><td>Diagnóstico</td><td>Score 0-100 + findings. Dogfooding: recompila em memória e compara com o disco — divergência é drift.</td></tr>
       <tr><td><code>runtime_audit.py</code></td><td>Diagnóstico</td><td>Audita os artefatos mutáveis: schema do feature_list, frescor da evidência, no máximo uma feature em progresso.</td></tr>
+      <tr><td><code>health.py</code></td><td>Diagnóstico</td><td>Health check de abertura (§7.2): <em>as ferramentas respondem?</em>. Sem ele, ferramenta ausente entra no loop disfarçada de teste vermelho — e o design dá respostas OPOSTAS aos dois casos. Pergunta, nunca executa o <code>verify_cmd</code>.</td></tr>
+      <tr><td><code>reconcile.py</code></td><td>Diagnóstico</td><td>A conferência do <code>finish.audit_closure</code> trazida para a ABERTURA (§7.4): prova velha, tarefa marcada sem prova, sobra na working tree. Chama o <code>audit_closure</code> em vez de reimplementar o julgamento — duas cópias divergiriam.</td></tr>
       <tr><td><code>preflight.py</code></td><td>Diagnóstico</td><td>Laudo de prontidão do repo cru em 4 categorias, cada check não-PASS com correção acionável. Portão de entrada do ciclo.</td></tr>
       <tr><td><code>doctor.py</code></td><td>Diagnóstico</td><td>Compara as 3 camadas de distribuição (pip, compilado, cache do plugin) e detecta hook registrado que não roda.</td></tr>
       <tr><td><code>killswitch.py</code></td><td>Base</td><td>Sentinel <code>.harness/harness.disabled</code>. Fonte única do trecho <code>_harness_disabled()</code> embutido em todo hook.</td></tr>
@@ -672,6 +716,7 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
       <tr><td><code>settings_paths.py</code></td><td>Base</td><td>Fronteira machine-local: ponto único onde os cinco escritores resolvem o arquivo de settings, mais os <code>.gitignore</code> tool-owned.</td></tr>
       <tr><td><code>hook_launcher.py</code></td><td>Base</td><td>Monta o <code>command</code> do hook com interpretador absoluto e <code>|| exit 2</code> — fecha o modo de falha aberta.</td></tr>
       <tr><td><code>patterns.py</code></td><td>Base</td><td>Conversão glob → regex. Fonte única para compiler, analyzer, audit e os guards gerados.</td></tr>
+      <tr><td><code>findings.py</code></td><td>Base</td><td>Fonte única de <code>Finding</code>/<code>Report</code>/<code>PENALTY</code> para <code>audit</code>, <code>runtime_audit</code> e <code>team_audit</code>. Os três julgamentos são genuinamente distintos; só a forma do achado era idêntica byte a byte nos três.</td></tr>
       <tr><td><code>profile_edit.py</code></td><td>Compilação</td><td>Correção pontual do perfil (enumeração fechada de chaves) e reconciliação do <code>test_glob</code> entre yaml e perfil.</td></tr>
       <tr><td><code>metrics.py</code></td><td>Diagnóstico</td><td>Conta ciclos de fricção (disable / enable / compile-session). Instrumentação nunca quebra o comando que instrumenta.</td></tr>
       <tr><td><code>install_command.py</code></td><td>Compilação</td><td>Deriva o comando de instalação de dependências a partir do package manager detectado.</td></tr>
@@ -850,20 +895,26 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
       <path d="M472,490 L472,516 L640,516 L640,470" class="sv-ln" stroke="var(--bad)" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#fab)"/>
       <text x="556" y="532" class="sv-tx3" text-anchor="middle">falhou → autocorrige até a stop condition</text>
 
-      <!-- approval commit -->
-      <rect x="38" y="392" width="240" height="46" rx="9" fill="var(--panel)" stroke="var(--amb)" stroke-width="1.4"/>
-      <text x="158" y="412" class="sv-tx" text-anchor="middle">aprova o commit</text>
-      <text x="158" y="428" class="sv-tx3" text-anchor="middle">descrição funcional + link file:line</text>
-      <path d="M352,462 L300,462 L300,415 L280,415" class="sv-ln" stroke="var(--good)" stroke-width="1.6" marker-end="url(#fag)"/>
-
-      <!-- finish -->
+      <!-- finish: o gate do commit é a auditoria, não mais um humano olhando o diff -->
       <rect x="352" y="552" width="240" height="46" rx="9" fill="var(--panel)" stroke="var(--vio)" stroke-width="1.4"/>
       <text x="472" y="572" class="sv-tx" text-anchor="middle">harness finish</text>
       <text x="472" y="588" class="sv-tx3" text-anchor="middle">audita o fecho + varre descartáveis</text>
-      <path d="M158,438 L158,575 L350,575" class="sv-ln" stroke-width="1.6" marker-end="url(#fa)"/>
-      <text x="240" y="566" class="sv-tx3" text-anchor="middle">tudo verde</text>
+      <path d="M440,490 L440,550" class="sv-ln" stroke-width="1.6" marker-end="url(#fa)"/>
+      <text x="434" y="524" class="sv-tx3" text-anchor="end">tudo verde</text>
+
+      <!-- commit e push: do agente, sem pedir autorizacao -->
+      <rect x="666" y="552" width="256" height="46" rx="9" fill="var(--panel)" stroke="var(--good)" stroke-width="1.4"/>
+      <text x="794" y="572" class="sv-tx" text-anchor="middle">commita e faz push</text>
+      <text x="794" y="588" class="sv-tx3" text-anchor="middle">só com blockers: [] · floor limita à branch</text>
+      <path d="M594,575 L664,575" class="sv-ln" stroke="var(--good)" stroke-width="1.6" marker-end="url(#fag)"/>
+
+      <!-- unico toque humano do fecho -->
+      <rect x="38" y="552" width="240" height="46" rx="9" fill="var(--panel)" stroke="var(--amb)" stroke-width="1.4"/>
+      <text x="158" y="572" class="sv-tx" text-anchor="middle">abre o PR</text>
+      <text x="158" y="588" class="sv-tx3" text-anchor="middle">harness pr-draft monta o corpo</text>
+      <path d="M794,598 L794,612 L158,612 L158,600" class="sv-ln" stroke="var(--amb)" stroke-width="1.4" marker-end="url(#fa)"/>
     </svg>
-    <div class="figcap">Fig. 5 — O ciclo. Dois portões read-only antes de qualquer escrita (preflight no repo, assess na demanda); e a CLI, não o agente, é quem cria branch, compila contrato e grava evidência.</div>
+    <div class="figcap">Fig. 5 — O ciclo. Dois portões read-only antes de qualquer escrita (preflight no repo, assess na demanda); e a CLI, não o agente, é quem cria branch, compila contrato e grava evidência. No fecho não há mais gate humano sobre o diff: quem autoriza o commit é <code>harness finish</code> saindo com <code>blockers: []</code> e nenhum <code>verify_cmd</code> vermelho. O toque humano que sobra é abrir o PR.</div>
   </div>
 
   <div class="grid g3">
@@ -874,8 +925,9 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
       <p>Uma feature por vez, dentro do raio declarado, com autocorreção limitada por
       stop conditions vindas do próprio <code>spec.md</code>.</p></div>
     <div class="card"><h5><span class="tag t-ok">REVIEW</span></h5>
-      <p>Prova executável + revisão independente (opcional) + aprovação humana do commit +
-      encerramento auditado da demanda.</p></div>
+      <p>Prova executável + verificação independente por um subagente que não implementou
+      (camada 3) + encerramento auditado da demanda. O commit é liberado por
+      <code>harness finish</code> com <code>blockers: []</code>, não por um humano lendo o diff.</p></div>
   </div>
 </section>
 
@@ -1066,55 +1118,184 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
       <code>feature_list.json</code> citando o id.</div>
     </div>
     <div>
-      <h3>A máquina de estados da revisão</h3>
-      <div class="figure" style="margin-top:0">
-      <svg viewBox="0 0 440 300" role="img" aria-label="State machine da revisão">
-        <defs><marker id="sa" markerWidth="9" markerHeight="7" refX="8.5" refY="3.5" orient="auto">
-          <path d="M0,0 L9,3.5 L0,7 z" fill="var(--tx3)"/></marker></defs>
-        <rect x="150" y="20" width="140" height="40" rx="20" fill="var(--panel2)" stroke="var(--line2)"/>
-        <text x="220" y="45" class="sv-tx" text-anchor="middle">pending</text>
-        <rect x="150" y="110" width="140" height="40" rx="20" fill="var(--panel2)" stroke="var(--acc)" stroke-width="1.5"/>
-        <text x="220" y="135" class="sv-tx" text-anchor="middle">in_review</text>
-        <rect x="18" y="205" width="140" height="40" rx="20" fill="var(--panel2)" stroke="var(--bad)" stroke-width="1.5"/>
-        <text x="88" y="230" class="sv-tx" text-anchor="middle">rejected</text>
-        <rect x="284" y="205" width="140" height="40" rx="20" fill="var(--panel2)" stroke="var(--good)" stroke-width="1.5"/>
-        <text x="354" y="230" class="sv-tx" text-anchor="middle">approved</text>
-        <path d="M220,62 L220,106" class="sv-ln" stroke-width="1.6" marker-end="url(#sa)"/>
-        <text x="230" y="88" class="sv-tx3">submit</text>
-        <path d="M186,150 L110,203" class="sv-ln" stroke-width="1.6" marker-end="url(#sa)"/>
-        <text x="112" y="180" class="sv-tx3">reject</text>
-        <path d="M254,150 L332,203" class="sv-ln" stroke-width="1.6" marker-end="url(#sa)"/>
-        <text x="300" y="180" class="sv-tx3">approve</text>
-        <path d="M88,205 L88,170 L148,130" class="sv-ln" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#sa)"/>
-        <text x="34" y="166" class="sv-tx3">resubmit</text>
-        <text x="220" y="278" class="sv-tx3" text-anchor="middle">iteração 3 esgotada → escala ao humano,</text>
-        <text x="220" y="293" class="sv-tx3" text-anchor="middle">o status NUNCA vira approved sozinho</text>
-      </svg>
-      </div>
+      <h3>Camada 3: o olho que não implementou</h3>
+      <p>As camadas 1 e 2 provam que o teste passa — e o teste foi escrito pela mesma cabeça
+      que escreveu o código. Nenhuma das duas pergunta se o que foi entregue é o que a demanda
+      prometia. O §9.1 do design chama <em>um</em> ponto de independência de mínimo
+      obrigatório, e é este (<code>blind.py</code>):</p>
+<pre>harness blind package    <i>← monta .harness/scratch/blind-package.md</i>
+harness blind verdict --pass --evidence "conferi src/x.py:42 contra T-01"
+harness blind verdict --fail --evidence "T-01 nao cobre o caso vazio"</pre>
+      <ul>
+        <li><b>O pacote é montado por código</b>, a partir do <code>feature_list.json</code>:
+        <code>desc</code> (o que foi prometido), <code>files[]</code> (onde olhar),
+        <code>verify_cmd</code> (a prova). Um prompt redigido por quem acabou de implementar
+        vaza a justificativa por construção, sem má-fé nenhuma.</li>
+        <li><b>O que fica de fora é a entrega:</b> <code>spec.md</code>, o histórico de
+        tentativas, decisões, lições e as mensagens de commit. O pacote os nomeia
+        <em>com o motivo</em> — "não leia" sem motivo é a instrução que mais se ignora.</li>
+        <li><b>O veredito prende o hash do que julgou.</b> Código mudou depois →
+        <code>blind_review_stale</code>, e o fecho cobra outro. Reprovação não é apagada por
+        um veredito novo: append, e exit 2, porque gate que só sabe aprovar não é gate.</li>
+      </ul>
+      <div class="note"><b>Limite declarado:</b> o harness não prova que o subagente recebeu
+      SÓ o pacote. Garante que o pacote existe em disco, foi derivado por código, e que o
+      veredito está preso ao estado que julgou. A disciplina do despacho é o passo 15 do
+      lifecycle — mecanismo onde dá, prosa onde não dá.</div>
     </div>
   </div>
 
-  <h3>Padrões de time disponíveis</h3>
-  <div class="grid g3">
-    <div class="card"><h5>producer-reviewer <span class="tag t-ok">completo</span></h5>
-      <p>Produtor escreve, revisor veta. O revisor <strong>nunca</strong> recebe Edit/Write —
-      é invariante do catálogo, checado pelo <code>audit-team</code>.</p></div>
-    <div class="card"><h5>supervisor <span class="tag t-ok">completo</span></h5>
-      <p>Um orquestrador distribui features respeitando <code>depends[]</code>; também sem
-      ferramentas de escrita.</p></div>
-    <div class="card"><h5>+4 declarativos</h5>
-      <p><code>pipeline</code>, <code>expert-pool</code>, <code>fan-out-fan-in</code>,
-      <code>hierarchical-delegation</code> — templates simplificados.</p></div>
-  </div>
-  <div class="note warn lv-arch"><b>Feature-lock estendido:</b> quando o time declara
-  <code>producer</code>+<code>reviewer</code>, <code>passes:true</code> passa a exigir evidência
-  fresca <em>e</em> aprovação do revisor mais recente que a evidência. Aprovação obsoleta frente a
-  uma evidência regravada depois dela → <code>deny</code>.</div>
+  <div class="note warn"><b>E a revisão por time de agentes?</b> A Fase 4 entregou um catálogo
+  de seis padrões (<code>producer-reviewer</code>, <code>supervisor</code> e quatro
+  declarativos), uma state machine de revisor com teto duro de iterações
+  (<code>review.py</code>) e um feature-lock estendido que exige aprovação mais nova que a
+  evidência quando o manifesto declara <code>producer</code>+<code>reviewer</code>. Tudo isso
+  existe, é testado — e está <b>dormente</b>: nenhum projeto tem
+  <code>.harness/team/manifest.json</code>, nenhum passo do lifecycle aciona
+  <code>team</code>/<code>review</code>/<code>audit-team</code>, e sem manifesto o veto do
+  revisor no <code>boundary_guard</code> é no-op. A independência que o ciclo realmente usa
+  hoje é a camada 3 acima, que não precisa de time nenhum.</div>
 </section>
 
-<!-- ==================== 11. SEGURANCA ==================== -->
+<!-- ==================== 11. LOOP ENGINEERING ==================== -->
+<section id="loop">
+  <h2><span class="num">11</span> Loop engineering: o que roda a cada volta</h2>
+  <p class="lead">A prova da seção anterior responde "esta fatia está pronta?". Sozinha, ela
+  não impede as quatro maneiras conhecidas de uma sessão longa desperdiçar horas: insistir num
+  caminho errado, quebrar em silêncio o que já estava pronto, começar acreditando numa anotação
+  velha, e esquecer por que uma alternativa foi descartada. Cada bloco abaixo mecaniza uma
+  seção de <code>docs/reference/loop-engineering-design.md</code>.</p>
+
+  <h3>O disjuntor do loop de autocorreção</h3>
+  <p>Antes, o passo 10 do lifecycle mandava autocorrigir "respeitando as stop conditions" —
+  frases livres no frontmatter, contadas de cabeça pelo agente e esquecidas na sessão seguinte.
+  <b>Um disjuntor que depende de alguém lembrar de contar não é disjuntor.</b></p>
+  <div class="grid g2">
+    <div>
+      <p><code>attempts.py</code> grava toda passada do <code>verify_cmd</code> em
+      <code>.harness/attempts/&lt;contrato&gt;/&lt;id&gt;.jsonl</code>: no vermelho, o erro CRU
+      mais a <code>failure_signature</code> (sha da primeira linha); no verde, o marcador que
+      encerra a sequência. O arquivo nunca é apagado — o histórico <em>é</em> o produto, e é o
+      que a próxima sessão lê para não repetir a tentativa 1 de boa fé.</p>
+      <p><code>budget.py</code> lê esse rastro e devolve o veredito. Só leitura, exit 2 quando
+      manda parar. <code>escalation.py</code> dá à parada o formato obrigatório do §8 — seis
+      partes, na ordem que o design pede, em vez de uma frase solta que ninguém consegue
+      acionar.</p>
+    </div>
+    <div>
+      <div class="tbl-wrap">
+      <table>
+        <thead><tr><th style="width:40%">Veredito</th><th>Quando</th></tr></thead>
+        <tbody>
+          <tr><td><code>continue</code></td><td>ainda há folga</td></tr>
+          <tr><td><code>stop_same_failure</code></td><td>a MESMA assinatura se repetiu até o teto — a abordagem está errada, não a execução</td></tr>
+          <tr><td><code>stop_iterations</code></td><td>as falhas desde o último verde estouraram o teto</td></tr>
+          <tr><td><code>stop_transient_exhausted</code></td><td>o mesmo erro <em>transiente</em> 3× — <b>vence todos os outros</b></td></tr>
+          <tr><td><code>stop_worsening</code></td><td>duas medições piores que o melhor estado (opt-in)</td></tr>
+          <tr><td><code>stop_plateau</code></td><td>três sem superar o melhor (opt-in)</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+  </div>
+  <div class="note"><b>Por que o transiente vence:</b> erro de ambiente repetido não é o loop
+  de correção batendo num teto (§8.2), é o §8.3 entrando por outra porta. Tratar os dois igual
+  faz o loop queimar budget consertando código que está certo. Os dois vereditos de trajetória
+  vêm de <code>convergence.py</code> e só existem quando a tarefa declara uma métrica:
+  <code>target</code> atingido informa <code>target_met</code> e não muda veredito nenhum —
+  <b>a métrica guia, o <code>verify_cmd</code> decide</b>.</div>
+
+  <h3>Re-prova incremental: a fatia 5 não quebra a fatia 2 em silêncio</h3>
+  <p>Verificar a fatia que acabou de ficar pronta é barato porque não olha para trás — e o
+  preço é que a regressão só aparece no gate final, quando o diff suspeito já tem o tamanho da
+  demanda inteira. <code>regression.py</code> fecha isso dentro do próprio
+  <code>harness verify</code>.</p>
+  <div class="grid g3">
+    <div class="card"><h5>A interseção, não a suíte</h5>
+      <p>Re-roda o <code>verify_cmd</code> das tarefas já <code>passes: true</code> que
+      compartilham algum caminho de <code>files[]</code> com a que fechou. O custo fica
+      proporcional ao acoplamento real; suíte completa a cada volta é a camada 3, que o
+      design proíbe dentro do loop.</p></div>
+    <div class="card"><h5>Vermelho rebaixa</h5>
+      <p>A tarefa regredida volta a <code>passes: false</code>, com tentativa registrada:
+      reentra na fila do <code>supervise</code>, conta no disjuntor e bloqueia o
+      <code>finish</code>. Avisar sem rebaixar deixaria o contrato alegando pronto o que
+      acabou de falhar.</p></div>
+    <div class="card"><h5>Ambiente não rebaixa</h5>
+      <p>Timeout ou prova barrada pelo runtime floor saem como <code>SEM VEREDITO</code>:
+      aparecem no relatório — proteção que falha em silêncio é indistinguível de proteção que
+      passou — mas não derrubam registro válido.</p></div>
+  </div>
+
+  <h3>A abertura da sessão: o ambiente responde? o que está escrito é verdade?</h3>
+  <div class="grid g2">
+    <div class="card"><h5><code>harness health</code> — §7.2</h5>
+      <p>Pergunta, numa passada só, se as ferramentas dos <code>verify_cmd</code> respondem, se
+      a governança compilada está viva e se a proteção está ligada. <b>Nunca executa o
+      <code>verify_cmd</code></b> — um check caro vira opcional na prática, e um check opcional
+      não cobre o modo de falha que ele existe para pegar.</p>
+      <p class="lead">Sem ele, ferramenta ausente entra no loop disfarçada de teste vermelho — e
+      o design dá respostas <em>opostas</em> aos dois casos.</p></div>
+    <div class="card"><h5><code>harness reconcile</code> — §7.4</h5>
+      <p>A mesma conferência do fecho, trazida para o início: prova cujo <code>files_hash</code>
+      não bate com o código, tarefa marcada sem arquivo de prova, sobra na working tree,
+      harness em no-op. Chama <code>finish.audit_closure</code> em vez de reimplementar o
+      julgamento — duas cópias divergiriam.</p>
+      <p class="lead">A divergência que só existe na abertura é o
+      <code>progress_contract_mismatch</code>: o progresso descrevendo um contrato diferente do
+      <code>feature_list.json</code>. Já injetou "nenhuma feature pendente" numa sessão com seis
+      tarefas a fazer.</p></div>
+  </div>
+  <div class="note good">Os dois <b>chegam sozinhos</b>: o hook <code>SessionStart</code> injeta
+  o aviso quando há o que avisar, e nada quando não há. Depender de o agente lembrar de rodar era
+  o mesmo defeito das stop conditions em prosa. E <code>feature_not_passed</code> deliberadamente
+  <em>não</em> conta como divergência de abertura — tarefa pendente é o estado normal de quem
+  está começando, e um aviso que aparece sempre ensina a ignorar avisos.</div>
+
+  <h3>A spine: três registros, três ciclos de vida</h3>
+  <div class="tbl-wrap">
+  <table>
+    <thead><tr><th style="width:22%">Arquivo</th><th style="width:24%">Responde</th><th style="width:14%">Vida</th><th>Escrito por</th></tr></thead>
+    <tbody>
+      <tr><td><code>.harness/progress.md</code></td><td>onde estamos</td><td>a demanda</td><td><code>verify</code>/<code>finish</code> — reescreve</td></tr>
+      <tr><td><code>.harness/decisions.md</code></td><td>por que decidimos assim</td><td>o projeto</td><td><code>harness decide</code> — append</td></tr>
+      <tr><td><code>.harness/lessons.md</code></td><td>o que atrapalhou</td><td>o projeto</td><td><code>harness lesson</code> — append</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="grid g3">
+    <div class="card"><h5>Append-only é a garantia</h5>
+      <p>Decisão registrada não é editada nem apagada; mudou de ideia, registre outra que a
+      supersede. Um arquivo reescrevível não prova que a razão gravada é a razão original — e
+      essa prova é a única coisa que ele tem a oferecer.</p></div>
+    <div class="card"><h5>As decisões chegam sozinhas</h5>
+      <p>O <code>SessionStart</code> injeta as mais recentes com o porquê junto. A hora de saber
+      o que não re-tentar é ao escolher a próxima fatia; sem isso, a sessão de daqui a duas
+      semanas "descobre" a alternativa que esta descartou por bom motivo.</p></div>
+    <div class="card"><h5>As lições NÃO chegam</h5>
+      <p>§5.3 é explícito: não bloqueiam retomada. Aparecem no <code>finish</code>
+      (<code>open_lessons</code>) para o humano. <b>O agente anota; o agente não aplica</b> —
+      auto-modificação do harness pelo próprio agente é a camada mais perigosa do design.</p></div>
+  </div>
+
+  <h3>O placar: quatro perguntas que dezenas de tool calls não respondem</h3>
+  <p>Durante a implementação nada diz <em>onde estou</em>, <em>o que está sendo feito agora</em>,
+  <em>está indo bem</em> e <em>o que vem a seguir</em>. O <code>panel.py</code> responde as
+  quatro em três renders da MESMA fonte — nada é coletado a mais: tudo sai do
+  <code>feature_list.json</code>, do rastro de tentativas e da trajetória que o loop já grava.</p>
+<pre>harness status --brief            <i>← bloco markdown para colar no chat</i>
+harness status --panel            <i>← painel do terminal, cor só em TTY</i>
+harness status --panel --watch 5  <i>← re-render a cada 5s</i></pre>
+  <div class="note"><code>--brief</code> não emite ANSI porque o destino é o chat, que renderiza
+  markdown e não escape code. O lifecycle manda <b>colar</b> essa saída e proíbe redigi-la de
+  cabeça: placar auto-relatado é self-report, exatamente o que o resto do harness existe para
+  não aceitar. O <code>statusline.py</code> leva a mesma informação para a barra do Claude Code,
+  e statusline que <em>você</em> configurou nunca é sobrescrita.</div>
+</section>
+
+<!-- ==================== 12. SEGURANCA ==================== -->
 <section id="seguranca">
-  <h2><span class="num">11</span> Piso de segurança e kill-switch</h2>
+  <h2><span class="num">12</span> Piso de segurança e kill-switch</h2>
 
   <div class="grid g2">
     <div class="card" style="border-color:color-mix(in srgb,var(--bad) 40%,var(--line))">
@@ -1168,7 +1349,7 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
 
 <!-- ==================== 12. LIFECYCLE ==================== -->
 <section id="lifecycle">
-  <h2><span class="num">12</span> O ciclo de sessão em 17 passos <span class="lvmark">navegável</span></h2>
+  <h2><span class="num">13</span> O ciclo de sessão em 17 passos <span class="lvmark">navegável</span></h2>
   <p class="lead">É o roteiro que toda sessão de agente segue, gravado no <code>AGENTS.md</code>
   com progressive disclosure. Use as setas ou clique num número.</p>
 
@@ -1198,7 +1379,13 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
 
 <!-- ==================== 13. DIAGNOSTICO ==================== -->
 <section id="diagnostico">
-  <h2><span class="num">13</span> Diagnóstico: quatro laudos, nenhum conserta sozinho</h2>
+  <h2><span class="num">14</span> Diagnóstico: seis laudos, nenhum conserta sozinho</h2>
+  <p class="lead">Os quatro abaixo respondem sobre a <em>instalação</em> — o repo está pronto, o
+  compilado bate com a spec, os artefatos mutáveis são íntegros, as três camadas de distribuição
+  estão em dia. Os outros dois respondem sobre a <em>sessão</em> e rodam na abertura dela:
+  <code>harness health</code> (as ferramentas respondem?) e <code>harness reconcile</code>
+  (o que está anotado ainda é verdade?), descritos na <a href="#loop">seção 11</a>. Os seis são
+  read-only.</p>
 
   <div class="grid g2">
     <div class="card"><h5><code>harness preflight</code> <span class="tag t-in">antes de tudo</span></h5>
@@ -1250,7 +1437,7 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
 
 <!-- ==================== 14. ROADMAP ==================== -->
 <section id="roadmap">
-  <h2><span class="num">14</span> Roadmap: onde está e para onde vai</h2>
+  <h2><span class="num">15</span> Roadmap: onde está e para onde vai</h2>
 
   <div class="figure">
     <svg viewBox="0 0 960 300" role="img" aria-label="Roadmap de fases">
@@ -1260,7 +1447,7 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
         <circle cx="80"  cy="120" r="11" fill="var(--good)"/>
         <circle cx="210" cy="120" r="11" fill="var(--good)"/>
         <circle cx="340" cy="120" r="11" fill="var(--good)"/>
-        <circle cx="470" cy="120" r="11" fill="var(--good)"/>
+        <circle cx="470" cy="120" r="11" fill="var(--bg2)" stroke="var(--good)" stroke-width="3" stroke-dasharray="3 2"/>
         <circle cx="640" cy="120" r="11" fill="var(--bg2)" stroke="var(--warn)" stroke-width="3"/>
         <circle cx="770" cy="120" r="11" fill="var(--bg2)" stroke="var(--line2)" stroke-width="3"/>
         <circle cx="890" cy="120" r="11" fill="var(--bg2)" stroke="var(--line2)" stroke-width="3"/>
@@ -1274,18 +1461,18 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
         <text x="80"  y="150">Contrato</text><text x="80"  y="164">aprovável</text>
         <text x="210" y="150">Raio de</text><text x="210" y="164">impacto</text>
         <text x="340" y="150">Auto-</text><text x="340" y="164">verificação</text>
-        <text x="470" y="150">Time com</text><text x="470" y="164">revisão</text>
+        <text x="470" y="150">Time com</text><text x="470" y="164">revisão</text><text x="470" y="180" class="sv-tx3">(dormente)</text>
         <text x="640" y="150">Aprovação</text><text x="640" y="164">por máquina</text>
         <text x="770" y="150">Driver</text><text x="770" y="164">de loop</text>
         <text x="890" y="150">Sinais por</text><text x="890" y="164">máquina</text>
       </g>
-      <text x="275" y="212" class="sv-tx2" text-anchor="middle">ENTREGUE · v0.11 → v0.32</text>
+      <text x="275" y="212" class="sv-tx2" text-anchor="middle">ENTREGUE · v0.11 → v0.34</text>
       <text x="770" y="212" class="sv-tx2" text-anchor="middle">BACKLOG · rumo à autonomia total</text>
       <rect x="40" y="228" width="880" height="56" rx="10" fill="var(--bg2)" stroke="var(--line2)" stroke-dasharray="5 4"/>
       <text x="60" y="252" class="sv-tx3">Objetivo final: o humano fornece uma demanda complexa + critérios de qualidade; o agente executa</text>
       <text x="60" y="272" class="sv-tx3">planejar → executar → verificar → corrigir por múltiplas sessões, sem prompts de aprovação no meio.</text>
     </svg>
-    <div class="figcap">Fig. 8 — Fases 1–4 entregues e em uso (o projeto se governa a si mesmo). Fases 5–7 são backlog documentado.</div>
+    <div class="figcap">Fig. 8 — Fases 1–3 entregues e em uso diário (o projeto se governa a si mesmo). A Fase 4 foi entregue em v0.14.1 e está <b>dormente</b>: nenhum projeto tem time compilado e nenhum passo do lifecycle a aciona. Fases 5–7 são backlog documentado.</div>
   </div>
 
   <h3>Onde a autonomia ainda trava — diagnóstico honesto do próprio projeto</h3>
@@ -1298,20 +1485,27 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
     <div class="card"><h5><span class="tag t-wr">2</span> Não existe driver de loop</h5>
       <p>O supervisor é um leitor síncrono deliberado. Ninguém encadeia feature→feature,
       sessão→sessão. Hoje o orquestrador real só existe dentro do teste E2E.</p></div>
-    <div class="card"><h5><span class="tag t-wr">3</span> Nenhum sinal é consumido por máquina</h5>
-      <p>Orçamento é texto advisory; stop conditions são strings que ninguém conta; o
-      <code>verify</code> só grava sucesso — a falha não deixa rastro estruturado.</p></div>
+    <div class="card"><h5><span class="tag t-wr">3</span> Nem todo sinal é consumido por máquina <em>— parcial</em></h5>
+      <p><b>Já resolvido (v0.28→v0.33):</b> o <code>verify</code> grava toda tentativa
+      <em>falha</em> em <code>.harness/attempts/</code>; as stop conditions aceitam forma
+      tipada (<code>consecutive_verify_failures</code>, <code>same_failure_signature</code>)
+      e o <code>harness budget</code> conta por máquina, com seis vereditos.</p>
+      <p><b>Falta:</b> os tipos <code>budget_usd</code> e <code>wall_clock_minutes</code>,
+      que dependem do medidor de custo/tempo da Fase 6; o orçamento de <em>tokens</em>
+      segue advisory declarado.</p></div>
   </div>
-  <div class="note lv-arch"><b>Achado central da investigação:</b> os módulos que resolvem o item 3
-  não têm dependência dura de Docker nem de chave de API. O que os prendia à era congelada era o
-  <em>sinal</em> que consumiam, não a infraestrutura. A Fase 5–7 é, em essência, re-plumbar esses
-  sinais a partir das primitivas nativas do Claude Code — <code>--max-budget-usd</code>,
-  <code>--resume</code>, <code>--output-format json</code>, hooks Stop/PostToolUse/SubagentStop.</div>
+  <div class="note lv-arch"><b>Achado central da investigação, confirmado pela prática:</b> os módulos
+  que resolvem o item 3 não têm dependência dura de Docker nem de chave de API. O que os prendia à
+  era congelada era o <em>sinal</em> que consumiam, não a infraestrutura — e foi exatamente assim que
+  a metade já entregue do item 3 chegou, re-plumbando o rastro de tentativas a partir do próprio
+  repositório. O que resta das Fases 5–7 é o mesmo movimento sobre as primitivas nativas do Claude
+  Code — <code>--max-budget-usd</code>, <code>--resume</code>, <code>--output-format json</code>,
+  hooks Stop/PostToolUse/SubagentStop.</div>
 </section>
 
 <!-- ==================== 15. GLOSSARIO ==================== -->
 <section id="glossario">
-  <h2><span class="num">15</span> Glossário</h2>
+  <h2><span class="num">16</span> Glossário</h2>
   <div class="tbl-wrap">
   <table>
     <thead><tr><th style="width:22%">Termo</th><th>Significado neste projeto</th></tr></thead>
@@ -1320,12 +1514,16 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
       <tr><td><strong>Contrato</strong></td><td>O par <code>spec.md</code> (o quê: escopo, critérios, stop conditions) + <code>Plans.md</code> (o como: tarefas, arquivos, comando de verificação). É o único artefato que um humano aprova.</td></tr>
       <tr><td><strong>Raio de impacto</strong></td><td>O conjunto de arquivos e comandos que o contrato ativo autoriza. Fora dele, o guard nega.</td></tr>
       <tr><td><strong>Runtime floor</strong></td><td>O piso incondicional: o que nunca vira <code>allow</code>, com ou sem contrato. Avaliado antes de qualquer outra coisa.</td></tr>
-      <tr><td><strong>Feature-lock</strong></td><td>A regra que impede marcar uma tarefa como concluída sem evidência fresca (e, com time, sem aprovação do revisor mais recente que a evidência).</td></tr>
+      <tr><td><strong>Feature-lock</strong></td><td>A regra que impede marcar uma tarefa como concluída sem evidência fresca. Há uma extensão para times de agentes que também exige a aprovação do revisor, mas ela está dormente: sem manifesto de time, o comportamento é só o da evidência.</td></tr>
       <tr><td><strong>Evidência</strong></td><td>JSON com o resultado real do <code>verify_cmd</code>: comando, timestamp, exit code e hash do conteúdo verificado.</td></tr>
       <tr><td><strong>Drift</strong></td><td>Divergência entre a spec e o que está compilado em disco. Detectado por recompilação em memória + comparação.</td></tr>
       <tr><td><strong>Machine-local</strong></td><td>Artefato que carrega dado desta máquina (path absoluto) e por isso nunca viaja no git — é regenerado por <code>compile</code>.</td></tr>
       <tr><td><strong>Bootstrap</strong></td><td>O estado sem contrato compilado. A superfície de <em>escrita</em> segue negada; a de <em>comando</em> abre o mínimo para criar o primeiro contrato.</td></tr>
-      <tr><td><strong>Stop condition</strong></td><td>O disjuntor do loop de autocorreção, declarado no frontmatter do <code>spec.md</code>. Satisfeita qualquer uma, o agente para e devolve o controle.</td></tr>
+      <tr><td><strong>Stop condition</strong></td><td>O teto do loop de autocorreção, declarado no frontmatter do <code>spec.md</code>. Em forma <em>tipada</em> é contada por máquina (<code>harness budget</code>); em prosa, vale como advisory. Satisfeita qualquer uma, o agente para e devolve o controle.</td></tr>
+      <tr><td><strong>Rastro de tentativas</strong></td><td>O arquivo append-only em <code>.harness/attempts/</code> com toda passada FALHA do <code>verify_cmd</code> — erro cru e assinatura. É o que a contagem lê, e o que impede a próxima sessão de repetir a tentativa 1 de boa fé.</td></tr>
+      <tr><td><strong>Camada 3</strong></td><td>A verificação por quem não implementou: um subagente de contexto limpo julga a entrega contra o contrato, a partir de um pacote montado por código. As camadas 1 e 2 provam que o teste passa; a 3 pergunta se é o que a demanda pedia.</td></tr>
+      <tr><td><strong>Spine</strong></td><td>Os três registros persistentes do projeto: <code>progress.md</code> (onde estamos, vida = a demanda), <code>decisions.md</code> e <code>lessons.md</code> (append-only, vida = o projeto).</td></tr>
+      <tr><td><strong>Dormente</strong></td><td>Código entregue, testado e mantido, que nenhum passo do ciclo aciona hoje. Nomeado como tal para não ser confundido com recurso em uso — é o caso da Fase 4 (time de agentes).</td></tr>
       <tr><td><strong>Progressive disclosure</strong></td><td>Padrão usado no <code>AGENTS.md</code>: bloco curto no arquivo lido sempre, detalhe completo num arquivo apontado.</td></tr>
       <tr><td><strong>Dogfooding</strong></td><td>O projeto se governa com o próprio harness. Os contratos em <code>.harness/work/</code> deste repositório são o histórico real de uso.</td></tr>
     </tbody>
@@ -1341,7 +1539,7 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
   <code>src/harness/</code>, <code>docs/</code> e <code>.harness/</code> ·
   fontes primárias: <code>README.md</code>, <code>docs/plugin/GUIDE.md</code>,
   <code>.harness/LIFECYCLE.md</code>, <code>docs/roadmap-autonomous.md</code> e os docstrings
-  dos 44 módulos.
+  dos 45 módulos.
 </footer>
 
 <script>
@@ -1389,7 +1587,7 @@ const LAYERS={
     "É quem realmente executa: lê <code>permissions</code>, dispara hooks <code>PreToolUse</code>/<code>SessionStart</code>/<code>Stop</code>, carrega skills e subagentes.",
     "<b>Não é responsabilidade do harness:</b> rodar o modelo, gerenciar tokens ou orquestrar sessões. O harness só produz o que esta camada consome."],
   skills:["Camada 1a — Skills",
-    "Sete skills conversacionais: <code>preflight</code> (o repo está pronto?), <code>init</code> (criar o harness), <code>assess</code> (a demanda cabe aqui?), <code>plan</code> (demanda → contrato), <code>compile</code> (recompilar após editar o yaml), <code>audit</code> (score + findings), <code>team</code> (montar time de agentes).",
+    "Sete skills conversacionais: <code>preflight</code> (o repo está pronto?), <code>init</code> (criar o harness), <code>assess</code> (a demanda cabe aqui?), <code>plan</code> (demanda → contrato), <code>compile</code> (recompilar após editar o yaml), <code>audit</code> (score + findings) e <code>team</code> (montar time de agentes) — esta última <b>dormente</b>: existe no plugin, mas nenhum ciclo a aciona.",
     "<b>Não decidem nada sozinhas:</b> toda escrita passa por um comando da CLI, que é determinístico e testável. A skill conduz a conversa; o mecanismo mora no Python."],
   cli:["Camada 1b — CLI <code>harness</code>",
     "Vinte e sete subcomandos. Os de compilação escrevem artefatos; os de auditoria só leem; <code>verify</code> executa o comando real da tarefa; <code>skips</code> baselineia o que uma feature já pula; <code>health</code> pergunta se o ambiente responde sem executar nada; <code>pr-draft</code> monta o PR a partir do contrato; <code>disable</code>/<code>enable</code> são o kill-switch do humano.",
@@ -1401,13 +1599,13 @@ const LAYERS={
     "Scripts autocontidos gerados pelos compiladores, rodando fora do pacote instalado a cada tool call. <code>boundary_guard.py</code> é o dispatcher único: cobre Edit, Write, MultiEdit, NotebookEdit, PowerShell e Bash num só processo.",
     "<b>Fail-closed por dentro, fail-closed por fora:</b> qualquer exceção na avaliação vira <code>deny</code>; e o comando registrado leva <code>|| exit 2</code> para o caso de o Python nem iniciar."],
   prova:["Camada 4 — Prova e controle",
-    "<code>verify</code> executa e grava evidência; <code>review</code> mantém a state machine do revisor; <code>supervisor</code> devolve a próxima feature respeitando dependências; <code>finish</code> encerra a demanda com auditoria antes da limpeza; <code>pr_draft</code> lê contrato e evidência e devolve o corpo do PR pronto.",
+    "<code>verify</code> executa e grava evidência; <code>attempts</code> registra toda tentativa falha; <code>budget</code> conta esse rastro e é o disjuntor do loop; <code>escalation</code> dá forma obrigatória à parada; <code>convergence</code> acompanha a trajetória da métrica opt-in; <code>regression</code> re-prova as fatias acopladas; <code>blind</code> monta a verificação de camada 3; <code>spine</code> mantém decisões e lições; <code>supervisor</code> devolve a próxima feature respeitando dependências; <code>finish</code> encerra com auditoria antes da limpeza; <code>panel</code> renderiza o placar; <code>pr_draft</code> devolve o corpo do PR. <code>review</code> pertence a esta camada mas está <b>dormente</b>.",
     "<b>Nenhum deles chama git de escrita.</b> Quem autoriza o commit é <code>finish</code> com <code>blockers: []</code> — condição de máquina sobre evidência fresca, não aprovação de conversa. O push segue restrito pelo floor à branch do contrato, e abrir o PR continua sendo ação do humano."],
   diag:["Camada 5 — Diagnóstico",
-    "<code>preflight</code> (repo cru), <code>audit</code> (drift da compilação), <code>runtime_audit</code> (invariantes do que muda), <code>team_audit</code> (papéis e ferramentas), <code>doctor</code> (3 camadas de distribuição), <code>health</code> (o ambiente responde? — §7.2, na abertura da sessão), <code>metrics</code> (ciclos de fricção).",
+    "<code>preflight</code> (repo cru), <code>audit</code> (drift da compilação), <code>runtime_audit</code> (invariantes do que muda), <code>doctor</code> (3 camadas de distribuição), <code>health</code> (o ambiente responde? — §7.2, na abertura), <code>reconcile</code> (declarado × real, também na abertura — §7.4), <code>metrics</code> (ciclos de fricção). <code>team_audit</code> está <b>dormente</b>: sem manifesto de time, não tem o que auditar.",
     "<b>Todos read-only.</b> Emitem laudo e o comando exato para corrigir — nunca corrigem por conta própria, porque um diagnóstico que também age não é auditável."],
   base:["Transversal — Base",
-    "<code>config</code> (schema pydantic), <code>patterns</code> (glob→regex), <code>settings_paths</code> (fronteira machine-local), <code>hook_launcher</code> (comando fail-closed), <code>killswitch</code> (sentinel + snippet embutido), <code>governance/approval</code> (matriz de política).",
+    "<code>config</code> (schema pydantic), <code>patterns</code> (glob→regex), <code>findings</code> (a forma do achado, compartilhada pelos três auditores), <code>settings_paths</code> (fronteira machine-local), <code>hook_launcher</code> (comando fail-closed), <code>killswitch</code> (sentinel + snippet embutido), <code>governance/approval</code> (matriz de política).",
     "<b>Regra:</b> cada um é fonte ÚNICA de uma verdade. A duplicação de tabela entre camadas é o bug que este desenho existe para prevenir."]
 };
 document.querySelectorAll('.layerbox[data-layer]').forEach(g=>{
@@ -1495,7 +1693,11 @@ if(mf){ mf.oninput=()=>{
     const hit=!q||tr.textContent.toLowerCase().includes(q);
     tr.style.display=hit?'':'none'; if(hit)n++;
   });
-  document.getElementById('modcount').textContent=n+' módulo'+(n===1?'':'s');
+  /* "entradas", não "módulos": a tabela lista uma linha a mais que a contagem
+     de módulos do pacote, porque inclui governance/approval.py, que não é
+     top-level. Enquanto o pill dizia "módulos", ele discordava do KPI do topo
+     assim que alguém filtrava e limpava o filtro. */
+  document.getElementById('modcount').textContent=n+' entrada'+(n===1?'':'s');
 };}
 
 /* ===================== SEQUENCE RENDERER ===================== */
@@ -1626,8 +1828,8 @@ const STEPS=[
  ['Atualizar progress.md','Documenta o que foi feito nesta sessão, para que a próxima retome sem perder contexto.','Fecha o ciclo com o passo 3. É bookkeeping do próprio harness — por isso o arquivo é sempre gravável, mesmo fora da superfície do contrato.'],
  ['Marcar a feature concluída','passes:true no feature_list.json — só acontece com evidência fresca do passo 11.','O feature-lock enforça isto por mecanismo: sem evidência mais nova que o último commit, a edição é negada citando o id.'],
  ['Documentar o que quebrou','Transparência: o que ficou incompleto ou quebrado é registrado explicitamente.','Nunca escondido atrás de um commit "limpo". Um relatório honesto de falha vale mais que um verde que ninguém confia.'],
- ['Parar e pedir aprovação humana','Gate obrigatório antes do commit. A mensagem PRECISA conter descrição funcional em linguagem natural do comportamento que mudou e o link file:line do teste que prova.','Mostrar só o T-ID e o JSON cru do verify não é suficiente — ninguém entende o que está aprovando com isso. Foi uma correção vinda de uso real.'],
- ['Commit em estado retomável','O commit local só acontece depois do sinal verde, e apenas com o repositório num estado que a próxima sessão consegue retomar sem arqueologia.','Push segue restrito pelo floor à branch do contrato; commit em branch protegida é negado incondicionalmente.'],
+ ['Mostrar o trabalho a quem não o escreveu','Duas metades. (a) Camada 3: harness blind package monta o pacote sem o raciocínio de quem implementou, um subagente limpo julga, e o veredito volta por harness blind verdict. (b) A mensagem do commit precisa de descrição funcional do comportamento que mudou e o link file:line do teste que prova.','As camadas 1 e 2 provam que o teste passa — e o teste saiu da mesma cabeça que escreveu o código. É o único ponto de independência que o design chama de obrigatório. Mostrar só o T-ID e o JSON cru do verify nunca bastou: ninguém acompanha o que foi feito com isso.'],
+ ['Commit e push na branch do contrato','Acontecem sem pedir autorização, mas não incondicionalmente: exigem harness finish com blockers vazio e nenhum verify_cmd vermelho. Sem isso o agente para e chama a pessoa.','Essas duas pré-condições são o que substituiu o antigo gate humano sobre o diff — uma auditoria mecânica no lugar de uma leitura que ninguém fazia com atenção. Push segue restrito pelo floor à branch do contrato; commit em branch protegida é negado incondicionalmente, e abrir o PR continua sendo do humano.'],
  ['Deixar a working tree limpa','Nenhuma mudança solta fora de commit, nenhum arquivo temporário esquecido.','O handoff para a próxima sessão começa de um estado previsível. Artefatos temporários têm destino próprio: .harness/scratch/.']
 ];
 let cur=0;

@@ -63,6 +63,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from harness.blocks import BLOCKS_DIR
 from harness.hook_launcher import hook_command
 from harness.killswitch import DISABLED_CHECK_SRC
 from harness.settings_paths import (
@@ -185,6 +186,52 @@ from pathlib import Path
 FEATURE_LIST_FILE = ".harness/feature_list.json"
 EVIDENCE_DIR = ".harness/evidence"
 UNSCOPED_EVIDENCE_DIR = "_sem-contrato"
+BLOCKS_DIR = "''' + BLOCKS_DIR + '''"
+
+
+def read_block_needs(cwd, contract, feature_id):
+    """A frase do bloqueio da feature, ou None se ela nao esta parada.
+
+    Leitura MAGRA de .harness/blocks/<contrato>/<id>.json — copia deliberada
+    de harness.blocks.read_block, pelo mesmo motivo de
+    is_feature_in_progress/needs_verification: este arquivo roda fora do venv
+    do projeto e nao importa `harness`. O que NAO e copiado e regra de
+    decisao: aqui so se le e se enuncia o fato.
+    """
+    slug = str(contract or "").strip() or UNSCOPED_EVIDENCE_DIR
+    path = cwd / BLOCKS_DIR / slug / (feature_id + ".json")
+    if not path.is_file():
+        return None
+    try:
+        record = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (json.JSONDecodeError, OSError, ValueError):
+        return None
+    if not isinstance(record, dict):
+        return None
+    needs = str(record.get("needs") or "").strip()
+    if not needs:
+        return None
+
+    # Segundo caminho de destrave, copiado de harness.blocks.read_block pelo
+    # mesmo motivo do resto deste arquivo. SEM esta comparacao o hook seguiria
+    # anunciando "esta PARADA" para sempre depois de o arquivo esperado mudar,
+    # enquanto supervisor, placar e finish ja teriam voltado a tratar a fatia
+    # como normal -- quatro leitores do mesmo estado contando historias
+    # diferentes.
+    watch = record.get("watch")
+    stored = record.get("watch_hash")
+    if watch and stored is not None:
+        watched = cwd / str(watch)
+        try:
+            if not watched.is_file():
+                current = "absent"
+            else:
+                current = "sha256:" + hashlib.sha256(watched.read_bytes()).hexdigest()
+        except OSError:
+            current = None  # NAO SEI: mantem o bloqueio, nunca destrava por erro de I/O
+        if current is not None and current != stored:
+            return None
+    return needs
 
 
 def compute_files_hash(files, target_dir):
@@ -258,19 +305,42 @@ def _load_features(cwd):
 def build_feedback(cwd):
     features, contract = _load_features(cwd)
     pending_ids = []
+    blocked = []
     for feature in features:
+        feature_id = feature.get("id", "?")
+        needs = read_block_needs(cwd, contract, feature_id)
+        if needs:
+            # Parada esperando uma pessoa: continua VISIVEL, deixa de ser
+            # cobrada. Cobrar aqui era o loop — o agente obedecia, falhava pelo
+            # mesmo motivo, e o hook cobrava de novo na proxima vez.
+            blocked.append((feature_id, needs))
+            continue
         if needs_verification(feature, cwd, contract):
-            pending_ids.append(feature.get("id", "?"))
+            pending_ids.append(feature_id)
 
-    if not pending_ids:
+    parts = []
+    if pending_ids:
+        parts.append(
+            "Feature(s) em progresso sem verificacao atualizada: "
+            + ", ".join(pending_ids) + ". "
+            "Rode `harness verify <id>` antes de encerrar a sessao para gravar "
+            "a evidencia em .harness/evidence/<contrato>/<id>.json."
+        )
+    for feature_id, needs in blocked:
+        # Sem sugerir comando nenhum de proposito: a fatia esta parada porque
+        # depende de uma PESSOA, e qualquer verbo citado aqui vira o convite a
+        # repetir a tentativa contra a mesma parede -- o loop que este contrato
+        # existe para fechar. O que o agente precisa saber e o que esta na mao
+        # do humano, nada mais.
+        parts.append(
+            "Feature " + feature_id + " esta PARADA esperando uma acao humana, "
+            "e por isso nao esta sendo cobrada. O que falta, e cabe a pessoa: "
+            + needs
+        )
+
+    if not parts:
         return None
-
-    ids = ", ".join(pending_ids)
-    return (
-        "Feature(s) em progresso sem verificacao atualizada: " + ids + ". "
-        "Rode `harness verify <id>` antes de encerrar a sessao para gravar "
-        "a evidencia em .harness/evidence/<contrato>/<id>.json."
-    )
+    return " ".join(parts)
 
 
 def main() -> None:

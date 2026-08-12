@@ -1,0 +1,11 @@
+{
+  "contract": "parei-e-sua-vez",
+  "verdicts": [
+    {
+      "verdict": "pass",
+      "evidence": "Verificador cego independente, 3 passadas. Passada 1: FAIL com 2 bloqueantes -- (B1) a copia inline do hook gerado nao comparava watch_hash e anunciava PARADA para sempre depois de o arquivo esperado mudar, com a fixture do teste omitindo watch_hash e desligando a guarda dos dois lados; (B2) render_lifecycle_block, que e o texto que entra no AGENTS.md lido em toda abertura, nao citava harness block -- o gesto so existia no detalhe, e o teste concatenava bloco+detalhe. Passada 2: os dois confirmados corrigidos por execucao (hook gerado real, AST provando stdlib-only, AGENTS.md:159-164 em disco), mais obs 1 (arquivo a criar nunca destravava) e obs 7 (erro de I/O destravava sozinho) fechadas pelo sentinela WATCH_ABSENT; FAIL por contagem de casos defasada na documentacao e promocao da obs 2 (progress.md seguia dizendo AGUARDANDO VOCE depois do destrave por watch) a bloqueante. Passada 3: PASS -- settle_blocks liquidando na CLI reproduzido com a CLI real (coluna volta a pending, json removido), dispatch_next e collect_state seguem sem caminho de escrita, B1 e B2 sem regressao, contagem 1555 conferida. Ajustes finais alem do veredito: settle_blocks estreitado para so watch resolvido (registro corrompido preservado para pericia) e verbos de diagnostico -- doctor, health, audit, audit-runtime, audit-team -- excluidos da liquidacao, porque a allowlist do guard os justifica por escrito como read-only. Suite completa 1556 passed, 1 skipped. Licoes abertas: statusline apontando fatia parada como atual, pipe no needs quebrando a tabela, finish pulando checagem de evidencia sob bloqueio, docstring de settle_blocks.",
+      "files_hash": "sha256:a453b1e87e880f2d163075b3a274e47181cd2e6f33f0d489e0f3b09dd02c312c",
+      "recorded_at": "2026-08-12T02:27:41.616383+00:00"
+    }
+  ]
+}

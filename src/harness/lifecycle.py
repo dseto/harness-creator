@@ -56,6 +56,12 @@ def render_lifecycle_block() -> str:
     consultar `harness budget --feature <id>` e obedecer o veredito —
     autocorrigir e re-rodar só enquanto ele disser `continue`; em qualquer
     parada, usar o campo `escalation` da saída pronto, sem escrever à mão.
+    **Se o que trava é uma AÇÃO HUMANA** (editar o plano de controle,
+    instalar ferramenta, fornecer credencial), nada disso se aplica: a
+    parede é a mesma na tentativa 1 e na 21. NÃO repita a tentativa —
+    declare `harness block <id> --needs "a ação concreta que cabe à
+    pessoa"` (com `--watch <path>` se houver arquivo esperado), siga para
+    outra fatia, e deixe `harness unblock` para quem fez a ação.
 11. Registrar a prova (evidência da verificação bem-sucedida).
 12. Atualizar `.harness/progress.md` com o estado atual.
 13. Marcar a feature concluída em `feature_list.json`.
@@ -306,6 +312,32 @@ aprovado e só devolve o controle ao humano em estado retomável.
     `harness.contract.get_stop_conditions` e interpretadas por você; parar
     por uma delas é acerto, não desistência, e não precisa esperar teto
     nenhum.
+
+    **Falha por DEPENDÊNCIA HUMANA não é nada disso — e não se resolve
+    tentando de novo.** Quando o que trava a fatia é uma ação que só uma
+    pessoa pode fazer (editar `.harness/harness.yaml` ou outro arquivo do
+    plano de controle, instalar uma ferramenta, fornecer uma credencial,
+    liberar um acesso), o vermelho não está te dizendo "corrija o código".
+    Nenhum teto de tentativa vai ajudar: a parede é a mesma na tentativa 1 e
+    na 21. **Não repita a tentativa.** Declare a parada:
+
+        harness block <id> --needs "a ação concreta que cabe à pessoa"
+
+    O `--needs` é obrigatório e é o texto que a pessoa vai ler no placar, no
+    `progress.md` e no fecho da demanda — escreva a ação (arquivo, linha,
+    comando), não o sintoma. Se houver um arquivo específico sendo esperado,
+    acrescente `--watch <caminho>`: o bloqueio sai sozinho quando ele mudar.
+
+    Declarada a parada, o harness inteiro passa a respeitá-la: `harness
+    supervise` deixa de oferecer a fatia, o aviso de fim de sessão para de
+    cobrar verificação dela, o placar mostra AGUARDANDO VOCÊ com a ação, e
+    `harness finish` não encerra a demanda. Siga para outra fatia, se
+    houver — a parada não paralisa o resto do contrato.
+
+    A fatia volta a andar por três caminhos, e só por eles: a pessoa roda
+    `harness unblock <id>`, o arquivo de `--watch` muda, ou `harness verify`
+    passa. Não há expiração por tempo, de propósito: bloqueio que caduca
+    sozinho volta a empurrar trabalho contra a mesma parede, com atraso.
 
     **Em qualquer parada, use o campo `escalation` da saída de `harness
     budget` — não escreva a mensagem de escalada à mão.** Ele já vem com as

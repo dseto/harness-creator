@@ -124,12 +124,11 @@ automática: ele existe para mostrar o estado real, não para corrigi-lo.
 | `/harness-creator:audit` | Score 0-100 + findings (drift, hooks ausentes, política arriscada) |
 | `/harness-creator:compile` | Recompila após edição manual do yaml (idempotente, preserva settings manuais) |
 | `/harness-creator:plan` | Demanda em linguagem natural → `spec.md` + `Plans.md` → aprovação humana → `feature_list.json` |
-| `/harness-creator:team` | Analisa o domínio → propõe padrão de time (Produtor-Revisor, Supervisor, ...) → **aprovação humana da arquitetura (único toque humano)** → gera agentes/skills/manifesto → `harness audit-team` |
 
 Detalhe completo do preflight (tabela de checks, contrato do JSON, decisões de
 arquitetura): [docs/preflight.md](docs/preflight.md).
 
-## CLI — os 27 subcomandos
+## CLI — os 29 subcomandos
 
 Todos aceitam `--dir <alvo>` (default `.`) e só operam sobre um diretório que
 já existe: um `--dir` com erro de digitação sai com código 2 sem escrever nada.
@@ -148,6 +147,8 @@ já existe: um `--dir` com erro de digitação sai com código 2 sem escrever na
 | `harness reconcile` | Reconcilia estado declarado × real na abertura da sessão: prova velha, tarefa marcada sem prova, sobra na tree, progresso de outra demanda. Só leitura; exit 2 quando há divergência |
 | `harness supervise` | Devolve a próxima feature pronta respeitando `depends[]`. Leitura síncrona, não daemon |
 | `harness budget --feature <id>` | Disjuntor do loop: conta o rastro de tentativas e devolve `continue`/`stop_same_failure`/`stop_iterations`. Só leitura; exit 2 quando manda parar |
+| `harness block <id> --needs "..."` | Declara que a tarefa parou por depender de uma **ação humana** e qual é. Enquanto valer, `supervise` não a oferece, o hook Stop não cobra verificação dela e `finish` não encerra a demanda. `--watch <path>` destrava sozinho quando o arquivo muda |
+| `harness unblock <id>` | Libera a tarefa parada: a ação humana foi feita. Também sai sozinho pelo `--watch` ou por um `harness verify` verde — nunca por tempo |
 | `harness finish` | Encerra a demanda: audita o fecho e, só se aprovado, varre os descartáveis do `.harness/`. **Nunca toca git** |
 | `harness blind package` | Camada 3 — monta `.harness/scratch/blind-package.md` (o que foi prometido, onde olhar, qual era a prova) **sem nada do raciocínio de quem implementou** |
 | `harness blind verdict --pass\|--fail --evidence "..."` | Registra o veredito do verificador em `.harness/blind-review/<contrato>.json`. Append; exit 2 quando reprova |
@@ -167,21 +168,12 @@ já existe: um `--dir` com erro de digitação sai com código 2 sem escrever na
 | `harness task add-file <id> <path> --slug <slug>` | Append no `files[]` de UMA tarefa do `Plans.md` + recompila o contrato |
 | `harness profile set <chave> <valor>` | Corrige uma chave de **ambiente** do perfil (`package_manager`, `test_command`, `lint_command`, `typecheck_command`, `build_command`). Comando seu, no seu terminal — não do agente |
 
-### Time de agentes (Fase 4)
-
-| Comando | Faz |
-|---|---|
-| `harness team design --description "..."` | Dry-run: analisa o domínio e recomenda um padrão do catálogo, com justificativa |
-| `harness team generate --pattern <nome>` | Gera `.claude/agents/`, `.claude/skills/`, bloco de time e manifesto — só após aprovação da arquitetura |
-| `harness review <id> submit\|approve\|reject` | Transições do state machine do revisor |
-
 ### Diagnóstico e controle
 
 | Comando | Faz |
 |---|---|
 | `harness audit` | Score 0-100 + findings dos artefatos **compilados** (diff byte-exato contra o que o yaml geraria) |
 | `harness audit-runtime` | Schema, frescor e invariantes dos artefatos **mutáveis** (`feature_list.json`, `evidence/`, `progress.md`) |
-| `harness audit-team` | Papel órfão, papel sem agente, ferramenta além do mínimo do catálogo, drift do bloco de time |
 | `harness doctor` | Compara pip / `.harness/` compilado / cache de plugin do Claude Code, e detecta hook registrado que não roda |
 | `harness disable [--note "..."]` | **Kill-switch**: desativa TODOS os hooks. Rodar só no seu terminal |
 | `harness enable` | Reativa o harness |
@@ -189,8 +181,20 @@ já existe: um `--dir` com erro de digitação sai com código 2 sem escrever na
 | `harness status --brief` | **Placar de andamento** em markdown, para o agente colar no chat |
 | `harness status --panel [--watch N]` | O mesmo placar no terminal, com cor e re-render a cada N segundos |
 
-`audit`, `audit-runtime` e `audit-team` saem com código 1 se houver qualquer
-finding `critical` (ou score < 60) — servem como gate de CI.
+`audit` e `audit-runtime` saem com código 1 se houver qualquer finding
+`critical` (ou score < 60) — servem como gate de CI.
+
+### Superfície dormente (Fase 4, v0.14.1)
+
+`harness team design|generate`, `harness review`, `harness audit-team` e a
+skill `/harness-creator:team` continuam na CLI e no plugin, mas **nada no ciclo
+de hoje os aciona**: nenhum projeto — nem este — tem time compilado, nenhum
+passo do lifecycle os chama, e sem `.harness/team/manifest.json` o veto do
+revisor no `boundary_guard` é no-op (comportamento idêntico ao de não haver
+time). Ficam nomeados aqui só para o `--help` não trazer verbo sem explicação,
+e são candidatos a remoção: a autonomia que a Fase 4 prometia está sendo
+perseguida pelo caminho das Fases 5–7 do
+[roadmap-autonomous](docs/roadmap-autonomous.md).
 
 ## Placar de andamento
 
@@ -279,37 +283,13 @@ intactos — são o registro auditável do que foi feito. O comando **não** faz
 dentro de um subcomando que está na allowlist do agente transformaria o
 próprio `finish` num bypass do runtime floor.
 
-## Fase 4 — Team-Architecture Factory (Nível L3)
+## Loop engineering — os mecanismos do ciclo
 
-Depois do contrato aprovado (`/harness-creator:plan`) e da sessão autônoma
-compilada (Fase 2/3), o `/harness-creator:team` monta um **time de agentes**
-para trabalhar o contrato, com revisão de qualidade independente já embutida
-— o único toque humano é aprovar a arquitetura do time, uma vez por projeto:
-
-- **Catálogo de 6 padrões** (`src/harness/teams/patterns/*.yaml`, empacotado no plugin):
-  `producer-reviewer` e `supervisor` com schema completo (papéis + `tools`
-  mínimas — revisor/supervisor nunca têm `Edit`/`Write`); `pipeline`,
-  `expert-pool`, `fan-out-fan-in`, `hierarchical-delegation` declarativos.
-  `harness team design` analisa o domínio (`repo-profile.json`) e recomenda
-  um padrão com justificativa, sem gravar nada (dry-run); `harness team
-  generate` gera os artefatos (`.claude/agents/`, `.claude/skills/`,
-  `AGENTS.md`/`.harness/TEAM.md`, `.harness/team/manifest.json`) só depois da
-  aprovação explícita da arquitetura.
-- **Produtor-Revisor** (`src/harness/review.py`) — state machine `pending →
-  in_review → rejected|approved` por feature. Teto duro de iterações
-  (`max_review_iterations`, default 3): esgotado, o estado **nunca** vira
-  `approved` sozinho — escala ao humano. Aprovar diff que toca `test_glob`
-  exige justificativa registrada.
-- **Feature-lock estendido** (`boundary_guard.py`) — quando o time declara
-  `producer`+`reviewer`, `passes: true` exige evidência fresca **e**
-  aprovação do revisor mais recente que a evidência (aprovação obsoleta
-  frente a uma evidência regravada depois dela → `deny`). Sem time
-  compilado, comportamento idêntico à Fase 3.
-- **Supervisor** (`src/harness/supervisor.py`) — `harness supervise` devolve
-  a próxima feature pronta, respeitando `depends[]`; `on_feature_verified`
-  aciona a submissão para revisão automaticamente após `harness verify`.
-- **Audit de time** (`harness audit-team`) — papel órfão, papel sem agente
-  gerado, ferramenta além do mínimo do catálogo, drift do bloco gerenciado.
+Cada bloco abaixo mecaniza uma seção de
+[docs/reference/loop-engineering-design.md](docs/reference/loop-engineering-design.md)
+("o mesmo documento", daqui em diante). Nenhum depende de time de agentes: são
+o que roda em toda sessão, do `reconcile` da abertura ao veredito cego do
+fecho.
 
 ### Disjuntor do loop de autocorreção
 
@@ -327,7 +307,18 @@ alguém lembrar de contar não é disjuntor.
 - **Contagem** (`harness budget --feature <id>`) — só leitura. `continue`
   enquanto há folga; `stop_same_failure` quando a MESMA assinatura se repetiu
   até o teto (a abordagem é que está errada, não a execução);
-  `stop_iterations` quando as falhas desde o último verde estouraram o teto.
+  `stop_iterations` quando as falhas desde o último verde estouraram o teto; e
+  `stop_transient_exhausted` (§8.1) quando o MESMO erro transiente se repetiu
+  até o teto — esse **vence qualquer outro veredito**, porque não é o loop de
+  correção batendo num limite, é falha de ambiente se disfarçando de falha de
+  código, e a resposta certa é parar e escalar, nunca continuar corrigindo.
+- **Trajetória de métrica, opt-in** (`src/harness/convergence.py`) — tarefa que
+  declara `metric` no `Plans.md` faz o `verify` medir junto e gravar a série
+  (valor, commit, árvore suja). Rende dois vereditos a mais no disjuntor:
+  `stop_worsening` (duas medições piores que o melhor estado, que o veredito
+  nomeia) e `stop_plateau` (três sem superar o melhor). `target` atingido
+  informa `target_met` e não muda veredito nenhum — **a métrica guia, o
+  `verify_cmd` decide**. Sem `metric`, tudo se comporta como antes.
 - **Tetos** — `stop_conditions:` do `spec.md` aceita forma TIPADA
   (`{type: consecutive_verify_failures, n: 3}`,
   `{type: same_failure_signature, n: 3}`), compilada para o
@@ -341,9 +332,8 @@ alguém lembrar de contar não é disjuntor.
   `### Tentativas — <id>` enquanto a fatia está vermelha, e ela some sozinha
   no verde.
 
-Base de projeto: [docs/reference/loop-engineering-design.md](docs/reference/loop-engineering-design.md),
-§4.2 (budget mecânico), §5.1 (histórico de tentativas), §8.2 (padrão
-repetido).
+Base: §4.2 (budget mecânico), §4.3 (convergência), §5.1 (histórico de
+tentativas) e §8.2 (padrão repetido) do mesmo documento.
 
 ### Reconciliação na abertura
 
@@ -479,9 +469,10 @@ harness-creator/
 │   ├── plugin.json              # manifesto do plugin
 │   └── marketplace.json         # auto-referência p/ instalar como marketplace local
 ├── AGENTS.md                    # 3 blocos gerenciados + prosa humana
-├── skills/                      # preflight, init, plan, compile, audit, team
-├── src/harness/                 # 44 módulos, uma responsabilidade cada
-│   ├── cli.py                   # dispatch dos 27 subcomandos
+├── skills/                      # preflight, assess, init, plan, compile, audit
+│                                #   (+ team, dormante)
+├── src/harness/                 # 45 módulos, uma responsabilidade cada
+│   ├── cli.py                   # dispatch dos 29 subcomandos
 │   │
 │   │                            # -- base (fonte única de cada verdade) --
 │   ├── config.py                # HarnessConfig (pydantic) — schema do yaml
@@ -521,9 +512,9 @@ harness-creator/
 │   ├── escalation.py            # bloco de escalada do §8, 6 partes, pronto pro humano
 │   ├── health.py                # ambiente responde? (§7.2) — pergunta, não executa
 │   ├── reconcile.py             # declarado × real na ABERTURA (reusa audit_closure)
-│   ├── review.py                # state machine do revisor (teto duro de iterações)
 │   ├── supervisor.py            # próxima feature pronta, respeitando depends[]
-│   ├── teams.py                 # catálogo de 6 padrões + análise de domínio
+│   ├── review.py                # (dormante) state machine do revisor de time
+│   ├── teams.py                 # (dormante) catálogo de padrões de time
 │   ├── finish.py                # encerra a demanda: audita o fecho e varre
 │   ├── pr_draft.py              # contrato + evidência -> corpo do PR e comando gh
 │   ├── panel.py                 # placar do loop: uma fonte, três renders (status/panel/statusline)
@@ -532,7 +523,7 @@ harness-creator/
 │   ├── preflight.py             # laudo de prontidão do repo cru
 │   ├── audit.py                 # score + findings (dogfooding: compile+diff)
 │   ├── runtime_audit.py         # invariantes dos artefatos mutáveis
-│   ├── team_audit.py            # papéis, ferramentas e drift do time
+│   ├── team_audit.py            # (dormante) papéis e drift do bloco de time
 │   ├── doctor.py                # saúde da instalação (3 camadas de versão)
 │   └── metrics.py               # contagem de ciclos de fricção
 ├── .harness/                    # o produto governado por si mesmo:
@@ -541,7 +532,7 @@ harness-creator/
 │   └── .gitignore               # a regra de ignore é do próprio produto
 ├── docs/plugin/                 # TUTORIAL, GUIDE, ARCHITECTURE, arquitetura-visual.html
 ├── docs/project/                # ROADMAP, PLAN, laudos e handoffs
-└── tests/                       # 1480 casos (sem Docker/API para compile/audit)
+└── tests/                       # 1557 casos (sem Docker/API para compile/audit)
 ```
 
 Quem decide o que entra no git é a **Seção 3** de
@@ -554,7 +545,7 @@ de compilação que carrega dado de máquina é machine-local e regenerada por
 
 ```powershell
 $env:PYTHONPATH = "src"
-python -m pytest tests -q          # unit + E2E — 1480 casos
+python -m pytest tests -q          # unit + E2E — 1557 casos
 ```
 
 A suíte E2E (`tests/e2e/`) roda inteira sobre repos sintéticos criados em
@@ -565,7 +556,7 @@ externo ao plugin.
 **Convenção da suíte (v0.26.0):** um teste = uma REGRA, com tabela de casos
 (`Case` + `_expect`), nunca um `def` por caso. A suíte tinha chegado a 1008
 casos e caiu para 724 sem perder uma asserção — o que sobrou é o piso
-mecânico, não gordura restante. O crescimento desde então — hoje 1480 casos —
+mecânico, não gordura restante. O crescimento desde então — hoje 1557 casos —
 é regra nova coberta, não a gordura voltando.
 
 Achado que a suíte documenta (via `harness.cli` chamado com

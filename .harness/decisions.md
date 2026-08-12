@@ -50,3 +50,11 @@ Porquê: A barra do CLI e o unico artefato deste contrato que fica visivel o tem
 ## D-012 — Texto de escalada muda dentro do JSON do budget, e isso e o esperado (2026-08-10)
 Decisão: O campo escalation do stdout de harness budget passa a comecar com PAROU:; a promessa de stdout byte-identico do T-05 vale para os campos de maquina (verdict, consecutive_failures, limits, reason)
 Porquê: O campo escalation E o canal humano -- ele so esta dentro do JSON porque o comando emite os dois de uma vez (stdout para script, stderr para quem le). Congelar esse texto para manter o stdout literalmente identico exigiria DUAS versoes do mesmo bloco de escalada, uma velha para o JSON e uma nova para o stderr, e duas versoes do mesmo texto e a origem de divergencia silenciosa. Levantado pelo verificador cego; registrado para nao ser re-litigado como bug.
+
+## D-013 — Bloqueio declarado e do agente, e o harness nunca o infere (2026-08-12)
+Decisão: Quem declara que uma fatia parou por dependencia humana e o agente, via harness block <id> --needs; o harness nao adivinha a partir da saida de nenhum comando
+Porquê: Na sessao que originou a demanda o agente JA sabia que dependia de uma edicao humana e escreveu isso na tela antes de repetir a tentativa 16 vezes -- faltava onde registrar, nao como descobrir. Inferencia automatica erraria nos dois sentidos: travaria trabalho por bug de implementacao e deixaria passar dependencia humana silenciosa. Descartado tambem destrave por tempo: bloqueio que caduca sozinho volta a empurrar trabalho contra a mesma parede, com atraso.
+
+## D-014 — Liquidacao do bloqueio mora na CLI, nao nos leitores (2026-08-12)
+Decisão: settle_blocks e chamado por harness.cli antes de despachar qualquer subcomando nao-diagnostico; dispatch_next e collect_state continuam sem nenhum caminho de escrita
+Porquê: read_block decide a espera na leitura, o que e barato para quem le mas deixa o progress.md -- coluna ESCRITA, e o primeiro arquivo que a proxima sessao le -- dizendo AGUARDANDO VOCE sobre fatia ja liberada. Colocar a escrita dentro dos leitores quebraria o SO LEITURA que os dois prometem no docstring, e essa promessa vale mais que a conveniencia. Verbos de diagnostico (doctor, health, audit*) ficam de fora porque a allowlist do boundary_guard os justifica por escrito como read-only.

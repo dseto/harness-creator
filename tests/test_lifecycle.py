@@ -19,6 +19,46 @@ from harness.lifecycle import (
 )
 
 
+# ---------------- o gesto do bloqueio (contrato `parei-e-sua-vez`) ----------------
+#
+# Sem isto o ciclo inteiro fica inútil: o verbo existe, os quatro mecanismos o
+# respeitam, e o agente nunca o chama — porque ninguém lhe disse que ele existe
+# no momento em que ele está preso. Foi exatamente o que aconteceu na sessão
+# medida: o agente ENTENDEU que dependia de uma pessoa, escreveu isso na tela, e
+# repetiu a tentativa mesmo assim.
+
+def test_the_lifecycle_teaches_the_agent_to_declare_a_human_block() -> None:
+    """Asserido contra o BLOCO, não contra bloco+detalhe concatenados: o bloco
+    é o que entra no `AGENTS.md` e é lido em toda abertura de sessão. Somar os
+    dois deixava o teste passar com o documento efetivamente lido mudo — o
+    gesto existia só no detalhe, que ninguém é obrigado a abrir."""
+    block = render_lifecycle_block()
+
+    assert "harness block" in block
+    assert "harness unblock" in block
+
+
+def test_the_lifecycle_detail_spells_out_the_three_ways_back() -> None:
+    detail = render_lifecycle_detail()
+
+    assert "harness block" in detail
+    assert "harness unblock" in detail
+    assert "--watch" in detail
+
+
+def test_the_lifecycle_separates_a_human_wait_from_a_failing_test() -> None:
+    """Os dois pedem reações opostas: um vermelho pede outra tentativa, uma
+    dependência humana pede parar. Se o texto não separar, o agente aplica a
+    receita do vermelho na parede — que é o loop."""
+    detail = render_lifecycle_detail()
+    index = detail.find('harness block <id> --needs')
+
+    assert index != -1
+    around = detail[max(0, index - 1200) : index + 1200]
+    assert "humana" in around or "pessoa" in around
+    assert "não repita" in around.lower() or "nao repita" in around.lower()
+
+
 # ---------------- render_lifecycle_block / render_lifecycle_detail ----------------
 
 def test_the_lifecycle_block_carries_the_17_steps_and_its_own_delimiters() -> None:

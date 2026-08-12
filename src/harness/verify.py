@@ -74,6 +74,7 @@ from harness.attempts import (
     record_failure,
     record_pass,
 )
+from harness.blocks import clear_block
 from harness.boundary_guard import is_floor_bash_command
 from harness.branching import is_git_repository
 from harness.contract import FEATURE_LIST_FILE
@@ -784,6 +785,13 @@ def run_verify(
         update_progress_attempts(target_dir, feature_id, [])
     except Exception:
         pass
+
+    # Terceiro caminho de destrave do contrato `parei-e-sua-vez`: se a fatia
+    # PASSOU, o que a travava deixou de travar. Manter o bloqueio depois do
+    # verde seria mentira de estado ao contrário — a fatia sumiria da fila do
+    # supervisor justamente quando ficou pronta. No-op silencioso quando não
+    # havia bloqueio, que é o caso comum.
+    clear_block(target_dir, contract, feature_id)
 
     # US-2: sincroniza o rastro legível com a prova recém-gravada — elimina o
     # passo manual 12 do lifecycle. No-op silencioso se .harness/progress.md não
