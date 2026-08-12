@@ -1,0 +1,17 @@
+{
+  "feature_id": "T-01",
+  "contract": "parei-e-sua-vez",
+  "desc": "O agente passa a poder declarar que parou por depender de uma pessoa, nomeando em uma frase o que essa pessoa precisa fazer — e declaração sem motivo é recusada",
+  "files": [
+    "src/harness/blocks.py",
+    "src/harness/cli.py",
+    "tests/test_blocks.py",
+    "src/harness/boundary_guard.py",
+    "tests/test_boundary_guard.py",
+    "tests/e2e/evidence/fase2-outcomes-verification.md"
+  ],
+  "verify_cmd": "pytest tests/test_blocks.py -q",
+  "recorded_at": "2026-08-12T02:27:14.119947+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:b3c33241493b607a2829760302a52f126d5c4c05e205f3c7382f6e6cf4cbdf97"
+}

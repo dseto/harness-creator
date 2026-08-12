@@ -341,11 +341,11 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
          "módulos", "subcomandos" ou "casos" faz o guard ler a frase como
          afirmação e reprovar. O guard não separa narrativa de asserção — é o
          preço de ele ser um grep, e é barato perto de não ter guard. -->
-    <div class="kpi" title="44 módulos Python"><div class="n">44</div><div class="l">módulos Python</div></div>
+    <div class="kpi" title="45 módulos Python"><div class="n">44</div><div class="l">módulos Python</div></div>
     <div class="kpi"><div class="n">7</div><div class="l">skills</div></div>
-    <div class="kpi" title="27 subcomandos CLI"><div class="n">27</div><div class="l">subcomandos CLI</div></div>
+    <div class="kpi" title="29 subcomandos CLI"><div class="n">27</div><div class="l">subcomandos CLI</div></div>
     <div class="kpi"><div class="n">4</div><div class="l">hooks gerados</div></div>
-    <div class="kpi" title="1480 casos de teste"><div class="n">1480</div><div class="l">testes</div></div>
+    <div class="kpi" title="1557 casos de teste"><div class="n">1557</div><div class="l">testes</div></div>
     <div class="kpi"><div class="n">17</div><div class="l">passos do ciclo</div></div>
   </div>
 </div>
@@ -665,7 +665,7 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
 
   <div class="lv-arch">
   <h3>Catálogo completo <span class="lvmark">filtrável</span></h3>
-  <p class="lead">Os 44 módulos de <code>src/harness/</code>, mais o
+  <p class="lead">Os 45 módulos de <code>src/harness/</code>, mais o
   <code>governance/approval.py</code> — 45 entradas. Módulo marcado
   <span class="pill">dormente</span> existe e é testado, mas nenhum passo do
   ciclo o aciona hoje.</p>
@@ -677,7 +677,7 @@ footer{max-width:var(--maxw); margin:0 auto; padding:26px 20px 60px; color:var(-
   <table id="modtable">
     <thead><tr><th style="width:20%">Módulo</th><th style="width:11%">Camada</th><th>Responsabilidade</th></tr></thead>
     <tbody>
-      <tr><td><code>cli.py</code></td><td>Superfície</td><td>Dispatch dos 27 subcomandos; valida <code>--dir</code> num ponto só; força UTF-8 em stdout e stderr para não corromper JSON acentuado em console cp1252.</td></tr>
+      <tr><td><code>cli.py</code></td><td>Superfície</td><td>Dispatch dos 29 subcomandos; valida <code>--dir</code> num ponto só; força UTF-8 em stdout e stderr para não corromper JSON acentuado em console cp1252.</td></tr>
       <tr><td><code>config.py</code></td><td>Base</td><td>Schema pydantic do <code>harness.yaml</code>: política de aprovação, orçamento, comandos extras, branch por contrato, branches protegidas, TDD.</td></tr>
       <tr><td><code>compiler.py</code></td><td>Compilação</td><td>Coração do modo plugin: yaml → permissions + hooks TDD + bloco do AGENTS.md. Merge não-destrutivo via <code>compiled-state.json</code>.</td></tr>
       <tr><td><code>contract.py</code></td><td>Compilação</td><td>spec.md + Plans.md → <code>feature_list.json</code>. Gate de aprovação: sem <code>approved_by</code>, não escreve nada. Preserva <code>passes</code> só se a identidade da tarefa não mudou.</td></tr>
@@ -1539,7 +1539,7 @@ harness status --panel --watch 5  <i>← re-render a cada 5s</i></pre>
   <code>src/harness/</code>, <code>docs/</code> e <code>.harness/</code> ·
   fontes primárias: <code>README.md</code>, <code>docs/plugin/GUIDE.md</code>,
   <code>.harness/LIFECYCLE.md</code>, <code>docs/roadmap-autonomous.md</code> e os docstrings
-  dos 44 módulos.
+  dos 45 módulos.
 </footer>
 
 <script>

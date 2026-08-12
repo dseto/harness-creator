@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-03",
+  "contract": "parei-e-sua-vez",
+  "desc": "O aviso de fim de sessão para de cobrar verificação da tarefa parada e passa a mostrar o que está na mão da pessoa; sem nenhuma tarefa parada, o texto é o de sempre",
+  "files": [
+    "src/harness/stop_hook.py",
+    "tests/test_stop_hook.py"
+  ],
+  "verify_cmd": "pytest tests/test_stop_hook.py -q",
+  "recorded_at": "2026-08-12T02:06:49.431966+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:79202031d13709920c891fcf1acfd8405a31d3ae254769e294a511c0d6dbc131"
+}

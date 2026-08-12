@@ -1,0 +1,14 @@
+{
+  "feature_id": "T-04",
+  "contract": "parei-e-sua-vez",
+  "desc": "O placar de andamento e o arquivo de progresso mostram a tarefa parada com a ação que cabe à pessoa, distinta de tarefa por fazer",
+  "files": [
+    "src/harness/panel.py",
+    "src/harness/templates.py",
+    "tests/test_panel.py"
+  ],
+  "verify_cmd": "pytest tests/test_panel.py -q",
+  "recorded_at": "2026-08-12T01:47:05.055919+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:712a22e16d42df4d3a3ca78319645c32607da795e0a5119a45c7065c081f243b"
+}

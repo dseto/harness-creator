@@ -127,6 +127,181 @@ def test_feature_in_progress_without_evidence_signals(tmp_path: Path) -> None:
     assert "harness verify" in context
 
 
+# ---------------- tarefa parada esperando o humano (contrato `parei-e-sua-vez`) ----------------
+#
+# O defeito medido: o hook cobrava `harness verify T-04` de uma fatia que só
+# andava depois de uma edição humana. O agente obedecia, falhava pelo mesmo
+# motivo, e o hook cobrava de novo. Aqui o hook para de cobrar e passa a
+# mostrar o que está na mão da pessoa — sem nunca bloquear a sessão.
+
+NEEDS = "editar test_glob na linha 27 de .harness/harness.yaml e rodar harness compile-session"
+
+
+def _write_block(
+    tmp_path: Path,
+    feature_id: str,
+    *,
+    contract: str = "exemplo",
+    watch: str | None = None,
+) -> None:
+    """Grava o bloqueio pelo MÓDULO REAL, nunca por um json escrito à mão.
+
+    A fixture antiga montava o dicionário na mão e esquecia `watch_hash` — com
+    a chave ausente, o segundo caminho de destrave ficava desligado nos dois
+    lados e o teste passava com a lógica errada. Usar `record_block` faz o
+    registro do teste ser o mesmo registro da produção, por construção."""
+    from harness.blocks import record_block
+
+    record_block(
+        tmp_path,
+        contract,
+        feature_id,
+        needs=NEEDS,
+        recorded_at="2026-08-12T01:00:00+00:00",
+        watch=watch,
+    )
+
+
+def test_blocked_feature_is_not_asked_to_verify(tmp_path: Path) -> None:
+    feature = _make_feature_with_uncommitted_diff(tmp_path)
+    _write_feature_list(tmp_path, [feature])
+    _write_block(tmp_path, "T-01")
+
+    output = _run_hook(_write_hook_script(tmp_path), tmp_path)
+
+    assert output != "", "a fatia parada continua sendo reportada — só não é cobrada"
+    context = json.loads(output)["hookSpecificOutput"]["additionalContext"]
+    assert "harness verify" not in context
+    assert NEEDS in context
+    assert "T-01" in context
+
+
+def test_blocked_and_pending_features_are_reported_side_by_side(tmp_path: Path) -> None:
+    """Uma parada e uma em progresso ao mesmo tempo: a cobrança continua para a
+    que depende só de código, e some para a que depende de uma pessoa."""
+    _init_git_repo(tmp_path)
+    for name in ("a", "b"):
+        path = tmp_path / "src" / f"{name}.py"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("value = 1\n", encoding="utf-8")
+    _commit_all(tmp_path, "commit inicial")
+    for name in ("a", "b"):
+        (tmp_path / "src" / f"{name}.py").write_text("value = 2\n", encoding="utf-8")
+
+    _write_feature_list(
+        tmp_path,
+        [
+            {"id": "T-01", "files": ["src/a.py"], "verify_cmd": "pytest", "passes": False},
+            {"id": "T-02", "files": ["src/b.py"], "verify_cmd": "pytest", "passes": False},
+        ],
+    )
+    _write_block(tmp_path, "T-02")
+
+    output = _run_hook(_write_hook_script(tmp_path), tmp_path)
+    context = json.loads(output)["hookSpecificOutput"]["additionalContext"]
+
+    assert "harness verify" in context
+    assert NEEDS in context
+    charged = context.split("atualizada: ")[1].split(".")[0]
+    assert charged == "T-01", "só a fatia que depende de código continua cobrada"
+
+
+def test_a_block_of_another_contract_does_not_silence_the_charge(tmp_path: Path) -> None:
+    feature = _make_feature_with_uncommitted_diff(tmp_path)
+    _write_feature_list(tmp_path, [feature])
+    _write_block(tmp_path, "T-01", contract="outro-contrato")
+
+    output = _run_hook(_write_hook_script(tmp_path), tmp_path)
+    context = json.loads(output)["hookSpecificOutput"]["additionalContext"]
+
+    assert "harness verify" in context
+    assert NEEDS not in context
+
+
+def test_a_blocked_feature_alone_still_never_blocks_the_session(tmp_path: Path) -> None:
+    """O canal continua sendo `additionalContext`: bloqueio declarado é
+    informação de estado, nunca barreira de runtime (não-objetivo do spec)."""
+    feature = _make_feature_with_uncommitted_diff(tmp_path)
+    _write_feature_list(tmp_path, [feature])
+    _write_block(tmp_path, "T-01")
+
+    payload = json.loads(_run_hook(_write_hook_script(tmp_path), tmp_path))
+
+    assert payload["hookSpecificOutput"]["hookEventName"] == "Stop"
+    assert "decision" not in payload
+
+
+def test_the_generated_hook_stops_announcing_a_wait_that_already_ended(
+    tmp_path: Path,
+) -> None:
+    """O caminho 2 do destrave tem de valer para o hook TAMBÉM, e é ele que
+    fica mais tempo sem ser olhado. Sem isto, supervisor, placar e finish já
+    voltaram a tratar a fatia como normal enquanto o hook segue anunciando
+    'está PARADA' — quatro leitores do mesmo estado contando histórias
+    diferentes, indefinidamente."""
+    feature = _make_feature_with_uncommitted_diff(tmp_path)
+    _write_feature_list(tmp_path, [feature])
+    watched = tmp_path / "cfg.yaml"
+    watched.write_text("antes\n", encoding="utf-8")
+    _write_block(tmp_path, "T-01", watch="cfg.yaml")
+
+    script = _write_hook_script(tmp_path)
+    before = json.loads(_run_hook(script, tmp_path))["hookSpecificOutput"]["additionalContext"]
+    assert NEEDS in before
+
+    watched.write_text("depois\n", encoding="utf-8")
+
+    after = json.loads(_run_hook(script, tmp_path))["hookSpecificOutput"]["additionalContext"]
+    assert NEEDS not in after, "a espera acabou — o hook não pode seguir anunciando"
+    assert "harness verify" in after, "e a fatia volta a ser cobrada como qualquer outra"
+
+
+def test_the_generated_hook_keeps_the_wait_when_the_watched_file_is_unreadable(
+    tmp_path: Path,
+) -> None:
+    """Arquivo esperado que ainda não existe é espera legítima — e continuar
+    esperando é o comportamento seguro. Destravar por ausência faria toda
+    espera por um arquivo A CRIAR morrer na primeira leitura."""
+    feature = _make_feature_with_uncommitted_diff(tmp_path)
+    _write_feature_list(tmp_path, [feature])
+    _write_block(tmp_path, "T-01", watch="nao-existe.yaml")
+
+    context = json.loads(_run_hook(_write_hook_script(tmp_path), tmp_path))[
+        "hookSpecificOutput"
+    ]["additionalContext"]
+
+    assert NEEDS in context
+
+
+def test_the_generated_hook_reads_blocks_without_importing_harness(tmp_path: Path) -> None:
+    """D-010: o arquivo gerado repete a LEITURA magra, nunca importa o pacote —
+    ele roda fora do venv do projeto. Este teste executa o arquivo GERADO (não
+    uma cópia da lógica), que é o que impede a duplicação de virar divergência
+    silenciosa."""
+    source = render_stop_hook()
+
+    assert "import harness" not in source
+    assert "from harness" not in source
+    assert ".harness/blocks" in source
+
+
+def test_no_block_keeps_the_message_byte_identical(tmp_path: Path) -> None:
+    """Sem nenhuma fatia parada, a saída é a de sempre — a mudança não pode
+    vazar para quem nunca declarou bloqueio nenhum."""
+    feature = _make_feature_with_uncommitted_diff(tmp_path)
+    _write_feature_list(tmp_path, [feature])
+
+    context = json.loads(_run_hook(_write_hook_script(tmp_path), tmp_path))[
+        "hookSpecificOutput"
+    ]["additionalContext"]
+
+    assert context == (
+        "Feature(s) em progresso sem verificacao atualizada: T-01. "
+        "Rode `harness verify <id>` antes de encerrar a sessao para gravar "
+        "a evidencia em .harness/evidence/<contrato>/<id>.json."
+    )
+
+
 def test_disabled_sentinel_suppresses_stop_feedback(tmp_path: Path) -> None:
     """Kill-switch: com o sentinel presente, o Stop hook faz no-op (não injeta
     feedback) mesmo num cenário que normalmente sinalizaria."""

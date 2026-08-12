@@ -6,7 +6,7 @@ Gerado por `tests/e2e/test_fase2_outcomes.py` (repos sintéticos em tmp_path via
 
 Veredito: **ATINGIDO**
 
-`compile-session` num settings virgem compilou `permissions.allow` EXATAMENTE igual à superfície enumerada (77 regras: Edit/Write dos files[] das 2 tarefas sem duplicar `src/app.py`, os 2 verify_cmd distintos, lint/typecheck/build do profile, `npm ci` do package_manager, git local do ritual). Nenhum wildcard genérico.
+`compile-session` num settings virgem compilou `permissions.allow` EXATAMENTE igual à superfície enumerada (81 regras: Edit/Write dos files[] das 2 tarefas sem duplicar `src/app.py`, os 2 verify_cmd distintos, lint/typecheck/build do profile, `npm ci` do package_manager, git local do ritual). Nenhum wildcard genérico.
 
 ```json
 [
@@ -52,6 +52,8 @@ Veredito: **ATINGIDO**
   "Bash(harness reconcile*)",
   "Bash(harness decide*)",
   "Bash(harness lesson*)",
+  "Bash(harness block*)",
+  "Bash(harness unblock*)",
   "Bash(harness blind*)",
   "Bash(harness health*)",
   "Bash(harness doctor*)",
@@ -79,6 +81,8 @@ Veredito: **ATINGIDO**
   "Bash(python -m harness.cli reconcile*)",
   "Bash(python -m harness.cli decide*)",
   "Bash(python -m harness.cli lesson*)",
+  "Bash(python -m harness.cli block*)",
+  "Bash(python -m harness.cli unblock*)",
   "Bash(python -m harness.cli blind*)",
   "Bash(python -m harness.cli health*)",
   "Bash(python -m harness.cli doctor*)",

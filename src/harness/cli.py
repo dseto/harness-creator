@@ -100,6 +100,47 @@ _AUTO_UPDATE_EXEMPT_COMMANDS = frozenset(
 )
 
 
+#: Verbos de DIAGNÓSTICO puro. Eles não liquidam bloqueio: o `boundary_guard`
+#: justifica a entrada de vários deles na allowlist dizendo, por escrito, que
+#: são read-only ("Read-only por construcao" para `health`) — e um `harness
+#: doctor` que apaga arquivo é surpresa cara de descobrir em campo. Perguntar
+#: pelo estado não pode mudá-lo.
+_DIAGNOSTIC_COMMANDS = frozenset({"doctor", "health", "audit", "audit-runtime", "audit-team"})
+
+
+def _settle_blocks(command: str | None, target_dir: Path) -> None:
+    """Liquida os bloqueios que o `--watch` já resolveu, antes de despachar.
+
+    `blocks.read_block` decide a espera na hora da leitura, então supervisor,
+    placar, hook Stop e finish já veem a fatia liberada assim que o arquivo
+    esperado muda. Mas `.harness/progress.md` guarda o texto da espera numa
+    coluna ESCRITA, e é ele que a próxima sessão lê primeiro — sem liquidar
+    aqui, quatro superfícies dizem "voltou a andar" e o progresso continua
+    dizendo AGUARDANDO VOCÊ. É a mentira de estado que este contrato existe
+    para fechar, com o sinal trocado.
+
+    Fica na CLI, e não dentro de `dispatch_next`/`collect_state`, porque os
+    dois prometem ser só leitura — e a promessa vale mais que a conveniência.
+    Falha aqui nunca derruba o comando: liquidar é bookkeeping.
+    """
+    if command in _DIAGNOSTIC_COMMANDS:
+        return
+    try:
+        from harness.blocks import settle_blocks
+        from harness.contract import FEATURE_LIST_FILE
+        from harness.templates import update_progress_status
+
+        feature_list_path = target_dir.resolve() / FEATURE_LIST_FILE
+        if not feature_list_path.is_file():
+            return
+        contract = json.loads(feature_list_path.read_text(encoding="utf-8-sig")).get("contract")
+        for feature_id in settle_blocks(target_dir, contract):
+            # Volta a "pending": a fatia deixou de estar parada, não passou.
+            update_progress_status(target_dir, feature_id, "pending")
+    except Exception:
+        pass
+
+
 def _auto_update(command: str | None, target_dir: Path) -> None:
     """Sincroniza os artefatos compilados com o pacote instalado antes de
     despachar o subcomando. Ver `harness.autoupdate`.
@@ -360,6 +401,36 @@ def main() -> None:
     sup = sub.add_parser("supervise", help="Devolve a próxima feature pronta a trabalhar (ou null)")
     sup.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
 
+    blk = sub.add_parser(
+        "block",
+        help="Declara que a feature parou por depender de uma AÇÃO HUMANA e diz "
+        "qual é. Enquanto valer, o supervisor não a oferece, o hook Stop não "
+        "cobra verificação dela e a demanda não encerra",
+    )
+    blk.add_argument("feature_id", help="Id da feature em .harness/feature_list.json")
+    blk.add_argument(
+        "--needs",
+        required=True,
+        help="A ação concreta que cabe ao humano (arquivo, linha, comando) — é o "
+        "texto que aparece no placar, no progresso e no fecho",
+    )
+    blk.add_argument(
+        "--watch",
+        default=None,
+        help="Caminho, relativo à raiz, do arquivo que o bloqueio está esperando "
+        "mudar (opcional)",
+    )
+    blk.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+
+    unblk = sub.add_parser(
+        "unblock",
+        help="Libera uma feature parada: a ação humana que ela esperava foi "
+        "feita. Também sai sozinho quando o arquivo esperado muda ou quando a "
+        "verificação passa",
+    )
+    unblk.add_argument("feature_id", help="Id da feature em .harness/feature_list.json")
+    unblk.add_argument("--dir", default=".", help="Raiz do projeto-alvo")
+
     bud = sub.add_parser(
         "budget",
         help="Disjuntor do loop: conta o rastro de tentativas de uma feature e "
@@ -445,6 +516,7 @@ def main() -> None:
     if getattr(args, "dir", None) is not None:
         args.dir = str(_validated_target_dir(args.dir))
         _auto_update(args.command, Path(args.dir))
+        _settle_blocks(args.command, Path(args.dir))
 
     if args.command == "compile":
         from harness.compiler import compile_project
@@ -954,6 +1026,99 @@ def main() -> None:
 
         next_feature = dispatch_next(Path(args.dir))
         print(json.dumps({"next": next_feature}, indent=2, ensure_ascii=False))
+        sys.exit(0)
+
+    if args.command == "block":
+        from datetime import datetime, timezone
+
+        from harness.blocks import BlockError, record_block
+        from harness.contract import FEATURE_LIST_FILE
+
+        target_dir = Path(args.dir)
+        feature_list_path = target_dir.resolve() / FEATURE_LIST_FILE
+        # Sem contrato compilado não há id a conferir nem escopo onde gravar: o
+        # bloqueio existe para dizer "esta FATIA do contrato parou", e sem
+        # contrato a frase não tem sujeito.
+        if not feature_list_path.is_file():
+            print(f"erro: {feature_list_path}: feature_list.json não encontrado", file=sys.stderr)
+            sys.exit(1)
+
+        try:
+            feature_list_data = json.loads(feature_list_path.read_text(encoding="utf-8-sig"))
+        except json.JSONDecodeError as exc:
+            print(f"erro: {feature_list_path}: JSON inválido — {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        contract_slug = feature_list_data.get("contract")
+        known_ids = [f.get("id") for f in feature_list_data.get("features", []) if f.get("id")]
+
+        try:
+            path = record_block(
+                target_dir,
+                contract_slug,
+                args.feature_id,
+                needs=args.needs,
+                recorded_at=datetime.now(timezone.utc).isoformat(),
+                watch=args.watch,
+                known_ids=known_ids,
+            )
+        except BlockError as exc:
+            print(f"erro: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        # A tabela do progress.md é o que a SESSÃO SEGUINTE lê. Sem carimbar a
+        # espera aqui, a sessão nova abre vendo "pending" e recomeça a bater na
+        # mesma parede — que é o defeito inteiro deste contrato.
+        from harness.templates import update_progress_status
+
+        update_progress_status(
+            target_dir, args.feature_id, f"AGUARDANDO VOCÊ — {args.needs.strip()}"
+        )
+
+        print(
+            json.dumps(
+                {
+                    "blocked": args.feature_id,
+                    "contract": contract_slug,
+                    "needs": args.needs.strip(),
+                    "watch": args.watch,
+                    "block_file": str(path),
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        sys.exit(0)
+
+    if args.command == "unblock":
+        from harness.blocks import clear_block
+        from harness.contract import FEATURE_LIST_FILE
+        from harness.templates import update_progress_status
+
+        target_dir = Path(args.dir)
+        feature_list_path = target_dir.resolve() / FEATURE_LIST_FILE
+        contract_slug = None
+        if feature_list_path.is_file():
+            try:
+                contract_slug = json.loads(
+                    feature_list_path.read_text(encoding="utf-8-sig")
+                ).get("contract")
+            except json.JSONDecodeError:
+                contract_slug = None
+
+        cleared = clear_block(target_dir, contract_slug, args.feature_id)
+        if cleared:
+            # A fatia volta a ser "pending": ela não passou, só deixou de estar
+            # parada. Marcá-la de qualquer outra coisa aqui inventaria progresso.
+            update_progress_status(target_dir, args.feature_id, "pending")
+
+        print(
+            json.dumps(
+                {"unblocked": args.feature_id, "was_blocked": cleared},
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
         sys.exit(0)
 
     if args.command == "budget":

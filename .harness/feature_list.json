@@ -1,37 +1,42 @@
 {
-  "contract": "skips-nunca-silenciosos",
-  "compiled_at": "2026-08-10T19:13:48.600297+00:00",
-  "compiled_with_version": "0.33.0",
+  "contract": "parei-e-sua-vez",
+  "compiled_at": "2026-08-12T01:46:30.445166+00:00",
+  "compiled_with_version": "0.34.0",
   "stop_conditions": {
     "typed": [],
     "advisory": [
       "3 falhas consecutivas do mesmo verify_cmd na mesma tarefa",
-      "Detectar os motivos dos skips exigir alterar o verify_cmd do contrato — pare e escale: preservar o texto do contrato é garantia, não preferência",
-      "A suíte deste repositório ficar bloqueada pela T-04 sem que a chave de liberação do harness.yaml a destrave — sinal de que a liberação não funciona, e implementar em volta disso esconde o defeito",
-      "O parser de saída de runner precisar executar o verify_cmd mais de uma vez para decidir — o custo de rodar a suíte duas vezes é proibitivo e a decisão precisa sair da mesma execução"
+      "Fazer o hook Stop enxergar o bloqueio exigir que o arquivo gerado importe o pacote `harness` — pare e escale: o hook roda fora do venv do projeto, e a decisão D-010 já resolveu essa fronteira uma vez",
+      "O bloqueio precisar ser gravado dentro de `.harness/feature_list.json` para funcionar — pare: aquele arquivo nasce de `compile-contract` e não se edita à mão; bloqueio é estado de sessão, não cláusula de contrato",
+      "Destravar exigir que o agente escreva em `.harness/harness.yaml` ou em qualquer arquivo do plano de controle — pare: é exatamente o bloqueio que esta demanda existe para respeitar",
+      "Alguma tarefa exigir que o bloqueio SUMA de alguma saída (status, progresso, encerramento) para caber — pare: bloqueio invisível é o defeito, não a solução"
     ]
   },
   "features": [
     {
       "id": "T-01",
-      "desc": "A saída de qualquer runner de teste passa a ser lida: quantos testes pularam, por quê quando o motivo aparece, e se nenhum teste chegou a ser coletado",
+      "desc": "O agente passa a poder declarar que parou por depender de uma pessoa, nomeando em uma frase o que essa pessoa precisa fazer — e declaração sem motivo é recusada",
       "files": [
-        "src/harness/skips.py",
-        "tests/test_skips.py"
+        "src/harness/blocks.py",
+        "src/harness/cli.py",
+        "tests/test_blocks.py",
+        "src/harness/boundary_guard.py",
+        "tests/test_boundary_guard.py",
+        "tests/e2e/evidence/fase2-outcomes-verification.md"
       ],
-      "verify_cmd": "pytest tests/test_skips.py -q",
+      "verify_cmd": "pytest tests/test_blocks.py -q",
       "depends": [],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-02",
-      "desc": "Toda execução de `harness verify` diz quantos testes pularam, verde ou vermelho, sem precisar de flag — e quando os motivos não estão visíveis na saída, diz isso e ensina como revelá-los",
+      "desc": "Uma tarefa parada esperando a pessoa deixa de ser oferecida como próxima a trabalhar; as demais continuam na mesma ordem",
       "files": [
-        "src/harness/verify.py",
-        "tests/test_verify_skips.py"
+        "src/harness/supervisor.py",
+        "tests/test_supervisor.py"
       ],
-      "verify_cmd": "pytest tests/test_verify_skips.py -q",
+      "verify_cmd": "pytest tests/test_supervisor.py -q",
       "depends": [
         "T-01"
       ],
@@ -40,15 +45,12 @@
     },
     {
       "id": "T-03",
-      "desc": "Um comando explícito roda a suíte, mostra ao humano tudo o que pulou e grava essa lista como o conjunto conhecido; a verificação normal nunca escreve essa lista sozinha",
+      "desc": "O aviso de fim de sessão para de cobrar verificação da tarefa parada e passa a mostrar o que está na mão da pessoa; sem nenhuma tarefa parada, o texto é o de sempre",
       "files": [
-        "src/harness/skips.py",
-        "src/harness/cli.py",
-        "src/harness/boundary_guard.py",
-        "tests/test_skips_baseline.py",
-        "tests/e2e/evidence/fase2-outcomes-verification.md"
+        "src/harness/stop_hook.py",
+        "tests/test_stop_hook.py"
       ],
-      "verify_cmd": "pytest tests/test_skips_baseline.py -q",
+      "verify_cmd": "pytest tests/test_stop_hook.py -q",
       "depends": [
         "T-01"
       ],
@@ -57,81 +59,64 @@
     },
     {
       "id": "T-04",
-      "desc": "Um teste que começa a pular do nada derruba a verificação e nomeia o que pulou; o que já era conhecido passa sem atrito, e o que deixou de pular só informa",
+      "desc": "O placar de andamento e o arquivo de progresso mostram a tarefa parada com a ação que cabe à pessoa, distinta de tarefa por fazer",
       "files": [
-        "src/harness/verify.py",
-        "src/harness/skips.py",
-        "tests/test_skips_delta.py"
+        "src/harness/panel.py",
+        "src/harness/templates.py",
+        "tests/test_panel.py"
       ],
-      "verify_cmd": "pytest tests/test_skips_delta.py -q",
+      "verify_cmd": "pytest tests/test_panel.py -q",
       "depends": [
-        "T-02",
-        "T-03"
+        "T-01"
       ],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-05",
-      "desc": "Teste pulado por falta de variável de ambiente, credencial ou ferramenta para o trabalho já na primeira vez, nomeando o que falta — e o dono do repositório libera os pulos legítimos uma única vez no arquivo de configuração",
+      "desc": "A tarefa volta a andar por três caminhos e só por eles: a pessoa libera, o arquivo que estava sendo esperado muda, ou a verificação passa",
       "files": [
-        "src/harness/skips.py",
+        "src/harness/blocks.py",
         "src/harness/verify.py",
-        "src/harness/config.py",
-        "tests/test_skips_actionable.py"
+        "src/harness/cli.py",
+        "tests/test_blocks.py"
       ],
-      "verify_cmd": "pytest tests/test_skips_actionable.py -q",
+      "verify_cmd": "pytest tests/test_blocks.py -q",
       "depends": [
-        "T-02"
+        "T-01"
       ],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-06",
-      "desc": "A prova gravada em disco passa a registrar o que pulou, para que quem abrir a evidência semanas depois veja a mesma coisa que quem rodou viu",
+      "desc": "O encerramento da demanda não acontece enquanto houver tarefa parada esperando a pessoa — a pendência aparece nomeada, com a ação esperada",
       "files": [
-        "src/harness/verify.py",
-        "tests/test_skips_evidence.py"
+        "src/harness/finish.py",
+        "tests/test_finish.py"
       ],
-      "verify_cmd": "pytest tests/test_skips_evidence.py -q",
+      "verify_cmd": "pytest tests/test_finish.py -q",
       "depends": [
-        "T-02"
+        "T-01"
       ],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-07",
-      "desc": "O arquivo de configuração do harness passa a nascer com todas as opções que ele aceita, cada uma com seu valor padrão e uma linha explicando — nenhuma opção fica descobrível só lendo o código",
+      "desc": "O documento de governança lido no início de toda sessão ensina o gesto: ao esbarrar em dependência humana, declarar a parada em vez de repetir a tentativa",
       "files": [
-        "src/harness/config.py",
-        "src/harness/templates.py",
-        "skills/init/SKILL.md",
-        "tests/test_config_template.py"
-      ],
-      "verify_cmd": "pytest tests/test_config_template.py -q",
-      "depends": [
-        "T-05"
-      ],
-      "cwd": null,
-      "passes": true
-    },
-    {
-      "id": "T-08",
-      "desc": "A documentação continua batendo com o código depois do módulo e do subcomando novos: as contagens que ela declara conferem",
-      "files": [
+        "src/harness/lifecycle.py",
+        "tests/test_lifecycle.py",
         "README.md",
-        "docs/reference/loop-engineering-design.md",
-        "AGENTS.md",
         "docs/plugin/TUTORIAL.md",
         "docs/plugin/ARCHITECTURE.md",
-        "docs/plugin/arquitetura-visual.html"
+        "docs/plugin/arquitetura-visual.html",
+        "AGENTS.md"
       ],
-      "verify_cmd": "pytest tests/test_docs_derived_facts.py -q",
+      "verify_cmd": "pytest tests/test_lifecycle.py -q",
       "depends": [
-        "T-03",
-        "T-07"
+        "T-01"
       ],
       "cwd": null,
       "passes": true

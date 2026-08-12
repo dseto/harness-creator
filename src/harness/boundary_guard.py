@@ -202,6 +202,14 @@ HARNESS_CLI_VERBS: tuple[str, ...] = (
     # spine nunca sao escritos por ninguem. Superficie estreita: os dois so
     # acrescentam linha no fim do arquivo, nunca reescrevem.
     "decide", "lesson",
+    # 'block' e o verbo do estado "parei, e sua vez": ele escreve em
+    # .harness/blocks/** -- de novo dentro de .harness/**, de novo pelo mesmo
+    # motivo de 'decide'/'lesson'. Fora desta lista, o agente que esbarra numa
+    # dependencia humana nao consegue REGISTRAR isso, e volta a repetir a
+    # tentativa contra a mesma parede -- que e o defeito exato que o verbo
+    # existe para corrigir. Superficie estreita: grava um json por fatia, nunca
+    # toca contrato, evidencia ou plano de controle.
+    "block", "unblock",
     # 'blind' e a camada 3 (secao 6 do design): monta o pacote em
     # .harness/scratch/ e grava o veredito em .harness/blind-review/ -- de novo
     # dentro de .harness/**, de novo pelo mesmo motivo.
