@@ -254,6 +254,11 @@ def test_compile_session_installs_the_status_line(
     _write_contract(tmp_path, [_feature("T-01", "tarefa")])
     _write(tmp_path / "pyproject.toml", '[project]\nname = "x"\n')
     (tmp_path / "tests").mkdir(exist_ok=True)
+    # T-01 (contrato setup-fail-closed-sem-init): compile-session exige
+    # harness.yaml -- este teste cobre a instalação da statusline, não o
+    # gate de setup, então simula um repo que já rodou \harness-creator:init
+    # (mesmo padrão de tests/test_cli.py e tests/test_contract.py).
+    _write(tmp_path / ".harness" / "harness.yaml", "governance:\n  approval_policy: default\n")
 
     monkeypatch.setattr(sys, "argv", ["harness", "compile-session", "--dir", str(tmp_path)])
     with pytest.raises(SystemExit) as exc_info:

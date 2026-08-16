@@ -36,6 +36,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from harness import __version__ as _HARNESS_VERSION
 from harness.branching import is_git_repository, unmanaged_dirty_paths
 from harness.contract import FEATURE_LIST_FILE
 from harness.killswitch import SENTINEL_RELATIVE_PATH, is_disabled
@@ -43,6 +44,23 @@ from harness.verify import compute_files_hash, evidence_path
 
 PROGRESS_FILE = ".harness/progress.md"
 SCRATCH_DIR = ".harness/scratch"
+CHANGELOG_FILE = "docs/reference/CHANGELOG.md"
+
+#: Réplica de `tests/test_version_sync.py::_DOC_VERSION_MARKERS` — aquele
+#: teste é a FONTE DA VERDADE sobre quais marcadores de versão em
+#: documentação precisam acompanhar um bump de `harness.__version__`.
+#: Duplicado aqui em vez de importado porque `tests/` não é pacote instalável
+#: (sem `__init__.py`, fora de `packages` do pyproject) — importar módulo de
+#: teste do código de produção seria frágil fora do ambiente de pytest.
+#: Se `test_version_sync.py` ganhar/remover um marcador, esta lista precisa
+#: acompanhar à mão — é o preço documentado de não duplicar via import.
+_DOC_VERSION_MARKERS: tuple[tuple[str, str], ...] = (
+    ("README.md", "**v<V>** · [CHANGELOG]"),
+    ("docs/plugin/ARCHITECTURE.md", "**v<V>** · versão navegável"),
+    ("docs/plugin/arquitetura-visual.html", '<span class="pill v">v<V></span>'),
+    ("docs/plugin/arquitetura-visual.html", "<strong>harness-creator v<V></strong>"),
+    ("docs/plugin/GUIDE.md", '"source": "./", "version": "<V>" }'),
+)
 
 #: Preservado ao esvaziar o scratch: é o arquivo que mantém a pasta fora do
 #: `git status`, e apagá-lo faria o próximo rascunho poluir o repo.
@@ -151,12 +169,80 @@ def _blind_review_blockers(target_dir: Path) -> list[dict[str, str]]:
     ]
 
 
+def _docs_version_check(target_dir: Path) -> dict[str, Any]:
+    """Checagem INFORMATIVA de docs/CHANGELOG/versão para o fecho da demanda
+    (T-07, contrato `setup-fail-closed-sem-init`).
+
+    REGRA DURA: o resultado desta função NUNCA vira `blocker` nem afeta o
+    exit code de `harness finish` — atualizar CHANGELOG/versão/marcadores é
+    decisão do desenvolvedor. `audit_closure` só reporta o que encontrou; é o
+    passo de commit do lifecycle (`lifecycle.py`, passo 16) quem PERGUNTA ao
+    humano se a atualização entra nesta entrega.
+
+    Três campos:
+
+    - `version` — `harness.__version__` corrente.
+    - `changelog_has_entry` — o CHANGELOG (`docs/reference/CHANGELOG.md`) tem
+      uma seção `## v<version> —`? Critério pela VERSÃO corrente, e
+      DELIBERADAMENTE não pelo slug do contrato: o CHANGELOG já é indexado
+      por versão (é o que `test_changelog_has_a_section_for_the_current_version`
+      em `tests/test_version_sync.py` verifica), uma demanda pode fechar sem
+      gerar bump nenhum (mudança que não é release), e nada no projeto
+      garante que o slug do contrato apareça no texto do CHANGELOG — usar o
+      slug como critério daria falso-negativo justamente nas demandas mais
+      comuns. A versão é o dado robusto e já testado.
+    - `doc_markers_in_sync` / `stale_markers` — cada marcador de
+      `_DOC_VERSION_MARKERS` que bate com `harness.__version__` no arquivo do
+      REPOSITÓRIO-ALVO (`target_dir`), o mesmo conjunto que
+      `tests/test_version_sync.py` protege neste repositório. Arquivo ausente
+      no alvo (ex.: `harness finish` rodando num projeto que consome o
+      harness, não neste próprio repo) não conta como divergência — só entra
+      em `stale_markers` o marcador de um arquivo que EXISTE e está
+      desatualizado.
+    """
+    changelog_path = target_dir / CHANGELOG_FILE
+    changelog_has_entry = False
+    if changelog_path.is_file():
+        # `UnicodeDecodeError` é `ValueError`, não `OSError`: sem ele no except,
+        # um README em latin-1 de projeto consumidor derruba o `harness finish`
+        # inteiro por causa de uma checagem que é só informativa.
+        try:
+            changelog_text = changelog_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            changelog_text = ""
+        changelog_has_entry = f"## v{_HARNESS_VERSION} —" in changelog_text
+
+    stale_markers: list[str] = []
+    for relative_path, template in _DOC_VERSION_MARKERS:
+        doc_path = target_dir / relative_path
+        if not doc_path.is_file():
+            continue
+        try:
+            doc_text = doc_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        expected = template.replace("<V>", _HARNESS_VERSION)
+        if expected not in doc_text:
+            stale_markers.append(relative_path)
+
+    return {
+        "version": _HARNESS_VERSION,
+        "changelog_has_entry": changelog_has_entry,
+        "doc_markers_in_sync": not stale_markers,
+        "stale_markers": sorted(set(stale_markers)),
+    }
+
+
 def audit_closure(target_dir: Path | str) -> dict[str, Any]:
     """Audita o fecho da demanda. SÓ LEITURA — nada em disco muda aqui.
 
-    Devolve `{"contract": <slug|None>, "blockers": [...], "features": [...]}`.
-    Cada bloqueador é `{"kind": ..., "problem": <frase para o humano>}`. Fecho
-    íntegro -> `blockers == []`.
+    Devolve `{"contract": <slug|None>, "blockers": [...], "features": [...],
+    "docs_version": {...}}`. Cada bloqueador é `{"kind": ...,
+    "problem": <frase para o humano>}`. Fecho íntegro -> `blockers == []`.
+
+    `docs_version` (ver `_docs_version_check`) é sempre INFORMATIVO: nunca
+    entra em `blockers`, nunca muda se o fecho passa ou não — a atualização
+    de docs/CHANGELOG/versão é opcional, decisão do desenvolvedor.
 
     Os `kind` possíveis e o que cada um significa:
 
@@ -199,7 +285,12 @@ def audit_closure(target_dir: Path | str) -> dict[str, Any]:
                 "Rode `harness compile-contract` antes.",
             )
         )
-        return {"contract": None, "blockers": blockers, "features": []}
+        return {
+            "contract": None,
+            "blockers": blockers,
+            "features": [],
+            "docs_version": _docs_version_check(target_dir),
+        }
 
     contract = str(data.get("contract") or "") or None
     declared_files: set[str] = set()
@@ -266,7 +357,12 @@ def audit_closure(target_dir: Path | str) -> dict[str, Any]:
             )
         )
 
-    return {"contract": contract, "blockers": blockers, "features": features_report}
+    return {
+        "contract": contract,
+        "blockers": blockers,
+        "features": features_report,
+        "docs_version": _docs_version_check(target_dir),
+    }
 
 
 def render_human_summary(report: dict[str, Any]) -> str:

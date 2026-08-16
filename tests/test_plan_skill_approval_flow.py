@@ -91,3 +91,56 @@ def test_the_branch_boundary_survives_the_automation() -> None:
 
     assert "contract/" in passo9_e_diante
     assert "main" in passo9_e_diante
+
+
+# ---------------- setup fail-closed: gate de entrada da skill ----------------
+#
+# Incidente que motiva estes testes: uma sessão real rodou preflight e foi
+# direto para plan num repo sem `.harness/harness.yaml`. Nenhum aviso
+# enfático apareceu, o plano executou inteiro, alterações fora do contrato
+# passaram, e só no fim o harness confessou que faltava governança instalada.
+# A skill agora precisa parar ANTES da entrevista, não descrever mais o
+# cenário "compila com aviso" nos passos de compilação.
+
+
+def test_step_zero_requires_harness_yaml_setup_gate() -> None:
+    """Passo 0 checa `.harness/harness.yaml` e redireciona para o init antes
+    de qualquer entrevista — sem isso o furo do incidente reabre."""
+    lower = _text().lower()
+
+    assert "## passo 0" in lower
+    assert "## passo 1" in lower
+    passo0 = lower[lower.index("## passo 0"):lower.index("## passo 1")]
+
+    assert ".harness/harness.yaml" in passo0
+    assert "/harness-creator:init" in passo0
+
+
+def test_step_zero_precedes_analyze_setup_gate() -> None:
+    """Ordem importa: a checagem de governança vem antes do `analyze` e de
+    qualquer entrevista — não depois, não em paralelo."""
+    lower = _text().lower()
+
+    idx_passo0 = lower.index("## passo 0")
+    idx_passo1 = lower.index("## passo 1")
+    assert idx_passo0 < idx_passo1
+
+    passo1 = lower[idx_passo1:lower.index("## passo 2")]
+    assert "analyze" in passo1
+
+
+def test_compile_steps_no_longer_succeed_without_harness_yaml_setup_gate() -> None:
+    """Passos 6/7 (compile-contract/compile-session) precisam descrever o
+    exit 1 por `.harness/harness.yaml` ausente com o redirecionamento para o
+    init — e não podem mais descrever esse cenário como algo que só avisa e
+    segue compilando."""
+    lower = _text().lower()
+
+    idx_passo6 = lower.index("## passo 6")
+    idx_passo8 = lower.index("## passo 8")
+    passos_6_e_7 = lower[idx_passo6:idx_passo8]
+
+    assert ".harness/harness.yaml" in passos_6_e_7
+    assert "/harness-creator:init" in passos_6_e_7
+    assert "avisa, não bloqueia" not in passos_6_e_7
+    assert "avisa, nao bloqueia" not in passos_6_e_7

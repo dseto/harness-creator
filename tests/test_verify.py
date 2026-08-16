@@ -1148,3 +1148,166 @@ def test_evidence_path_falls_back_when_the_contract_is_absent(tmp_path: Path) ->
     assert evidence_path(tmp_path, None, "T-01").parent.name == UNSCOPED_EVIDENCE_DIR
     assert evidence_path(tmp_path, "   ", "T-01").parent.name == UNSCOPED_EVIDENCE_DIR
     assert evidence_path(tmp_path, "meu-contrato", "T-01").parent.name == "meu-contrato"
+
+
+# ---------------------------------------------------------------------------
+# enforcement_gate (T-03, contrato setup-fail-closed-sem-init): `harness
+# verify <id>` para com exit 1 quando há contrato ativo mas o enforcement
+# não está de pé NESTA máquina (hooks ausentes do settings gerenciado, ou
+# kill-switch ligado) — o cenário do clone novo/segunda máquina: o contrato
+# (.harness/feature_list.json) viaja pelo git, o enforcement machine-local
+# não. `run_verify` (testado acima, à exaustão) continua roda com contrato
+# ativo e SEM hooks/settings instalados — de propósito, são testes de
+# unidade da lógica de verificação, não da governança. O gate mora só em
+# `cli.py` (via harness.health.require_enforcement_installed), então essas
+# funções não precisam saber que ele existe. Ver harness.health para a
+# detecção reusada (`_protection_problem`/`_hooks_missing`).
+# ---------------------------------------------------------------------------
+
+def _write_hooks_installed(tmp_path: Path) -> None:
+    """Registra um hook do harness em `.claude/settings.local.json` — o
+    suficiente para `health._hooks_missing` ver enforcement instalado.
+    `require_enforcement_installed` só checa PRESENÇA (a mesma leitura de
+    `doctor._read_managed_hooks`), não se o interpretador resolve de
+    verdade — isso é outra família (`governance_stale`), já coberta por
+    `doctor`/`repo_issues`."""
+    settings = {
+        "hooks": {
+            "PreToolUse": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": '"python" ".harness/hooks/boundary_guard.py" || exit 2',
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+    _write(
+        tmp_path / ".claude" / "settings.local.json",
+        json.dumps(settings, indent=2, ensure_ascii=False) + "\n",
+    )
+
+
+def _write_harness_yaml(tmp_path: Path) -> None:
+    # O gate (T-03) pressupõe um repositório GOVERNADO (já rodou
+    # /harness-creator:init) clonado sem o output machine-local -- sem
+    # harness.yaml é outro furo (T-01/T-02), fora do escopo deste gate.
+    _write(tmp_path / ".harness" / "harness.yaml", "governance:\n  approval_policy: default\n")
+
+
+def _enforcement_gate_case_hooks_missing(tmp_path: Path) -> None:
+    _write(tmp_path / "src" / "x.py", "print('hi')\n")
+    _write_harness_yaml(tmp_path)
+    _write_feature_list(
+        tmp_path,
+        [{"id": "T-01", "desc": "Criar x", "files": ["src/x.py"],
+          "verify_cmd": _true_cmd(), "depends": [], "passes": False}],
+    )
+    # Sem .claude/settings.local.json nenhum -- hooks ausentes por definição.
+
+
+def _enforcement_gate_case_killswitch_on(tmp_path: Path) -> None:
+    from harness.killswitch import disable
+
+    _write(tmp_path / "src" / "x.py", "print('hi')\n")
+    _write_harness_yaml(tmp_path)
+    _write_feature_list(
+        tmp_path,
+        [{"id": "T-01", "desc": "Criar x", "files": ["src/x.py"],
+          "verify_cmd": _true_cmd(), "depends": [], "passes": False}],
+    )
+    _write_hooks_installed(tmp_path)
+    disable(tmp_path, note="teste enforcement_gate")
+
+
+def _enforcement_gate_case_installed(tmp_path: Path) -> None:
+    _write(tmp_path / "src" / "x.py", "print('hi')\n")
+    _write_harness_yaml(tmp_path)
+    _write_feature_list(
+        tmp_path,
+        [{"id": "T-01", "desc": "Criar x", "files": ["src/x.py"],
+          "verify_cmd": _true_cmd(), "depends": [], "passes": False}],
+    )
+    _write_hooks_installed(tmp_path)
+
+
+def _enforcement_gate_case_no_active_contract(tmp_path: Path) -> None:
+    # Nenhum .harness/feature_list.json -- sem contrato ativo, o gate não é
+    # da conta deste comando (outro erro, "feature_list.json não
+    # encontrado", cuida disso).
+    pass
+
+
+@pytest.mark.parametrize(
+    "setup, expect_exit, expect_in_stderr, forbid_in_stderr",
+    [
+        pytest.param(
+            _enforcement_gate_case_hooks_missing, 1,
+            "harness compile-session",
+            ("harness enable",),
+            id="hooks_missing",
+        ),
+        pytest.param(
+            _enforcement_gate_case_killswitch_on, 1,
+            "harness enable",
+            ("harness compile-session",),
+            id="killswitch_on",
+        ),
+        pytest.param(
+            _enforcement_gate_case_installed, 0, None, (), id="enforcement_installed",
+        ),
+        pytest.param(
+            _enforcement_gate_case_no_active_contract, 1,
+            "feature_list.json",
+            ("harness compile-session", "harness enable"),
+            id="no_active_contract",
+        ),
+    ],
+)
+def test_verify_enforcement_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    setup,
+    expect_exit: int,
+    expect_in_stderr: str | None,
+    forbid_in_stderr: tuple[str, ...],
+) -> None:
+    from harness.cli import main
+
+    setup(tmp_path)
+
+    monkeypatch.setattr(sys, "argv", ["harness", "verify", "T-01", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == expect_exit
+    err = capsys.readouterr().err
+    if expect_in_stderr is not None:
+        assert expect_in_stderr in err, err
+    for forbidden in forbid_in_stderr:
+        assert forbidden not in err, err
+
+
+def test_verify_enforcement_gate_installed_runs_verify_cmd_and_writes_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Regra (3) do gate: com enforcement instalado, `harness verify`
+    preserva o comportamento de hoje -- roda o verify_cmd de verdade e grava
+    a evidência, sem nenhuma menção ao gate em stderr."""
+    from harness.cli import main
+
+    _enforcement_gate_case_installed(tmp_path)
+
+    monkeypatch.setattr(sys, "argv", ["harness", "verify", "T-01", "--dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 0
+    evidence = tmp_path / ".harness" / "evidence" / "exemplo-feature" / "T-01.json"
+    assert evidence.is_file()
+    data = json.loads(evidence.read_text(encoding="utf-8"))
+    assert data["exit_code"] == 0

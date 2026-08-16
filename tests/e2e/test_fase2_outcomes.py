@@ -323,6 +323,14 @@ def _bootstrap_repo(root: Path) -> None:
     (root / "tests").mkdir(parents=True, exist_ok=True)
     (root / "tests" / "test_app.py").write_text(TEST_APP_PY, encoding="utf-8")
     (root / "tests" / "test_other.py").write_text(TEST_OTHER_PY, encoding="utf-8")
+    # T-01 (contrato setup-fail-closed-sem-init): compile-contract/compile-session
+    # exigem harness.yaml. Todo repo sintético deste módulo representa um repo
+    # que já rodou \harness-creator:init (o que estes outcomes verificam é o
+    # comportamento pós-setup, não o gate de setup em si) — mesmo padrão de
+    # tests/test_cli.py e tests/test_contract.py.
+    yaml_path = root / ".harness" / "harness.yaml"
+    yaml_path.parent.mkdir(parents=True, exist_ok=True)
+    yaml_path.write_text("governance:\n  approval_policy: default\n", encoding="utf-8")
 
 
 def _write_profile(root: Path, package_manager: str = "npm") -> None:

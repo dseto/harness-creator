@@ -1,87 +1,88 @@
 {
-  "contract": "skips-nunca-silenciosos",
-  "compiled_at": "2026-08-10T19:13:48.600297+00:00",
-  "compiled_with_version": "0.33.0",
+  "contract": "setup-fail-closed-sem-init",
+  "compiled_at": "2026-08-16T01:27:42.076689+00:00",
+  "compiled_with_version": "0.34.0",
   "stop_conditions": {
     "typed": [],
     "advisory": [
-      "3 falhas consecutivas do mesmo verify_cmd na mesma tarefa",
-      "Detectar os motivos dos skips exigir alterar o verify_cmd do contrato — pare e escale: preservar o texto do contrato é garantia, não preferência",
-      "A suíte deste repositório ficar bloqueada pela T-04 sem que a chave de liberação do harness.yaml a destrave — sinal de que a liberação não funciona, e implementar em volta disso esconde o defeito",
-      "O parser de saída de runner precisar executar o verify_cmd mais de uma vez para decidir — o custo de rodar a suíte duas vezes é proibitivo e a decisão precisa sair da mesma execução"
+      "3 falhas consecutivas do mesmo teste (`pytest -k <mesmo nome>`)",
+      "uma correção exigir mudar os escapes de runtime do boundary_guard (task add-file, .harness/scratch/, YAML colável) — permanecem intocados por design, fora de escopo"
     ]
   },
   "features": [
     {
       "id": "T-01",
-      "desc": "A saída de qualquer runner de teste passa a ser lida: quantos testes pularam, por quê quando o motivo aparece, e se nenhum teste chegou a ser coletado",
+      "desc": "Compilar um contrato num repo que nunca rodou `harness init` para com erro que ensina o caminho de volta, em vez de compilar com governança pela metade",
       "files": [
-        "src/harness/skips.py",
-        "tests/test_skips.py"
+        "src/harness/contract.py",
+        "src/harness/cli.py",
+        "tests/test_contract.py",
+        "tests/test_contract_stop_conditions.py",
+        "tests/e2e/test_contract_flow.py",
+        "tests/e2e/test_boundary_flow.py"
       ],
-      "verify_cmd": "pytest tests/test_skips.py -q",
+      "verify_cmd": "pytest tests/test_contract.py -q -k setup_gate",
       "depends": [],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-02",
-      "desc": "Toda execução de `harness verify` diz quantos testes pularam, verde ou vermelho, sem precisar de flag — e quando os motivos não estão visíveis na saída, diz isso e ensina como revelá-los",
+      "desc": "Compilar a sessão sem `.harness/harness.yaml` deixa de ser um aviso ignorável em stderr e vira recusa explícita apontando `/harness-creator:init`",
       "files": [
-        "src/harness/verify.py",
-        "tests/test_verify_skips.py"
+        "src/harness/session_permissions.py",
+        "src/harness/cli.py",
+        "tests/test_session_permissions.py",
+        "tests/test_cli.py",
+        "tests/test_statusline.py",
+        "tests/e2e/test_fase2_outcomes.py",
+        "tests/e2e/test_fase3_outcomes.py",
+        "tests/e2e/evidence/fase2-outcomes-verification.md"
       ],
-      "verify_cmd": "pytest tests/test_verify_skips.py -q",
-      "depends": [
-        "T-01"
-      ],
+      "verify_cmd": "pytest tests/test_session_permissions.py tests/test_cli.py -q -k setup_gate",
+      "depends": [],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-03",
-      "desc": "Um comando explícito roda a suíte, mostra ao humano tudo o que pulou e grava essa lista como o conjunto conhecido; a verificação normal nunca escreve essa lista sozinha",
+      "desc": "Verificar tarefas ou supervisionar o ciclo com contrato ativo mas enforcement desligado nesta máquina (hooks ausentes ou kill-switch) para na hora, nomeando o que falta e o comando que religa",
       "files": [
-        "src/harness/skips.py",
+        "src/harness/verify.py",
+        "src/harness/supervisor.py",
         "src/harness/cli.py",
-        "src/harness/boundary_guard.py",
-        "tests/test_skips_baseline.py",
-        "tests/e2e/evidence/fase2-outcomes-verification.md"
+        "src/harness/health.py",
+        "tests/test_verify.py",
+        "tests/test_supervisor.py"
       ],
-      "verify_cmd": "pytest tests/test_skips_baseline.py -q",
+      "verify_cmd": "pytest tests/test_verify.py tests/test_supervisor.py -q -k enforcement_gate",
       "depends": [
-        "T-01"
+        "T-02"
       ],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-04",
-      "desc": "Um teste que começa a pular do nada derruba a verificação e nomeia o que pulou; o que já era conhecido passa sem atrito, e o que deixou de pular só informa",
+      "desc": "A skill plan recusa começar num repo sem init: passo 0 checa `.harness/harness.yaml` e redireciona para `/harness-creator:init` antes de qualquer entrevista",
       "files": [
-        "src/harness/verify.py",
-        "src/harness/skips.py",
-        "tests/test_skips_delta.py"
+        "skills/plan/SKILL.md",
+        "tests/test_plan_skill_approval_flow.py"
       ],
-      "verify_cmd": "pytest tests/test_skips_delta.py -q",
-      "depends": [
-        "T-02",
-        "T-03"
-      ],
+      "verify_cmd": "pytest tests/test_plan_skill_approval_flow.py -q -k setup_gate",
+      "depends": [],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-05",
-      "desc": "Teste pulado por falta de variável de ambiente, credencial ou ferramenta para o trabalho já na primeira vez, nomeando o que falta — e o dono do repositório libera os pulos legítimos uma única vez no arquivo de configuração",
+      "desc": "O cenário real do incidente vira teste de integração: repo .NET sem `harness.yaml` é recusado com a mensagem didática, e o repo governado continua saindo limpo",
       "files": [
-        "src/harness/skips.py",
-        "src/harness/verify.py",
-        "src/harness/config.py",
-        "tests/test_skips_actionable.py"
+        "tests/test_integration_minimumapi.py"
       ],
-      "verify_cmd": "pytest tests/test_skips_actionable.py -q",
+      "verify_cmd": "pytest tests/test_integration_minimumapi.py -q",
       "depends": [
+        "T-01",
         "T-02"
       ],
       "cwd": null,
@@ -89,49 +90,39 @@
     },
     {
       "id": "T-06",
-      "desc": "A prova gravada em disco passa a registrar o que pulou, para que quem abrir a evidência semanas depois veja a mesma coisa que quem rodou viu",
+      "desc": "A documentação para de prometer \"avisa, não bloqueia\" no cenário sem init, e a reversão da decisão v0.30.0 fica registrada com o racional setup-time vs runtime",
       "files": [
-        "src/harness/verify.py",
-        "tests/test_skips_evidence.py"
+        "docs/plugin/GUIDE.md",
+        "docs/plugin/TUTORIAL.md",
+        ".harness/decisions.md",
+        "tests/test_docs_enforcement_claims.py",
+        "README.md",
+        "docs/plugin/arquitetura-visual.html"
       ],
-      "verify_cmd": "pytest tests/test_skips_evidence.py -q",
+      "verify_cmd": "pytest tests/test_docs_enforcement_claims.py -q",
       "depends": [
-        "T-02"
+        "T-01",
+        "T-02",
+        "T-03",
+        "T-04"
       ],
       "cwd": null,
       "passes": true
     },
     {
       "id": "T-07",
-      "desc": "O arquivo de configuração do harness passa a nascer com todas as opções que ele aceita, cada uma com seu valor padrão e uma linha explicando — nenhuma opção fica descobrível só lendo o código",
+      "desc": "Ao encerrar a demanda, o desenvolvedor é perguntado — antes do commit — se quer incluir a atualização de docs/CHANGELOG/versão: o finish reporta o que está pendente, e a escolha é dele",
       "files": [
-        "src/harness/config.py",
-        "src/harness/templates.py",
-        "skills/init/SKILL.md",
-        "tests/test_config_template.py"
+        "src/harness/finish.py",
+        "src/harness/lifecycle.py",
+        "skills/plan/SKILL.md",
+        "tests/test_finish.py",
+        "tests/test_finish_lifecycle_docs.py",
+        "AGENTS.md"
       ],
-      "verify_cmd": "pytest tests/test_config_template.py -q",
+      "verify_cmd": "pytest tests/test_finish.py tests/test_finish_lifecycle_docs.py -q -k \"docs_version or lifecycle\"",
       "depends": [
-        "T-05"
-      ],
-      "cwd": null,
-      "passes": true
-    },
-    {
-      "id": "T-08",
-      "desc": "A documentação continua batendo com o código depois do módulo e do subcomando novos: as contagens que ela declara conferem",
-      "files": [
-        "README.md",
-        "docs/reference/loop-engineering-design.md",
-        "AGENTS.md",
-        "docs/plugin/TUTORIAL.md",
-        "docs/plugin/ARCHITECTURE.md",
-        "docs/plugin/arquitetura-visual.html"
-      ],
-      "verify_cmd": "pytest tests/test_docs_derived_facts.py -q",
-      "depends": [
-        "T-03",
-        "T-07"
+        "T-04"
       ],
       "cwd": null,
       "passes": true

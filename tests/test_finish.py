@@ -321,6 +321,155 @@ def test_an_approved_and_fresh_verdict_does_not_block(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# T-07 (contrato `setup-fail-closed-sem-init`) — checagem INFORMATIVA de
+# docs/CHANGELOG/versão no fecho. Regra dura: nunca vira `blocker`, nunca
+# muda o exit code de `harness finish` — atualizar é decisão do
+# desenvolvedor, perguntada pelo lifecycle antes do commit (ver
+# tests/test_finish_lifecycle_docs.py).
+# ---------------------------------------------------------------------------
+
+def test_audit_docs_version_reports_the_current_package_version(tmp_path: Path) -> None:
+    import harness
+
+    _clean_closure(tmp_path)
+
+    report = audit_closure(tmp_path)
+
+    assert report["docs_version"]["version"] == harness.__version__
+
+
+def test_audit_docs_version_reports_an_entry_for_the_current_version_in_the_changelog(
+    tmp_path: Path,
+) -> None:
+    import harness
+
+    _clean_closure(tmp_path)
+    changelog = tmp_path / "docs" / "reference" / "CHANGELOG.md"
+    changelog.parent.mkdir(parents=True)
+    changelog.write_text(f"## v{harness.__version__} — título\n", encoding="utf-8")
+
+    report = audit_closure(tmp_path)
+
+    assert report["docs_version"]["changelog_has_entry"] is True
+
+
+def test_audit_docs_version_reports_a_changelog_without_an_entry_for_the_current_version(
+    tmp_path: Path,
+) -> None:
+    _clean_closure(tmp_path)
+    changelog = tmp_path / "docs" / "reference" / "CHANGELOG.md"
+    changelog.parent.mkdir(parents=True)
+    changelog.write_text("## v0.0.1 — versão antiga\n", encoding="utf-8")
+
+    report = audit_closure(tmp_path)
+
+    assert report["docs_version"]["changelog_has_entry"] is False
+
+
+def test_audit_docs_version_reports_a_changelog_absent_from_the_target_repo_as_no_entry(
+    tmp_path: Path,
+) -> None:
+    """Repo-alvo sem `docs/reference/CHANGELOG.md` nenhum (ex.: projeto que só
+    adotou o harness agora) não derruba a auditoria — é só `False`."""
+    _clean_closure(tmp_path)
+
+    report = audit_closure(tmp_path)
+
+    assert report["docs_version"]["changelog_has_entry"] is False
+
+
+def test_audit_docs_version_reports_doc_markers_out_of_sync(tmp_path: Path) -> None:
+    _clean_closure(tmp_path)
+    readme = tmp_path / "README.md"
+    readme.write_text("**v0.0.1** · [CHANGELOG](x)\n", encoding="utf-8")
+
+    report = audit_closure(tmp_path)
+
+    assert report["docs_version"]["doc_markers_in_sync"] is False
+    assert "README.md" in report["docs_version"]["stale_markers"]
+
+
+def test_audit_docs_version_survives_documentation_that_is_not_utf8(
+    tmp_path: Path,
+) -> None:
+    """Achado do verificador cego: `UnicodeDecodeError` é `ValueError`, não
+    `OSError` — um README em latin-1 num projeto consumidor derrubava o
+    `harness finish` inteiro por causa de uma checagem só informativa. O
+    arquivo ilegível é ignorado, e o resto do laudo sai normalmente."""
+    import harness
+
+    _clean_closure(tmp_path)
+    (tmp_path / "README.md").write_bytes("**v0.0.1** · governan\xe7a\n".encode("latin-1"))
+    changelog = tmp_path / "docs" / "reference" / "CHANGELOG.md"
+    changelog.parent.mkdir(parents=True, exist_ok=True)
+    changelog.write_bytes("## v0.0.1 vers\xe3o antiga\n".encode("latin-1"))
+
+    report = audit_closure(tmp_path)
+
+    assert report["docs_version"]["version"] == harness.__version__
+    assert report["docs_version"]["changelog_has_entry"] is False
+    assert "README.md" not in report["docs_version"]["stale_markers"]
+    assert not [b for b in report["blockers"] if "docs" in b["kind"]]
+
+
+def test_audit_docs_version_reports_markers_in_sync_when_the_files_are_absent(
+    tmp_path: Path,
+) -> None:
+    """Marcador cujo arquivo nem existe no alvo não é divergência: um projeto
+    consumidor do harness não tem `docs/plugin/ARCHITECTURE.md` deste
+    repositório."""
+    _clean_closure(tmp_path)
+
+    report = audit_closure(tmp_path)
+
+    assert report["docs_version"]["doc_markers_in_sync"] is True
+    assert report["docs_version"]["stale_markers"] == []
+
+
+def test_the_docs_version_check_never_becomes_a_blocker_even_when_everything_is_stale(
+    tmp_path: Path,
+) -> None:
+    """O núcleo da regra dura: CHANGELOG desatualizado e marcador de versão
+    desatualizado convivem com um fecho `blockers: []` — a checagem é
+    informativa, e atualizar é opcional, decisão do desenvolvedor."""
+    _clean_closure(tmp_path)
+    changelog = tmp_path / "docs" / "reference" / "CHANGELOG.md"
+    changelog.parent.mkdir(parents=True)
+    changelog.write_text("## v0.0.1 — bem antiga\n", encoding="utf-8")
+    readme = tmp_path / "README.md"
+    readme.write_text("**v0.0.1** · [CHANGELOG](x)\n", encoding="utf-8")
+
+    report = audit_closure(tmp_path)
+
+    assert report["blockers"] == []
+    assert report["docs_version"]["changelog_has_entry"] is False
+    assert report["docs_version"]["doc_markers_in_sync"] is False
+
+
+def test_cli_finish_exits_0_with_a_stale_changelog_and_includes_docs_version(
+    tmp_path: Path,
+) -> None:
+    """Fim a fim via CLI: repo com CHANGELOG desatualizado ainda encerra
+    limpo (exit 0), e o campo `docs_version` chega ao JSON de stdout."""
+    _clean_closure(tmp_path)
+    changelog = tmp_path / "docs" / "reference" / "CHANGELOG.md"
+    changelog.parent.mkdir(parents=True)
+    changelog.write_text("## v0.0.1 — bem antiga\n", encoding="utf-8")
+
+    proc = subprocess.run(
+        ["python", "-m", "harness.cli", "finish", "--dir", str(tmp_path)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    report = json.loads(proc.stdout)
+    assert report["blockers"] == []
+    assert report["docs_version"]["changelog_has_entry"] is False
+
+
+# ---------------------------------------------------------------------------
 # T-02 — varredura dos descartáveis
 # ---------------------------------------------------------------------------
 

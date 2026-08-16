@@ -1,0 +1,17 @@
+{
+  "feature_id": "T-03",
+  "contract": "setup-fail-closed-sem-init",
+  "desc": "Verificar tarefas ou supervisionar o ciclo com contrato ativo mas enforcement desligado nesta máquina (hooks ausentes ou kill-switch) para na hora, nomeando o que falta e o comando que religa",
+  "files": [
+    "src/harness/verify.py",
+    "src/harness/supervisor.py",
+    "src/harness/cli.py",
+    "src/harness/health.py",
+    "tests/test_verify.py",
+    "tests/test_supervisor.py"
+  ],
+  "verify_cmd": "pytest tests/test_verify.py tests/test_supervisor.py -q -k enforcement_gate",
+  "recorded_at": "2026-08-16T01:49:23.550190+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:78484e37e7059ae1fa2d31edeeaab7702a4ba960796b57f36247c30a19008c65"
+}

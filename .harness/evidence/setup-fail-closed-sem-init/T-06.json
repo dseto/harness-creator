@@ -1,0 +1,17 @@
+{
+  "feature_id": "T-06",
+  "contract": "setup-fail-closed-sem-init",
+  "desc": "A documentação para de prometer \"avisa, não bloqueia\" no cenário sem init, e a reversão da decisão v0.30.0 fica registrada com o racional setup-time vs runtime",
+  "files": [
+    "docs/plugin/GUIDE.md",
+    "docs/plugin/TUTORIAL.md",
+    ".harness/decisions.md",
+    "tests/test_docs_enforcement_claims.py",
+    "README.md",
+    "docs/plugin/arquitetura-visual.html"
+  ],
+  "verify_cmd": "pytest tests/test_docs_enforcement_claims.py -q",
+  "recorded_at": "2026-08-16T01:49:30.436671+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:b43b3f4c9c77668b5669dddd55af068f2753bf4a89cfb125535e133162253102"
+}

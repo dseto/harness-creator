@@ -1,0 +1,11 @@
+{
+  "contract": "setup-fail-closed-sem-init",
+  "verdicts": [
+    {
+      "verdict": "pass",
+      "evidence": "Verificador cego independente provou os gates de fora, contra repos sinteticos: compile-contract recusa sem harness.yaml sem escrever nada (src/harness/contract.py:772); compile-session recusa antes de branch/hooks (src/harness/cli.py:655); verify/supervise recusam com hooks ausentes ou kill-switch (src/harness/health.py:324, cli.py:775 e :984); status/doctor/health seguem exit 0. Reprovou por crash em doc nao-UTF-8 e o delta foi corrigido e re-aprovado: src/harness/finish.py:211 e :222 (except UnicodeDecodeError, teste tests/test_finish.py:392) e gate antes da escrita em task add-file (src/harness/cli.py:579, teste tests/test_cli.py:261). Suite completa rodada pelo verificador: 1519 passed, 1 skipped.",
+      "files_hash": "sha256:5512ae8421f6035946625433e3f84d2f11a1fd4b20ba385f838f55a2c3a45c39",
+      "recorded_at": "2026-08-16T02:13:13.147773+00:00"
+    }
+  ]
+}

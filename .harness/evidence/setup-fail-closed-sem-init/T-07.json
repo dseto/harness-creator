@@ -1,0 +1,17 @@
+{
+  "feature_id": "T-07",
+  "contract": "setup-fail-closed-sem-init",
+  "desc": "Ao encerrar a demanda, o desenvolvedor é perguntado — antes do commit — se quer incluir a atualização de docs/CHANGELOG/versão: o finish reporta o que está pendente, e a escolha é dele",
+  "files": [
+    "src/harness/finish.py",
+    "src/harness/lifecycle.py",
+    "skills/plan/SKILL.md",
+    "tests/test_finish.py",
+    "tests/test_finish_lifecycle_docs.py",
+    "AGENTS.md"
+  ],
+  "verify_cmd": "pytest tests/test_finish.py tests/test_finish_lifecycle_docs.py -q -k \"docs_version or lifecycle\"",
+  "recorded_at": "2026-08-16T01:49:16.340684+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:4915cf9feb26f2d93e0d72dd84b107299d94a7b58bd1302525fe5d89fad771d7"
+}

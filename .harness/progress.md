@@ -1,6 +1,6 @@
 # Claude Progress
 
-Contrato: `skips-nunca-silenciosos`
+Contrato: `setup-fail-closed-sem-init`
 
 _Demanda ENCERRADA por `harness finish`._
 
@@ -8,14 +8,13 @@ _Demanda ENCERRADA por `harness finish`._
 
 | id | desc | status |
 | --- | --- | --- |
-| T-01 | A saída de qualquer runner de teste passa a ser lida: quantos testes pularam, por quê quando o motivo aparece, e se nenhum teste chegou a ser coletado | done |
-| T-02 | Toda execução de `harness verify` diz quantos testes pularam, verde ou vermelho, sem precisar de flag — e quando os motivos não estão visíveis na saída, diz isso e ensina como revelá-los | done |
-| T-03 | Um comando explícito roda a suíte, mostra ao humano tudo o que pulou e grava essa lista como o conjunto conhecido; a verificação normal nunca escreve essa lista sozinha | done |
-| T-04 | Um teste que começa a pular do nada derruba a verificação e nomeia o que pulou; o que já era conhecido passa sem atrito, e o que deixou de pular só informa | done |
-| T-05 | Teste pulado por falta de variável de ambiente, credencial ou ferramenta para o trabalho já na primeira vez, nomeando o que falta — e o dono do repositório libera os pulos legítimos uma única vez no arquivo de configuração | done |
-| T-06 | A prova gravada em disco passa a registrar o que pulou, para que quem abrir a evidência semanas depois veja a mesma coisa que quem rodou viu | done |
-| T-07 | O arquivo de configuração do harness passa a nascer com todas as opções que ele aceita, cada uma com seu valor padrão e uma linha explicando — nenhuma opção fica descobrível só lendo o código | done |
-| T-08 | A documentação continua batendo com o código depois do módulo e do subcomando novos: as contagens que ela declara conferem | done |
+| T-01 | Compilar um contrato num repo que nunca rodou `harness init` para com erro que ensina o caminho de volta, em vez de compilar com governança pela metade | done |
+| T-02 | Compilar a sessão sem `.harness/harness.yaml` deixa de ser um aviso ignorável em stderr e vira recusa explícita apontando `/harness-creator:init` | done |
+| T-03 | Verificar tarefas ou supervisionar o ciclo com contrato ativo mas enforcement desligado nesta máquina (hooks ausentes ou kill-switch) para na hora, nomeando o que falta e o comando que religa | done |
+| T-04 | A skill plan recusa começar num repo sem init: passo 0 checa `.harness/harness.yaml` e redireciona para `/harness-creator:init` antes de qualquer entrevista | done |
+| T-05 | O cenário real do incidente vira teste de integração: repo .NET sem `harness.yaml` é recusado com a mensagem didática, e o repo governado continua saindo limpo | done |
+| T-06 | A documentação para de prometer "avisa, não bloqueia" no cenário sem init, e a reversão da decisão v0.30.0 fica registrada com o racional setup-time vs runtime | done |
+| T-07 | Ao encerrar a demanda, o desenvolvedor é perguntado — antes do commit — se quer incluir a atualização de docs/CHANGELOG/versão: o finish reporta o que está pendente, e a escolha é dele | done |
 
 ## Última atualização
 

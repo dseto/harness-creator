@@ -113,6 +113,18 @@ doctor` denuncia o clone que ainda não compilou.
 o settings só é lido na inicialização — a sessão que rodou o `/init` não
 aplica as regras nela mesma.
 
+**Este passo deixou de ser opcional.** `/harness-creator:plan`,
+`harness compile-contract` e `harness compile-session` recusam-se a rodar
+(exit 1) neste repositório enquanto `.harness/harness.yaml` não existir — a
+mensagem de erro aponta de volta para `/harness-creator:init`. Antes disso, o
+mesmo cenário só emitia um aviso em stderr e deixava o ciclo seguir com metade
+da governança desligada (v0.30.0); a decisão foi revertida depois de um
+incidente real em que o aviso passou despercebido e um plano inteiro rodou
+sem proteção nenhuma — racional completo em `.harness/decisions.md`
+(D-013). `analyze`, `status`, `doctor`, `health` e o preflight continuam
+rodando sem `harness.yaml`, de propósito: são leitura, e o preflight é
+justamente o portão do repositório **antes** deste passo.
+
 ## 3. Fazer uma alteração no projeto (o fluxo do dia a dia)
 
 Depois do passo 2, **você não usa mais skill nenhuma para trabalhar** — usa o
@@ -249,7 +261,10 @@ aprovado o contrato compila para `.harness/feature_list.json`:
 harness compile-contract --dir <alvo> --slug <slug>
 ```
 
-Sem aprovação, `compile-contract` sai com erro e nada é gerado.
+Sem aprovação, `compile-contract` sai com erro e nada é gerado. O mesmo vale,
+antes mesmo de olhar a aprovação, para `.harness/harness.yaml` ausente: sem
+governança instalada neste repositório, `compile-contract` recusa compilar
+(seção 2) — um `feature_list.json` que ninguém aplica é pior que nenhum.
 
 ## 6. Contrato aprovado → sessão autônoma no raio de impacto
 
@@ -258,6 +273,11 @@ Depois do contrato aprovado (seção anterior), rode:
 ```
 harness compile-session --dir <alvo>
 ```
+
+Sem `.harness/harness.yaml` (repositório que nunca rodou
+`/harness-creator:init`) este comando também recusa — mesmo erro e mesma
+saída da seção 2, checada ANTES de qualquer escrita em disco (nenhuma branch
+criada, nenhum artefato gravado num repo recusado).
 
 **Dois efeitos sobre o git que só este comando tem:** ele exige a working tree
 limpa (aborta com exit 1 e não escreve nada se houver tracked modificado ou
@@ -480,6 +500,19 @@ tentando de novo, e **o loop não conserta o próprio harness**. Dependência qu
 falta se instala com `.harness/init.sh`/`.harness/init.ps1`; problema de
 governança ou de proteção **é seu**, no seu terminal. O health check constata
 que faltou, nunca resolve.
+
+**`harness verify` e `harness supervise` recusam, não só constatam.** Com
+contrato ativo (`feature_list.json` presente) e `harness.yaml` presente, mas
+o enforcement desta máquina fora do ar — hooks ausentes do settings
+gerenciado (clone novo/segunda máquina: o contrato viaja pelo git, o
+enforcement não) ou kill-switch ligado —, os dois comandos saem com exit 1
+ANTES de rodar `verify_cmd` ou despachar a próxima fatia, nomeando o que
+falta e o comando exato de volta (`harness compile-session` para hooks
+ausentes, `harness enable` para kill-switch). Repositório sem `harness.yaml`
+não entra neste gate — é o cenário fechado pela seção 2, num comando
+diferente. Fora de `verify`/`supervise` (qualquer outra tool call na sessão)
+o problema continua silencioso — é o que `doctor` (seção 9) existe para
+denunciar.
 
 **`harness reconcile`** compara o que o repositório DECLARA com o que ele TEM.
 Exit 0 íntegro, 2 há divergência, 1 não foi possível checar. As divergências e
@@ -873,6 +906,13 @@ Code simplesmente roda menos governança do que o repositório aparenta ter:
    iniciar deixa a tool call **passar sem gate nenhum**. Por isso o comando
    registrado leva `|| exit 2`.
 
+Exceção parcial ao item 2, desde o gate de trabalho da seção 7.1: com
+contrato ativo, `harness verify` e `harness supervise` não esperam por você
+rodar `doctor` — recusam sozinhos assim que os hooks estão ausentes (ou o
+kill-switch ligado), apontando o comando de volta. Fora desses dois comandos
+— qualquer outra tool call na sessão, ou repositório sem contrato ativo —
+continua valendo a regra acima: silencioso, e `doctor` é quem denuncia.
+
 Exit 0 se tudo bate, 1 com a lista de issues e o comando exato de correção.
 Vale rodar depois de todo `pip install --upgrade`, `claude plugin update` ou
 `git clone`.
@@ -1062,6 +1102,10 @@ só existe dentro da sessão do Claude Code.
 > governança. **Só `harness status` conta a verdade** — rode antes de tratar
 > qualquer sessão como evidência de que a governança valeu. É por isso que
 > `harness finish` trata `killswitch_active` como bloqueador de fecho.
+> Alívio parcial desde a seção 7.1: com contrato ativo, `harness verify` e
+> `harness supervise` já recusam sozinhos (exit 1) enquanto o kill-switch
+> estiver ligado — a invisibilidade fica restrita a tool calls fora desses
+> dois comandos.
 
 `harness status` também devolve a contagem de ciclos `disable`/`enable` desta
 máquina — o número que diz se o produto ainda precisa de mais alguma porta de

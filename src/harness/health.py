@@ -304,6 +304,131 @@ def _protection_problem(target_dir: Path | str) -> str | None:
     )
 
 
+def _hooks_missing(target_dir: Path | str) -> bool:
+    """True se NENHUM hook do harness está registrado no settings gerenciado
+    desta máquina (`.claude/settings.local.json`).
+
+    Reusa a MESMA leitura que `doctor.repo_issues` já faz
+    (`doctor._read_managed_hooks`) — nenhuma segunda cópia da regra de quais
+    comandos contam como hook do harness. O sinal que importa aqui é a
+    AUSÊNCIA total (lista vazia: arquivo ausente, JSON inválido, ou nenhum
+    hook nosso registrado) — hook presente mas quebrado (interpretador
+    irresolúvel, sem `|| exit 2`) é outra família (`governance_stale`, já
+    reportada por `repo_issues`/`doctor`), não esta.
+    """
+    from harness.doctor import _read_managed_hooks
+
+    return not _read_managed_hooks(Path(target_dir))
+
+
+def enforcement_gate_problem(target_dir: Path | str) -> dict[str, str] | None:
+    """Gate de trabalho (T-03, contrato `setup-fail-closed-sem-init`): há um
+    contrato ATIVO (`.harness/feature_list.json` presente) mas o enforcement
+    que o aplicaria não está de pé NESTA máquina?
+
+    `None` em três casos que NÃO são problema: sem contrato ativo (comandos
+    de trabalho como `verify`/`supervise` fazem sentido só com contrato, e é
+    outro erro — não deste gate — que os barra nesse caso); sem
+    `.harness/harness.yaml` (repositório que nunca rodou
+    `/harness-creator:init` — o cenário "clone novo/segunda máquina" deste
+    gate PRESSUPÕE um repositório GOVERNADO clonado sem o output
+    machine-local; ausência de `harness.yaml` é outro furo, já fechado nos
+    comandos de SETUP por `contract.GovernanceNotInstalledError`/T-01 e
+    `session_permissions.require_harness_yaml_installed`/T-02 — não deste);
+    ou com o enforcement OK.
+
+    Duas famílias, checadas na MESMA ordem de severidade de `run_health`
+    (proteção antes de governança — nada aplicado é pior que gate incompleto):
+
+    1. Kill-switch ligado — reusa `_protection_problem` (mesma detecção do
+       §8.3), só reempacotada com o comando exato que religa.
+    2. Hooks do harness ausentes do settings gerenciado — reusa
+       `_hooks_missing` acima.
+
+    Cada resultado carrega `problem` (o texto didático: o que está
+    desligado, por que importa — o contrato existe mas ninguém o aplica,
+    escrita fora da superfície não é barrada — e o comando exato de volta) e
+    `fix_command` (o mesmo comando, isolado, para quem consome o dict sem
+    parsear prosa).
+    """
+    from harness.compiler import HARNESS_YAML
+
+    target_dir = Path(target_dir)
+    if not (target_dir / FEATURE_LIST_FILE).is_file():
+        return None
+    if not (target_dir / HARNESS_YAML).is_file():
+        return None
+
+    protection = _protection_problem(target_dir)
+    if protection is not None:
+        return {
+            "kind": HEALTH_KIND_PROTECTION,
+            "fix_command": "harness enable",
+            "problem": (
+                f"{protection} Há um contrato ATIVO neste repositório "
+                f"({FEATURE_LIST_FILE}) — com o harness desligado, nada do "
+                "que o contrato declara é aplicado nesta máquina: escrita "
+                "fora da superfície do contrato não é barrada, o TDD não é "
+                "cobrado, o floor de segurança não está de pé. O contrato "
+                "existe, ninguém o aplica. Rode `harness enable` e tente de "
+                "novo."
+            ),
+        }
+
+    if _hooks_missing(target_dir):
+        from harness.settings_paths import MANAGED_SETTINGS_FILE
+
+        return {
+            "kind": HEALTH_KIND_GOVERNANCE,
+            "fix_command": "harness compile-session",
+            "problem": (
+                f"os hooks do harness estão AUSENTES de {MANAGED_SETTINGS_FILE} "
+                "nesta máquina — nenhum hook (boundary_guard, session_start, "
+                "stop_hook) está registrado. Há um contrato ATIVO neste "
+                f"repositório ({FEATURE_LIST_FILE}), mas sem os hooks "
+                "compilados aqui nada do que ele declara é aplicado nesta "
+                "sessão: escrita fora da superfície do contrato não é "
+                "barrada, o TDD não é cobrado, o floor de segurança não está "
+                "de pé. É o cenário do clone novo/segunda máquina — o "
+                "contrato viaja pelo git, os hooks não. O contrato existe, "
+                "ninguém o aplica. Rode `harness compile-session` e tente de "
+                "novo."
+            ),
+        }
+
+    return None
+
+
+class EnforcementNotInstalledError(Exception):
+    """Gate de trabalho (T-03) não satisfeito: contrato ativo, enforcement
+    não instalado nesta máquina. Levantada por `require_enforcement_installed`
+    — irmã de `harness.contract.GovernanceNotInstalledError` (T-01) e
+    `harness.session_permissions.require_harness_yaml_installed` (T-02), mas
+    para os comandos de TRABALHO (`verify`/`supervise`), não os de setup.
+    Comandos de DIAGNÓSTICO (`status`/`doctor`/`health`) nunca a levantam —
+    continuam só reportando (um diagnóstico que falha não diagnostica nada)."""
+
+
+def require_enforcement_installed(target_dir: Path | str) -> None:
+    """Levanta `EnforcementNotInstalledError` quando `enforcement_gate_problem`
+    encontra um problema; no-op (sem exceção) caso contrário — inclusive
+    quando não há contrato ativo, caso em que o gate simplesmente não é da
+    conta deste comando.
+
+    Chamador (`cli.py`, comandos `verify`/`supervise`): checar isto ANTES de
+    `run_verify`/`dispatch_next` — os dois continuam sem saber nada deste
+    gate, a mesma separação que `session_permissions.require_harness_yaml_installed`
+    guarda de `compile_session_permissions` (T-02). Sem essa separação, TODA
+    a suíte de testes existente de `run_verify`/`dispatch_next` (que roda com
+    contrato ativo e sem hooks/settings instalados, de propósito — são testes
+    de unidade da lógica de verificação/despacho, não da governança) passaria
+    a falhar por um gate que não é da alçada delas.
+    """
+    problem = enforcement_gate_problem(target_dir)
+    if problem is not None:
+        raise EnforcementNotInstalledError(problem["problem"])
+
+
 def run_health(
     target_dir: Path | str,
     *,

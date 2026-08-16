@@ -1,0 +1,17 @@
+{
+  "feature_id": "T-01",
+  "contract": "setup-fail-closed-sem-init",
+  "desc": "Compilar um contrato num repo que nunca rodou `harness init` para com erro que ensina o caminho de volta, em vez de compilar com governança pela metade",
+  "files": [
+    "src/harness/contract.py",
+    "src/harness/cli.py",
+    "tests/test_contract.py",
+    "tests/test_contract_stop_conditions.py",
+    "tests/e2e/test_contract_flow.py",
+    "tests/e2e/test_boundary_flow.py"
+  ],
+  "verify_cmd": "pytest tests/test_contract.py -q -k setup_gate",
+  "recorded_at": "2026-08-16T01:49:25.168701+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:347ed364b8980e72ef9997645512ea270b32d7d4149568ddbdb3900559942294"
+}

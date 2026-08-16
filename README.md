@@ -530,7 +530,7 @@ harness-creator/
 │   └── .gitignore               # a regra de ignore é do próprio produto
 ├── docs/plugin/                 # TUTORIAL, GUIDE, ARCHITECTURE, arquitetura-visual.html
 ├── docs/project/                # ROADMAP, PLAN, laudos e handoffs
-└── tests/                       # 1480 casos (sem Docker/API para compile/audit)
+└── tests/                       # 1520 casos (sem Docker/API para compile/audit)
 ```
 
 Quem decide o que entra no git é a **Seção 3** de
@@ -543,7 +543,7 @@ de compilação que carrega dado de máquina é machine-local e regenerada por
 
 ```powershell
 $env:PYTHONPATH = "src"
-python -m pytest tests -q          # unit + E2E — 1480 casos
+python -m pytest tests -q          # unit + E2E — 1520 casos
 ```
 
 A suíte E2E (`tests/e2e/`) roda inteira sobre repos sintéticos criados em
@@ -554,7 +554,7 @@ externo ao plugin.
 **Convenção da suíte (v0.26.0):** um teste = uma REGRA, com tabela de casos
 (`Case` + `_expect`), nunca um `def` por caso. A suíte tinha chegado a 1008
 casos e caiu para 724 sem perder uma asserção — o que sobrou é o piso
-mecânico, não gordura restante. O crescimento desde então — hoje 1480 casos —
+mecânico, não gordura restante. O crescimento desde então — hoje 1520 casos —
 é regra nova coberta, não a gordura voltando.
 
 Achado que a suíte documenta (via `harness.cli` chamado com

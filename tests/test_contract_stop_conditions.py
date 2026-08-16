@@ -53,6 +53,11 @@ def _write_contract(tmp_path: Path, stop_conditions_block: str, slug: str = "exe
         "- files: `src/x.py`\n"
         "- verify: `pytest -q`\n",
     )
+    # T-01 (contrato setup-fail-closed-sem-init): compile_contract exige
+    # harness.yaml -- este arquivo testa a forma tipada de stop_conditions,
+    # não o gate de setup, então simula um repo que já rodou
+    # \harness-creator:init (mesmo padrão de tests/test_contract.py).
+    _write(tmp_path / ".harness" / "harness.yaml", "governance:\n  approval_policy: default\n")
 
 
 # ---------------------------------------------------------------------------

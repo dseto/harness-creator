@@ -18,6 +18,27 @@ seguido do gate único de aprovação humana e da compilação para
 Se der `ModuleNotFoundError`: `$env:PYTHONPATH = "${CLAUDE_PLUGIN_ROOT}\src"` e
 repita o comando (motivo em [GUIDE.md](../../docs/plugin/GUIDE.md), seção 1).
 
+## Passo 0 — Governança instalada (REGRA DURA)
+
+Antes de qualquer outra coisa, verifique se `<alvo>/.harness/harness.yaml`
+existe. Se **não existir**, PARE aqui: não rode `analyze`, não entreviste o
+usuário, não escreva `spec.md`/`Plans.md`. Diga ao usuário que este repositório
+ainda não tem a governança do harness instalada e redirecione para
+`/harness-creator:init` — sem `harness.yaml`, o contrato que esta skill
+compilaria no fim não seria aplicado por ninguém: a proteção de testes/TDD e
+a política de aprovação nunca foram instaladas nesta máquina, e o ciclo
+inteiro rodaria decorativo (é exatamente o furo que motivou este passo — um
+plano executou inteiro, com alterações fora do contrato passando, e o aviso
+de governança ausente só apareceu no fim, tarde demais para importar).
+
+Isto não duplica o `/harness-creator:preflight`: o preflight é o portão do
+repositório CRU e roda, por natureza, ANTES do init (avalia se o repo está
+pronto para receber o harness). O `harness.yaml` já instalado é
+pré-requisito declarado desta skill — `plan` nunca é o primeiro comando de
+harness a tocar um repositório.
+
+Com `.harness/harness.yaml` presente, siga para o Passo 1 normalmente.
+
 ## Passo 1 — Analisar o repo-alvo
 
 ```
@@ -119,6 +140,12 @@ Passo 5** — não tente contornar o gate de nenhuma forma (não edite o
 frontmatter sem aprovação real, não ignore o erro, não escreva o
 `feature_list.json` manualmente).
 
+Se o comando sair com **exit 1** por `.harness/harness.yaml` ausente, o
+Passo 0 deveria ter barrado isso antes — mas se chegou até aqui mesmo assim
+(ex.: o alvo mudou no meio da sessão), rode `/harness-creator:init` no alvo
+e repita este passo. `compile-contract` não compila mais nada sem a
+governança instalada; não existe cenário em que ele apenas avisa e segue.
+
 Se o contrato tiver `verify_cmd` de ferramentas de linha de comando com
 flags (ex.: `ng test --config=...`), considere rodar com `--dry-run-verify`:
 
@@ -178,6 +205,11 @@ Se o comando sair com **exit 1** por `.harness/feature_list.json` ausente,
 volte ao Passo 6 — `compile-session` nunca roda sem um contrato já
 compilado.
 
+Se o comando sair com **exit 1** por `.harness/harness.yaml` ausente, mesmo
+caso do Passo 6: rode `/harness-creator:init` no alvo e repita este passo.
+`compile-session` também não compila mais nada sem a governança instalada
+— nenhum dos artefatos da Fase 2 nasce sem `harness.yaml`.
+
 ## Passo 8 — Teste manual de UI (REGRA DURA — obrigatório se alguma tarefa tocou frontend)
 
 Depois que TODAS as tarefas do contrato passarem (`harness supervise` devolve
@@ -236,11 +268,22 @@ Passo 5:
 1. **Apresente o que vai ser commitado** (passo 15 do lifecycle): por
    feature, a descrição funcional do que mudou e o link `file:line` do teste
    que prova. Isto é visibilidade, não pergunta.
-2. **Commite e empurre** a branch do contrato. `blockers: []` é a
+2. **Pergunte sobre docs/CHANGELOG/versão, antes de commitar.** A saída de
+   `harness finish` traz o campo `docs_version` (versão corrente do pacote,
+   se o CHANGELOG tem entrada para ela, se os marcadores de versão da
+   documentação estão coerentes) — é puramente INFORMATIVO, nunca vira
+   bloqueador. Pergunte ao desenvolvedor se ele quer incluir, nesta entrega,
+   a atualização de docs/CHANGELOG/versão que o campo reportou. Nunca faça
+   essa atualização sozinho, e nunca pule a pergunta. "Não" é resposta
+   legítima: siga direto para o commit sem ela. Se a resposta for sim, a
+   atualização entra no MESMO commit da branch do contrato e é revisada no
+   PR junto com o resto da entrega; se for não, o `chore` de versão/
+   CHANGELOG continua sendo do humano, na `main`, como sempre foi.
+3. **Commite e empurre** a branch do contrato. `blockers: []` é a
    pré-condição que substituiu o gate humano — ele já garante toda tarefa com
    `passes: true` e evidência batendo com o código atual. Sem isso, pare e
    chame o humano.
-3. **Monte o PR e entregue ao humano:**
+4. **Monte o PR e entregue ao humano:**
 
    ```
    python -m harness.cli pr-draft --dir <alvo>
@@ -273,3 +316,6 @@ Passo 5:
 - Nunca declare uma demanda que tocou UI como concluída sem o teste manual
   do Passo 8 — suíte automatizada verde não é evidência de que a tela
   funciona (ver Passo 8 para o que conta como evidência real).
+- Nunca comece o Passo 1 (nem qualquer entrevista) num alvo sem
+  `.harness/harness.yaml` — o Passo 0 é obrigatório e para o ciclo antes de
+  qualquer trabalho, redirecionando para `/harness-creator:init`.

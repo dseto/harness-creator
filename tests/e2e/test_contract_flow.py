@@ -97,6 +97,11 @@ def _write_contract(root: Path, slug: str, spec_text: str, plans_text: str) -> N
     contract_dir.mkdir(parents=True, exist_ok=True)
     (contract_dir / "spec.md").write_text(spec_text, encoding="utf-8")
     (contract_dir / "Plans.md").write_text(plans_text, encoding="utf-8")
+    # O repo sintético representa um projeto JÁ inicializado: sem
+    # `harness.yaml` o gate de setup recusa antes do gate de aprovação, e o
+    # fluxo que este e2e exercita nunca chegaria a rodar.
+    yaml_path = root / ".harness" / "harness.yaml"
+    yaml_path.write_text("governance:\n  approval_policy: default\n", encoding="utf-8")
 
 
 def test_contract_flow_end_to_end(tmp_path: Path) -> None:

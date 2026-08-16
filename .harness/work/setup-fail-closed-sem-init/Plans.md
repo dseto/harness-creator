@@ -1,0 +1,33 @@
+# Plans: setup-fail-closed-sem-init
+
+## [T-01] Compilar um contrato num repo que nunca rodou `harness init` para com erro que ensina o caminho de volta, em vez de compilar com governança pela metade
+- files: `src/harness/contract.py`, `src/harness/cli.py`, `tests/test_contract.py`, `tests/test_contract_stop_conditions.py`, `tests/e2e/test_contract_flow.py`, `tests/e2e/test_boundary_flow.py`
+- verify: `pytest tests/test_contract.py -q -k setup_gate`
+
+## [T-02] Compilar a sessão sem `.harness/harness.yaml` deixa de ser um aviso ignorável em stderr e vira recusa explícita apontando `/harness-creator:init`
+- files: `src/harness/session_permissions.py`, `src/harness/cli.py`, `tests/test_session_permissions.py`, `tests/test_cli.py`, `tests/test_statusline.py`, `tests/e2e/test_fase2_outcomes.py`, `tests/e2e/test_fase3_outcomes.py`, `tests/e2e/evidence/fase2-outcomes-verification.md`
+- verify: `pytest tests/test_session_permissions.py tests/test_cli.py -q -k setup_gate`
+
+## [T-03] Verificar tarefas ou supervisionar o ciclo com contrato ativo mas enforcement desligado nesta máquina (hooks ausentes ou kill-switch) para na hora, nomeando o que falta e o comando que religa
+- files: `src/harness/verify.py`, `src/harness/supervisor.py`, `src/harness/cli.py`, `src/harness/health.py`, `tests/test_verify.py`, `tests/test_supervisor.py`
+- verify: `pytest tests/test_verify.py tests/test_supervisor.py -q -k enforcement_gate`
+- depends: T-02
+
+## [T-04] A skill plan recusa começar num repo sem init: passo 0 checa `.harness/harness.yaml` e redireciona para `/harness-creator:init` antes de qualquer entrevista
+- files: `skills/plan/SKILL.md`, `tests/test_plan_skill_approval_flow.py`
+- verify: `pytest tests/test_plan_skill_approval_flow.py -q -k setup_gate`
+
+## [T-05] O cenário real do incidente vira teste de integração: repo .NET sem `harness.yaml` é recusado com a mensagem didática, e o repo governado continua saindo limpo
+- files: `tests/test_integration_minimumapi.py`
+- verify: `pytest tests/test_integration_minimumapi.py -q`
+- depends: T-01, T-02
+
+## [T-06] A documentação para de prometer "avisa, não bloqueia" no cenário sem init, e a reversão da decisão v0.30.0 fica registrada com o racional setup-time vs runtime
+- files: `docs/plugin/GUIDE.md`, `docs/plugin/TUTORIAL.md`, `.harness/decisions.md`, `tests/test_docs_enforcement_claims.py`, `README.md`, `docs/plugin/arquitetura-visual.html`
+- verify: `pytest tests/test_docs_enforcement_claims.py -q`
+- depends: T-01, T-02, T-03, T-04
+
+## [T-07] Ao encerrar a demanda, o desenvolvedor é perguntado — antes do commit — se quer incluir a atualização de docs/CHANGELOG/versão: o finish reporta o que está pendente, e a escolha é dele
+- files: `src/harness/finish.py`, `src/harness/lifecycle.py`, `skills/plan/SKILL.md`, `tests/test_finish.py`, `tests/test_finish_lifecycle_docs.py`, `AGENTS.md`
+- verify: `pytest tests/test_finish.py tests/test_finish_lifecycle_docs.py -q -k "docs_version or lifecycle"`
+- depends: T-04
