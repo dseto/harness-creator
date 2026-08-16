@@ -137,6 +137,7 @@ import yaml
 
 from harness import __version__ as _HARNESS_VERSION
 from harness.boundary_guard import is_floor_bash_command, is_floor_control_plane_path
+from harness.compiler import HARNESS_YAML
 
 WORK_DIR = ".harness/work"
 FEATURE_LIST_FILE = ".harness/feature_list.json"
@@ -163,6 +164,16 @@ class ContractError(Exception):
 
 class ContractNotApprovedError(ContractError):
     """Gate de aprovação não satisfeito — `compile_contract` não escreve nada."""
+
+
+class GovernanceNotInstalledError(ContractError):
+    """Gate de setup não satisfeito — repo nunca rodou `/harness-creator:init`.
+
+    Irmã de `ContractNotApprovedError`, mesma postura: `compile_contract` não
+    escreve nada em disco. Sem `.harness/harness.yaml` não há hook de
+    proteção de teste nem política de aprovação instalados nesta máquina —
+    compilar mesmo assim produziria um `feature_list.json` que ninguém
+    aplica (o furo de v0.30.0, reaberto por este contrato)."""
 
 
 @dataclass
@@ -753,6 +764,20 @@ def compile_contract(target_dir: Path, slug: str, *, dry_run_verify: bool = Fals
     ele falhar rápido — nunca levanta exceção, nunca impede a escrita.
     """
     target_dir = target_dir.resolve()
+
+    # Gate de setup: sem `harness.yaml` este repo nunca rodou o init e não
+    # tem enforcement nenhum instalado. Compilar mesmo assim produz um
+    # `feature_list.json` decorativo — existe, mas ninguém o aplica. Checagem
+    # ANTES de ler spec/plans: nem aprovação compensa governança ausente.
+    if not (target_dir / HARNESS_YAML).is_file():
+        raise GovernanceNotInstalledError(
+            f"governança nunca instalada — {HARNESS_YAML} não encontrado neste "
+            "repositório. Sem ela, a proteção de testes (guard_test_runner) e a "
+            "política de aprovação não existem, e o contrato que este comando "
+            "compilaria não seria aplicado por ninguém. Rode "
+            "/harness-creator:init (uma vez por projeto) e tente de novo."
+        )
+
     contract_dir = target_dir / WORK_DIR / slug
     spec_path = contract_dir / "spec.md"
     plans_path = contract_dir / "Plans.md"

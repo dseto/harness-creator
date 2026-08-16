@@ -83,6 +83,9 @@ def test_compile_contract_subcommand_success(
     contract_dir = tmp_path / ".harness" / "work" / "exemplo-feature"
     _write(contract_dir / "spec.md", APPROVED_SPEC)
     _write(contract_dir / "Plans.md", BASIC_PLANS)
+    # T-01 (contrato setup-fail-closed-sem-init): compile-contract exige
+    # harness.yaml -- este teste cobre o caminho de sucesso, não o gate.
+    _write(tmp_path / ".harness" / "harness.yaml", "governance:\n  approval_policy: default\n")
 
     monkeypatch.setattr(
         sys, "argv", ["harness", "compile-contract", "--dir", str(tmp_path), "--slug", "exemplo-feature"]
@@ -138,6 +141,8 @@ def test_task_add_file_subcommand_adds_and_recompiles(
     contract_dir = tmp_path / ".harness" / "work" / "exemplo-feature"
     _write(contract_dir / "spec.md", APPROVED_SPEC)
     _write(contract_dir / "Plans.md", BASIC_PLANS)
+    # T-01: a recompilação disparada por add-file também exige harness.yaml.
+    _write(tmp_path / ".harness" / "harness.yaml", "governance:\n  approval_policy: default\n")
 
     monkeypatch.setattr(
         sys, "argv",
@@ -190,6 +195,8 @@ def test_task_add_file_subcommand_path_already_present_is_noop_and_exits_zero(
     contract_dir = tmp_path / ".harness" / "work" / "exemplo-feature"
     _write(contract_dir / "spec.md", APPROVED_SPEC)
     _write(contract_dir / "Plans.md", BASIC_PLANS)
+    # T-01: a recompilação disparada por add-file também exige harness.yaml.
+    _write(tmp_path / ".harness" / "harness.yaml", "governance:\n  approval_policy: default\n")
     plans_path = contract_dir / "Plans.md"
 
     monkeypatch.setattr(
@@ -231,6 +238,9 @@ def test_task_add_file_subcommand_unapproved_contract_edits_plans_but_blocks_rec
     contract_dir = tmp_path / ".harness" / "work" / "exemplo-feature"
     _write(contract_dir / "spec.md", UNAPPROVED_SPEC)
     _write(contract_dir / "Plans.md", BASIC_PLANS)
+    # Repo governado: o gate de setup precede o de aprovação, e sem o yaml
+    # este teste passaria pelo motivo errado.
+    _write(tmp_path / ".harness" / "harness.yaml", "governance:\n  approval_policy: default\n")
     plans_path = contract_dir / "Plans.md"
 
     monkeypatch.setattr(
@@ -251,12 +261,43 @@ def test_task_add_file_subcommand_unapproved_contract_edits_plans_but_blocks_rec
     assert not (tmp_path / ".harness" / "feature_list.json").exists()
 
 
+def test_task_add_file_subcommand_setup_gate_leaves_plans_untouched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Achado do verificador cego: o gate de setup rodava DEPOIS de
+    `add_task_file` gravar o `Plans.md`, então um repo que a recompilação ia
+    recusar saía daqui com o contrato já editado — o resíduo que este contrato
+    existe para eliminar."""
+    contract_dir = tmp_path / ".harness" / "work" / "exemplo-feature"
+    _write(contract_dir / "spec.md", APPROVED_SPEC)
+    _write(contract_dir / "Plans.md", BASIC_PLANS)
+    plans_path = contract_dir / "Plans.md"
+    before = plans_path.read_text(encoding="utf-8")
+
+    monkeypatch.setattr(
+        sys, "argv",
+        ["harness", "task", "add-file", "T-01", "novo/path.ts",
+         "--dir", str(tmp_path), "--slug", "exemplo-feature"],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code == 1
+    err = capsys.readouterr().err
+    assert ".harness/harness.yaml" in err
+    assert "/harness-creator:init" in err
+    assert plans_path.read_text(encoding="utf-8") == before
+    assert not (tmp_path / ".harness" / "feature_list.json").exists()
+
+
 def test_task_add_file_subcommand_infers_slug_with_single_contract(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     contract_dir = tmp_path / ".harness" / "work" / "exemplo-feature"
     _write(contract_dir / "spec.md", APPROVED_SPEC)
     _write(contract_dir / "Plans.md", BASIC_PLANS)
+    # T-01: a recompilação disparada por add-file também exige harness.yaml.
+    _write(tmp_path / ".harness" / "harness.yaml", "governance:\n  approval_policy: default\n")
 
     monkeypatch.setattr(
         sys, "argv",
@@ -335,6 +376,14 @@ def _prepare_compile_session_fixture(tmp_path: Path) -> None:
     _write(tmp_path / "pyproject.toml", '[project]\nname = "sample"\ndependencies = ["pytest>=8.0"]\n')
     _write(tmp_path / "uv.lock", "# lockfile fake\n")
     _write(tmp_path / "tests" / "test_config.py", "def test_ok():\n    assert True\n")
+    # T-01 (contrato setup-fail-closed-sem-init): compile_contract passou a
+    # exigir harness.yaml. Este fixture serve tanto testes que exercitam o
+    # gate de setup do compile-session (T-02, harness.yaml AUSENTE na hora
+    # de rodar compile-session) quanto os que exercitam o resto do comando
+    # com governança instalada -- por isso escreve aqui (para o
+    # compile_contract abaixo funcionar) e os testes do gate "ausente"
+    # apagam o arquivo DEPOIS de chamar este fixture.
+    _write(tmp_path / ".harness" / "harness.yaml", "governance:\n  approval_policy: default\n")
 
     compile_contract(tmp_path, "exemplo-feature")
     profile = analyze_project(tmp_path)
@@ -381,41 +430,93 @@ def test_compile_session_subcommand_success(
     assert (tmp_path / ".harness" / "hooks" / "stop_hook.py").is_file()
 
 
-def test_compile_session_warns_when_harness_yaml_missing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+# ---------------------------------------------------------------------------
+# Gate de setup (T-02, contrato setup-fail-closed-sem-init): reverte o aviso
+# de v0.30.0 (issue #72) — repo que nunca rodou /harness-creator:init (sem
+# .harness/harness.yaml) deixa de compilar a sessão com aviso em stderr e
+# passa a ser RECUSADO (exit 1), antes de qualquer escrita. Ver
+# require_harness_yaml_installed em harness.session_permissions e o mesmo
+# gate em compile-contract (T-01, harness.contract.GovernanceNotInstalledError).
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "with_harness_yaml, expect_gate_error",
+    [
+        (False, True),   # nunca rodou /harness-creator:init -- recusa
+        (True, False),   # governanca instalada -- compila como sempre compilou
+    ],
+)
+def test_compile_session_setup_gate_requires_harness_yaml(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    with_harness_yaml: bool,
+    expect_gate_error: bool,
 ) -> None:
-    """Issue #72: repo que nunca rodou `/harness-creator:init` (sem
-    `.harness/harness.yaml`) continua compilando a sessão — mas avisa em
-    stderr que TDD/política de aprovação ficaram de fora."""
     _init_git_repo(tmp_path)
     _prepare_compile_session_fixture(tmp_path)
-    assert not (tmp_path / ".harness" / "harness.yaml").exists()
+    # O fixture acima escreve harness.yaml (necessário para compile_contract,
+    # que também exige governança instalada -- T-01); o cenário "nunca rodou
+    # init" apaga o arquivo de novo depois do fixture.
+    if not with_harness_yaml:
+        (tmp_path / ".harness" / "harness.yaml").unlink()
 
     monkeypatch.setattr(sys, "argv", ["harness", "compile-session", "--dir", str(tmp_path)])
     with pytest.raises(SystemExit) as exc_info:
         main()
 
-    assert exc_info.value.code == 0
+    if not expect_gate_error:
+        # Governança instalada: comportamento de hoje, sem regressão -- nem
+        # o antigo aviso (a função que o emitia não roda mais aqui) nem erro.
+        assert exc_info.value.code == 0
+        err = capsys.readouterr().err
+        assert "harness.yaml" not in err
+        return
+
+    assert exc_info.value.code == 1
     err = capsys.readouterr().err
+    assert err.startswith("erro: ")
     assert ".harness/harness.yaml" in err
     assert "/harness-creator:init" in err
 
 
-def test_compile_session_no_yaml_warning_when_harness_yaml_present(
+def test_compile_session_setup_gate_writes_nothing_before_failing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """O repo recusado pelo gate de setup não fica com nenhum artefato no
+    disco -- nem settings.local.json, nem hooks, nem AGENTS.md -- e não muda
+    de branch. O gate dispara ANTES de ensure_contract_branch/
+    compile_session_permissions/install_boundary_guard (T-02)."""
     _init_git_repo(tmp_path)
     _prepare_compile_session_fixture(tmp_path)
-    yaml_path = tmp_path / ".harness" / "harness.yaml"
-    yaml_path.write_text("governance:\n  approval_policy: default\n", encoding="utf-8")
+    # O fixture escreve harness.yaml para compile_contract funcionar (T-01);
+    # apaga de novo para exercitar "nunca rodou /harness-creator:init".
+    (tmp_path / ".harness" / "harness.yaml").unlink()
+    assert not (tmp_path / ".harness" / "harness.yaml").exists()
+
+    import subprocess
+
+    branch_before = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=tmp_path, capture_output=True, text=True, check=True,
+    ).stdout.strip()
 
     monkeypatch.setattr(sys, "argv", ["harness", "compile-session", "--dir", str(tmp_path)])
     with pytest.raises(SystemExit) as exc_info:
         main()
 
-    assert exc_info.value.code == 0
-    err = capsys.readouterr().err
-    assert "harness.yaml" not in err
+    assert exc_info.value.code == 1
+    assert not (tmp_path / ".claude" / "settings.local.json").exists()
+    assert not (tmp_path / ".harness" / "hooks" / "boundary_guard.py").exists()
+    assert not (tmp_path / ".harness" / "hooks" / "session_start.py").exists()
+    assert not (tmp_path / ".harness" / "hooks" / "stop_hook.py").exists()
+    assert not (tmp_path / "AGENTS.md").exists()
+
+    branch_after = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=tmp_path, capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    assert branch_after == branch_before
 
 
 def test_compile_session_subcommand_missing_feature_list_exits_one(

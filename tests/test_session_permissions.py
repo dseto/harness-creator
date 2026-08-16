@@ -7,10 +7,12 @@ from pathlib import Path
 
 import pytest
 
+from harness.contract import GovernanceNotInstalledError
 from harness.session_permissions import (
     compile_session_permissions,
     missing_harness_yaml_warning,
     render_session_permissions,
+    require_harness_yaml_installed,
 )
 
 FEATURE_LIST = {
@@ -375,6 +377,40 @@ def test_missing_harness_yaml_warning_fires_when_yaml_absent(tmp_path: Path) -> 
     assert warning is not None
     assert ".harness/harness.yaml" in warning
     assert "/harness-creator:init" in warning
+
+
+# ---------------------------------------------------------------------------
+# require_harness_yaml_installed (T-02, contrato setup-fail-closed-sem-init):
+# gate de setup do compile-session -- reverte o aviso acima (v0.30.0) para
+# ERRO. Função irmã de `missing_harness_yaml_warning`, que continua intacta
+# (usada só por status/doctor, que reportam, nunca falham).
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "with_harness_yaml, expect_gate_error",
+    [
+        (False, True),   # nunca rodou /harness-creator:init -- recusa
+        (True, False),   # governanca instalada -- segue sem levantar nada
+    ],
+)
+def test_require_harness_yaml_installed_setup_gate(
+    tmp_path: Path, with_harness_yaml: bool, expect_gate_error: bool
+) -> None:
+    if with_harness_yaml:
+        yaml_path = tmp_path / ".harness" / "harness.yaml"
+        yaml_path.parent.mkdir(parents=True, exist_ok=True)
+        yaml_path.write_text("governance:\n  approval_policy: default\n", encoding="utf-8")
+
+    if not expect_gate_error:
+        assert require_harness_yaml_installed(tmp_path) is None
+        return
+
+    with pytest.raises(GovernanceNotInstalledError) as exc_info:
+        require_harness_yaml_installed(tmp_path)
+
+    message = str(exc_info.value)
+    assert ".harness/harness.yaml" in message
+    assert "/harness-creator:init" in message
 
 
 def test_compile_without_profile_is_not_an_error(tmp_path: Path) -> None:

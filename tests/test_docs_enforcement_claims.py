@@ -154,3 +154,73 @@ def test_plugin_docs_do_not_claim_guard_tests_is_active(
         "frase foi reescrita de propósito, atualize _FORBIDDEN_CLAIMS em "
         f"{Path(__file__).name}"
     )
+
+
+# ---------------------------------------------------------------------------
+# T-06 (contrato `setup-fail-closed-sem-init`): reversão do não-objetivo
+# `governanca-parcial-invisivel-sem-init` (v0.30.0). Antes desta mudança,
+# `compile-contract`/`compile-session` compilavam mesmo sem
+# `.harness/harness.yaml`, só avisando em stderr (`missing_harness_yaml_
+# warning`) — o aviso provou-se invisível num incidente real (plano inteiro
+# rodou sem governança nenhuma). Agora os dois RECUSAM (exit 1). O texto do
+# aviso revertido é a marca d'água mais concreta do comportamento antigo: se
+# ele reaparecer em prosa descrevendo compile-contract/compile-session, a doc
+# está prometendo de volta o "avisa, não bloqueia" que este contrato fechou.
+#
+# Cuidado cirúrgico, mesmo motivo do bloco acima: budget, reconcile, lessons,
+# o preflight e status/doctor/health continuam legitimamente "avisando e não
+# bloqueando" — nenhuma entrada abaixo mira essas seções.
+# ---------------------------------------------------------------------------
+_SETUP_GATE_FORBIDDEN_CLAIMS: tuple[tuple[str, str, str], ...] = (
+    (
+        "docs/plugin/GUIDE.md",
+        "rodando com defaults: hook TDD",
+        "era o texto do aviso stderr da v0.30.0 (missing_harness_yaml_warning) "
+        "— revertido pelo T-01/T-02: compile-contract/compile-session RECUSAM "
+        "(exit 1) sem harness.yaml, não compilam com defaults",
+    ),
+    (
+        "docs/plugin/TUTORIAL.md",
+        "rodando com defaults: hook TDD",
+        "mesmo texto do aviso stderr da v0.30.0, revertido pelo T-01/T-02 nos "
+        "mesmos dois comandos",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "claim", "why"),
+    _SETUP_GATE_FORBIDDEN_CLAIMS,
+    ids=[f"{p.split('/')[-1]}:{c[:34]}" for p, c, _ in _SETUP_GATE_FORBIDDEN_CLAIMS],
+)
+def test_plugin_docs_do_not_promise_setup_gate_only_warns(
+    relative_path: str, claim: str, why: str
+) -> None:
+    text = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+    assert claim not in text, (
+        f"{relative_path}: a afirmação {claim!r} voltou. Ela {why}. Se a "
+        "frase foi reescrita de propósito, atualize "
+        f"_SETUP_GATE_FORBIDDEN_CLAIMS em {Path(__file__).name}"
+    )
+
+
+def test_decisions_log_registers_v0_30_0_reversal() -> None:
+    """A reversão do não-objetivo `governanca-parcial-invisivel-sem-init`
+    (v0.30.0) precisa ficar registrada em `.harness/decisions.md`, com o
+    racional setup-time vs runtime — para não ser re-litigada (T-06, contrato
+    `setup-fail-closed-sem-init`). Âncoras estáveis (slug do contrato
+    revertido + id da decisão nova), não a prosa inteira: a prosa pode ser
+    reescrita à vontade desde que a decisão continue rastreável a partir
+    daqui."""
+    text = (REPO_ROOT / ".harness" / "decisions.md").read_text(encoding="utf-8")
+    assert "governanca-parcial-invisivel-sem-init" in text, (
+        ".harness/decisions.md não cita mais o slug do contrato "
+        "`governanca-parcial-invisivel-sem-init` — sem essa âncora, a "
+        "reversão da decisão v0.30.0 (setup do ciclo virou fail-closed) fica "
+        "sem o link para o que ela reverte."
+    )
+    assert "D-013" in text, (
+        ".harness/decisions.md não tem mais a entrada D-013 — é onde a "
+        "reversão setup-time vs runtime do contrato `setup-fail-closed-sem-"
+        "init` está registrada (T-06)."
+    )

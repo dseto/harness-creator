@@ -86,6 +86,7 @@ from harness.boundary_guard import (
     load_extra_allowed_commands,
 )
 from harness.compiler import HARNESS_YAML
+from harness.contract import GovernanceNotInstalledError
 from harness.install_command import install_command_for
 from harness.settings_paths import (
     MANAGED_SETTINGS_FILE,
@@ -295,13 +296,54 @@ def missing_harness_yaml_warning(target_dir: Path) -> str | None:
     """Aviso quando `target_dir/.harness/harness.yaml` não existe (issue #72):
     o repo nunca rodou `/harness-creator:init`, então `compile-session`
     compila com defaults — hook TDD e política de aprovação NÃO instalados.
-    `None` quando o arquivo existe (nada a avisar)."""
+    `None` quando o arquivo existe (nada a avisar).
+
+    NÃO tocar esta função para o gate de setup do T-02 (contrato
+    `setup-fail-closed-sem-init`): ela continua sendo o texto de AVISO usado
+    por `harness status`/`harness doctor` (via `cli.py`/`doctor.py`) — os
+    dois são comandos de DIAGNÓSTICO, só leem e reportam governança parcial;
+    um diagnóstico que falha não diagnostica nada. A superfície de ERRO para
+    `compile-session` (que ESCREVE — branch, settings, hooks) é a função
+    irmã abaixo, `require_harness_yaml_installed`."""
     if (Path(target_dir) / HARNESS_YAML).is_file():
         return None
     return (
         f"{HARNESS_YAML} não encontrado — rodando com defaults: hook TDD "
         "(guard_test_runner) e política de aprovação NÃO foram instalados. "
         "Rode /harness-creator:init para ligar a governança completa."
+    )
+
+
+def require_harness_yaml_installed(target_dir: Path) -> None:
+    """Gate de setup do `compile-session` (T-02, contrato
+    `setup-fail-closed-sem-init`): levanta `GovernanceNotInstalledError` —
+    a MESMA exceção do gate irmão em `compile_contract`
+    (T-01, `harness.contract`) — quando `target_dir/.harness/harness.yaml`
+    não existe. `None`/sem efeito quando o arquivo existe.
+
+    Reverte o aviso de v0.30.0 (issue #72, `missing_harness_yaml_warning`
+    acima): aquele aviso em stderr provou-se invisível num incidente real —
+    um plano inteiro rodou sem governança nenhuma e o harness só confessou
+    no fim, depois de alterações fora do contrato já terem passado. Sem
+    `.harness/harness.yaml` nesta máquina, o hook TDD (`guard_test_runner`)
+    e a política de aprovação nunca foram instalados, e o
+    `feature_list.json` que `compile-session` aplicaria não seria aplicado
+    por ninguém — o mesmo furo de contrato decorativo que T-01 fechou para
+    `compile-contract`.
+
+    Chamador (`cli.py`) precisa checar isto ANTES de qualquer escrita —
+    `ensure_contract_branch`, `compile_session_permissions`,
+    `install_boundary_guard` — para um repo recusado não ficar com branch
+    criada nem artefato nenhum no disco."""
+    if (Path(target_dir) / HARNESS_YAML).is_file():
+        return
+    raise GovernanceNotInstalledError(
+        f"governança nunca instalada — {HARNESS_YAML} não encontrado neste "
+        "repositório. Sem ele, o hook de proteção de testes "
+        "(guard_test_runner) e a política de aprovação nunca são instalados "
+        "nesta máquina, e o contrato (.harness/feature_list.json) que "
+        "compile-session aplicaria não seria aplicado por ninguém. Rode "
+        "/harness-creator:init (uma vez por projeto) e tente de novo."
     )
 
 

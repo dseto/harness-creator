@@ -14,6 +14,7 @@ from harness import __version__ as _HARNESS_VERSION
 from harness.contract import (
     ContractError,
     ContractNotApprovedError,
+    GovernanceNotInstalledError,
     Task,
     _dry_check_verify_cmd,
     add_task_file,
@@ -84,11 +85,21 @@ PLANS_TARGET_WITHOUT_METRIC = """## [T-01] Tarefa com target orfao
 """
 
 
-def _write_contract(target: Path, slug: str, spec_text: str, plans_text: str) -> Path:
+def _write_contract(
+    target: Path, slug: str, spec_text: str, plans_text: str, *, with_harness_yaml: bool = True
+) -> Path:
+    """`with_harness_yaml=True` (default) simula um repo que já rodou
+    `/harness-creator:init` — é o caso comum de toda a suíte, que testa
+    parsing/compilação e não o gate de setup em si. `with_harness_yaml=False`
+    é o cenário do próprio gate (T-01 do contrato `setup-fail-closed-sem-init`)."""
     contract_dir = target / ".harness" / "work" / slug
     contract_dir.mkdir(parents=True, exist_ok=True)
     (contract_dir / "spec.md").write_text(spec_text, encoding="utf-8")
     (contract_dir / "Plans.md").write_text(plans_text, encoding="utf-8")
+    if with_harness_yaml:
+        yaml_path = target / ".harness" / "harness.yaml"
+        yaml_path.parent.mkdir(parents=True, exist_ok=True)
+        yaml_path.write_text("governance:\n  approval_policy: default\n", encoding="utf-8")
     return contract_dir
 
 
@@ -307,6 +318,66 @@ def test_compile_contract_not_approved_raises_and_writes_nothing(tmp_path: Path)
         compile_contract(tmp_path, "exemplo-feature")
 
     assert not (tmp_path / ".harness" / "feature_list.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# Gate de setup (T-01, contrato setup-fail-closed-sem-init): repo que nunca
+# rodou /harness-creator:init não pode compilar contrato com governança pela
+# metade -- reverte a v0.30.0, que só avisava em stderr.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "with_harness_yaml, expect_gate_error",
+    [
+        (False, True),   # nunca rodou /harness-creator:init -- barra
+        (True, False),   # governança instalada -- compila como sempre compilou
+    ],
+)
+def test_compile_contract_setup_gate_requires_harness_yaml(
+    tmp_path: Path, with_harness_yaml: bool, expect_gate_error: bool
+) -> None:
+    _write_contract(
+        tmp_path, "exemplo-feature", APPROVED_SPEC, BASIC_PLANS, with_harness_yaml=with_harness_yaml
+    )
+
+    if not expect_gate_error:
+        out_path = compile_contract(tmp_path, "exemplo-feature")
+        assert out_path.is_file()
+        data = json.loads(out_path.read_text(encoding="utf-8"))
+        assert len(data["features"]) == 2
+        return
+
+    with pytest.raises(GovernanceNotInstalledError) as exc_info:
+        compile_contract(tmp_path, "exemplo-feature")
+
+    message = str(exc_info.value)
+    assert ".harness/harness.yaml" in message
+    assert "/harness-creator:init" in message
+    assert not (tmp_path / ".harness" / "feature_list.json").exists()
+
+
+def test_compile_contract_setup_gate_precedes_approval_gate_and_writes_nothing(
+    tmp_path: Path,
+) -> None:
+    """A checagem de setup vem ANTES de qualquer outra coisa -- inclusive do
+    gate de aprovação e da leitura de spec.md/Plans.md. Repo sem harness.yaml
+    falha por GovernanceNotInstalledError mesmo quando a aprovação também
+    está ausente (não ContractNotApprovedError: a razão relatada é a mais
+    fundamental) e mesmo quando .harness/work/<slug>/ nem existe (não
+    FileNotFoundError de parse_spec: o gate barra antes de tentar ler nada).
+    Nenhuma escrita acontece em nenhum dos dois casos."""
+    _write_contract(
+        tmp_path, "exemplo-feature", UNAPPROVED_SPEC, BASIC_PLANS, with_harness_yaml=False
+    )
+    with pytest.raises(GovernanceNotInstalledError):
+        compile_contract(tmp_path, "exemplo-feature")
+    assert not (tmp_path / ".harness" / "feature_list.json").exists()
+
+    outro_repo = tmp_path / "outro-repo-sem-nada"
+    outro_repo.mkdir()
+    with pytest.raises(GovernanceNotInstalledError):
+        compile_contract(outro_repo, "slug-que-nao-existe")
+    assert not (outro_repo / ".harness" / "feature_list.json").exists()
 
 
 def test_recompile_preserves_passes_for_unchanged_task_and_resets_changed(

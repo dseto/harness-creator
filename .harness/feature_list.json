@@ -1,125 +1,131 @@
 {
-  "contract": "parei-e-sua-vez",
-  "compiled_at": "2026-08-12T01:46:30.445166+00:00",
-  "compiled_with_version": "0.34.0",
+  "contract": "setup-fail-closed-sem-init",
+  "compiled_at": "2026-08-16T02:25:25.299278+00:00",
+  "compiled_with_version": "0.35.0",
   "stop_conditions": {
     "typed": [],
     "advisory": [
-      "3 falhas consecutivas do mesmo verify_cmd na mesma tarefa",
-      "Fazer o hook Stop enxergar o bloqueio exigir que o arquivo gerado importe o pacote `harness` — pare e escale: o hook roda fora do venv do projeto, e a decisão D-010 já resolveu essa fronteira uma vez",
-      "O bloqueio precisar ser gravado dentro de `.harness/feature_list.json` para funcionar — pare: aquele arquivo nasce de `compile-contract` e não se edita à mão; bloqueio é estado de sessão, não cláusula de contrato",
-      "Destravar exigir que o agente escreva em `.harness/harness.yaml` ou em qualquer arquivo do plano de controle — pare: é exatamente o bloqueio que esta demanda existe para respeitar",
-      "Alguma tarefa exigir que o bloqueio SUMA de alguma saída (status, progresso, encerramento) para caber — pare: bloqueio invisível é o defeito, não a solução"
+      "3 falhas consecutivas do mesmo teste (`pytest -k <mesmo nome>`)",
+      "uma correção exigir mudar os escapes de runtime do boundary_guard (task add-file, .harness/scratch/, YAML colável) — permanecem intocados por design, fora de escopo"
     ]
   },
   "features": [
     {
       "id": "T-01",
-      "desc": "O agente passa a poder declarar que parou por depender de uma pessoa, nomeando em uma frase o que essa pessoa precisa fazer — e declaração sem motivo é recusada",
+      "desc": "Compilar um contrato num repo que nunca rodou `harness init` para com erro que ensina o caminho de volta, em vez de compilar com governança pela metade",
       "files": [
-        "src/harness/blocks.py",
+        "src/harness/contract.py",
         "src/harness/cli.py",
-        "tests/test_blocks.py",
-        "src/harness/boundary_guard.py",
-        "tests/test_boundary_guard.py",
-        "tests/e2e/evidence/fase2-outcomes-verification.md"
+        "tests/test_contract.py",
+        "tests/test_contract_stop_conditions.py",
+        "tests/e2e/test_contract_flow.py",
+        "tests/e2e/test_boundary_flow.py"
       ],
-      "verify_cmd": "pytest tests/test_blocks.py -q",
+      "verify_cmd": "pytest tests/test_contract.py -q -k setup_gate",
       "depends": [],
       "cwd": null,
-      "passes": true
+      "passes": false
     },
     {
       "id": "T-02",
-      "desc": "Uma tarefa parada esperando a pessoa deixa de ser oferecida como próxima a trabalhar; as demais continuam na mesma ordem",
+      "desc": "Compilar a sessão sem `.harness/harness.yaml` deixa de ser um aviso ignorável em stderr e vira recusa explícita apontando `/harness-creator:init`",
       "files": [
-        "src/harness/supervisor.py",
-        "tests/test_supervisor.py"
+        "src/harness/session_permissions.py",
+        "src/harness/cli.py",
+        "tests/test_session_permissions.py",
+        "tests/test_cli.py",
+        "tests/test_statusline.py",
+        "tests/e2e/test_fase2_outcomes.py",
+        "tests/e2e/test_fase3_outcomes.py",
+        "tests/e2e/evidence/fase2-outcomes-verification.md"
       ],
-      "verify_cmd": "pytest tests/test_supervisor.py -q",
-      "depends": [
-        "T-01"
-      ],
+      "verify_cmd": "pytest tests/test_session_permissions.py tests/test_cli.py -q -k setup_gate",
+      "depends": [],
       "cwd": null,
-      "passes": true
+      "passes": false
     },
     {
       "id": "T-03",
-      "desc": "O aviso de fim de sessão para de cobrar verificação da tarefa parada e passa a mostrar o que está na mão da pessoa; sem nenhuma tarefa parada, o texto é o de sempre",
+      "desc": "Verificar tarefas ou supervisionar o ciclo com contrato ativo mas enforcement desligado nesta máquina (hooks ausentes ou kill-switch) para na hora, nomeando o que falta e o comando que religa",
       "files": [
-        "src/harness/stop_hook.py",
-        "tests/test_stop_hook.py"
+        "src/harness/verify.py",
+        "src/harness/supervisor.py",
+        "src/harness/cli.py",
+        "src/harness/health.py",
+        "tests/test_verify.py",
+        "tests/test_supervisor.py"
       ],
-      "verify_cmd": "pytest tests/test_stop_hook.py -q",
+      "verify_cmd": "pytest tests/test_verify.py tests/test_supervisor.py -q -k enforcement_gate",
       "depends": [
-        "T-01"
+        "T-02"
       ],
       "cwd": null,
-      "passes": true
+      "passes": false
     },
     {
       "id": "T-04",
-      "desc": "O placar de andamento e o arquivo de progresso mostram a tarefa parada com a ação que cabe à pessoa, distinta de tarefa por fazer",
+      "desc": "A skill plan recusa começar num repo sem init: passo 0 checa `.harness/harness.yaml` e redireciona para `/harness-creator:init` antes de qualquer entrevista",
       "files": [
-        "src/harness/panel.py",
-        "src/harness/templates.py",
-        "tests/test_panel.py"
+        "skills/plan/SKILL.md",
+        "tests/test_plan_skill_approval_flow.py"
       ],
-      "verify_cmd": "pytest tests/test_panel.py -q",
-      "depends": [
-        "T-01"
-      ],
+      "verify_cmd": "pytest tests/test_plan_skill_approval_flow.py -q -k setup_gate",
+      "depends": [],
       "cwd": null,
-      "passes": true
+      "passes": false
     },
     {
       "id": "T-05",
-      "desc": "A tarefa volta a andar por três caminhos e só por eles: a pessoa libera, o arquivo que estava sendo esperado muda, ou a verificação passa",
+      "desc": "O cenário real do incidente vira teste de integração: repo .NET sem `harness.yaml` é recusado com a mensagem didática, e o repo governado continua saindo limpo",
       "files": [
-        "src/harness/blocks.py",
-        "src/harness/verify.py",
-        "src/harness/cli.py",
-        "tests/test_blocks.py"
+        "tests/test_integration_minimumapi.py"
       ],
-      "verify_cmd": "pytest tests/test_blocks.py -q",
+      "verify_cmd": "pytest tests/test_integration_minimumapi.py -q",
       "depends": [
-        "T-01"
+        "T-01",
+        "T-02"
       ],
       "cwd": null,
-      "passes": true
+      "passes": false
     },
     {
       "id": "T-06",
-      "desc": "O encerramento da demanda não acontece enquanto houver tarefa parada esperando a pessoa — a pendência aparece nomeada, com a ação esperada",
+      "desc": "A documentação para de prometer \"avisa, não bloqueia\" no cenário sem init, e a reversão da decisão v0.30.0 fica registrada com o racional setup-time vs runtime",
       "files": [
-        "src/harness/finish.py",
-        "tests/test_finish.py"
+        "docs/plugin/GUIDE.md",
+        "docs/plugin/TUTORIAL.md",
+        ".harness/decisions.md",
+        "tests/test_docs_enforcement_claims.py",
+        "README.md",
+        "docs/plugin/arquitetura-visual.html"
       ],
-      "verify_cmd": "pytest tests/test_finish.py -q",
+      "verify_cmd": "pytest tests/test_docs_enforcement_claims.py -q",
       "depends": [
-        "T-01"
+        "T-01",
+        "T-02",
+        "T-03",
+        "T-04"
       ],
       "cwd": null,
-      "passes": true
+      "passes": false
     },
     {
       "id": "T-07",
-      "desc": "O documento de governança lido no início de toda sessão ensina o gesto: ao esbarrar em dependência humana, declarar a parada em vez de repetir a tentativa",
+      "desc": "Ao encerrar a demanda, o desenvolvedor é perguntado — antes do commit — se quer incluir a atualização de docs/CHANGELOG/versão: o finish reporta o que está pendente, e a escolha é dele",
       "files": [
+        "src/harness/finish.py",
         "src/harness/lifecycle.py",
-        "tests/test_lifecycle.py",
-        "README.md",
-        "docs/plugin/TUTORIAL.md",
-        "docs/plugin/ARCHITECTURE.md",
-        "docs/plugin/arquitetura-visual.html",
+        "skills/plan/SKILL.md",
+        "tests/test_finish.py",
+        "tests/test_finish_lifecycle_docs.py",
         "AGENTS.md"
       ],
-      "verify_cmd": "pytest tests/test_lifecycle.py -q",
+      "verify_cmd": "pytest tests/test_finish.py tests/test_finish_lifecycle_docs.py -q -k \"docs_version or lifecycle\"",
       "depends": [
-        "T-01"
+        "T-04"
       ],
       "cwd": null,
-      "passes": true
+      "passes": false
     }
   ]
 }

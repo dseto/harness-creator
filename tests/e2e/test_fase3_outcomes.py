@@ -727,6 +727,14 @@ def test_outcome4_stop_hook_detects_unverified_in_progress(tmp_path: Path) -> No
         (cs / ".harness" / "repo-profile.json").write_text(
             json.dumps(profile, indent=2), encoding="utf-8"
         )
+        # T-01 (contrato setup-fail-closed-sem-init): compile-contract exige
+        # harness.yaml -- este bloco testa a instalação real via compile-session,
+        # não o gate de setup, então simula um repo que já rodou
+        # \harness-creator:init (mesmo padrão de tests/test_cli.py e
+        # tests/test_contract.py).
+        (cs / ".harness" / "harness.yaml").write_text(
+            "governance:\n  approval_policy: default\n", encoding="utf-8"
+        )
         contract_dir = cs / ".harness" / "work" / SLUG
         contract_dir.mkdir(parents=True)
         (contract_dir / "spec.md").write_text(

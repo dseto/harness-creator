@@ -126,6 +126,11 @@ def test_boundary_flow_end_to_end(tmp_path: Path) -> None:
     contract_dir.mkdir(parents=True, exist_ok=True)
     (contract_dir / "spec.md").write_text(APPROVED_SPEC, encoding="utf-8")
     (contract_dir / "Plans.md").write_text(PLANS_ONE_TASK, encoding="utf-8")
+    # Repo sintético já inicializado: sem `harness.yaml` o gate de setup
+    # recusa a compilação e o fluxo de boundary nem começa.
+    (project / ".harness" / "harness.yaml").write_text(
+        "governance:\n  approval_policy: default\n", encoding="utf-8"
+    )
 
     compile_contract_proc = _run_cli(
         ["compile-contract", "--dir", str(project), "--slug", "demo"], cwd=project

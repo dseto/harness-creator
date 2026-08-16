@@ -294,6 +294,15 @@ garantia read-only, evidência E2E): [docs/preflight.md](../preflight.md).
 
 ## A.4 Rodar `/harness-creator:init`
 
+**Este passo passou a ser obrigatório para trabalhar por contrato.**
+`/harness-creator:plan`, `harness compile-contract` e `harness compile-session`
+recusam-se a rodar (exit 1) sem `.harness/harness.yaml` no repositório, com a
+mensagem apontando de volta para cá. Antes disso o mesmo cenário só avisava em
+stderr e deixava o ciclo seguir sem TDD nem política de aprovação instalados
+(v0.30.0) — revertido depois de um incidente real (`.harness/decisions.md`,
+D-013). Comandos read-only (`analyze`, `status`, `doctor`, `health`, e o
+preflight da seção A.3) continuam funcionando sem este passo.
+
 Na sessão, digite:
 
 ```
@@ -485,6 +494,13 @@ Três coisas que o `assess` nunca faz, por regra:
 
 ## B.2 `/harness-creator:plan` — transformar a demanda em contrato
 
+A skill começa pelo **Passo 0**, antes de qualquer entrevista: confere se
+`.harness/harness.yaml` existe no repositório-alvo. Se não existir, ela para
+e redireciona para `/harness-creator:init` (seção A.4) — sem governança
+instalada, o contrato que ela compilaria no fim não seria aplicado por
+ninguém. No nosso exemplo a Parte A já rodou o `init`, então este passo
+apenas confirma e segue.
+
 Com o laudo em mãos (e as perguntas dele respondidas, se houver):
 
 ```
@@ -631,8 +647,13 @@ harness compile-contract --dir . --slug leaderboard-limit
 harness compile-session --dir .
 ```
 
-**Antes de qualquer coisa, dois efeitos que este comando tem sobre o seu git —
-e que nenhum outro comando do harness tem:**
+**Antes de qualquer coisa, um pré-requisito e dois efeitos que este comando
+tem sobre o seu git — e que nenhum outro comando do harness tem:**
+
+- **Ele exige `.harness/harness.yaml`.** Sem esse arquivo (repositório que
+  nunca rodou `/harness-creator:init`), recusa com o mesmo erro didático da
+  seção A.4, checado antes de tocar branch, settings ou hooks — nenhum
+  artefato fica gravado num repo recusado.
 
 - **Ele exige a working tree limpa.** Com arquivo modificado ou staged, ele
   aborta com exit 1 sem escrever nada: `erro: working tree suja (tracked
@@ -801,6 +822,16 @@ devolve **três** exit codes — não dois:
 
 Vermelho **não** gera evidência: prova é só de sucesso, e isso não mudou. O
 que o vermelho gera é rastro (B.5b).
+
+**Exit 1 também sai antes do `verify_cmd` sequer rodar** quando há contrato
+ativo mas o enforcement não está instalado nesta máquina — hooks ausentes do
+settings gerenciado (clone novo/segunda máquina) ou kill-switch ligado. A
+mensagem distingue os dois casos do vermelho comum: nomeia o que falta
+(`harness compile-session` ou `harness enable`) em vez de apontar para B.5b —
+não há `verify_cmd` executado para investigar. `harness supervise` recusa da
+mesma forma antes de devolver a próxima fatia. Repositório sem
+`.harness/harness.yaml` não entra aqui — é outro gate, na compilação
+(A.4/B.3).
 
 #### Re-prova incremental — a fatia 5 não quebra a fatia 2 em silêncio
 
@@ -1281,6 +1312,8 @@ próxima feature pronta respeitando `depends[]`.
 |---|---|---|
 | Regras não estão sendo aplicadas | Sessão aberta antes do compile | Feche e reabra o Claude Code — o settings só é lido na inicialização |
 | Clone novo sem governança | A compilação é machine-local e não viaja no git | Rode `harness compile` (e `harness compile-session` se houver contrato ativo) |
+| `/harness-creator:plan`, `compile-contract` ou `compile-session` falham com "governança nunca instalada" | `.harness/harness.yaml` não existe — este repositório nunca rodou `/harness-creator:init` | Rode `/harness-creator:init` (uma vez por projeto) e tente de novo |
+| `harness verify`/`harness supervise` falham nomeando hooks ausentes ou kill-switch | Contrato ativo, mas o enforcement não está instalado NESTA máquina (clone novo/segunda máquina) ou está desligado | Hooks ausentes: `harness compile-session`. Kill-switch: `harness enable` |
 | `compile-contract` falha com erro de aprovação | `approved_by`/`approved_at` vazios no frontmatter do `spec.md` | Revisar e preencher — é intencional, o gate é você |
 | `harness analyze` detecta Python, mas o comando de instalação não é `pip install -e .` | Projeto só tem `requirements.txt` | É o esperado: `requirements.txt` prova a **linguagem**, não que o repo seja um pacote instalável. Só `pyproject.toml` (com metadados) e `setup.py` valem para isso |
 | Edição em `feature_list.json` negada | Tentativa de `passes: true` sem evidência fresca | Rode `harness verify <id>` primeiro — é o feature-lock funcionando |

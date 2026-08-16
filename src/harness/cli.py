@@ -609,7 +609,14 @@ def main() -> None:
         sys.exit(0)
 
     if args.command == "task" and args.task_command == "add-file":
-        from harness.contract import ContractError, ContractNotApprovedError, add_task_file, compile_contract
+        from harness.contract import (
+            ContractError,
+            ContractNotApprovedError,
+            GovernanceNotInstalledError,
+            add_task_file,
+            compile_contract,
+        )
+        from harness.session_permissions import require_harness_yaml_installed
 
         target_dir = Path(args.dir)
 
@@ -637,6 +644,15 @@ def main() -> None:
                     file=sys.stderr,
                 )
                 sys.exit(1)
+
+        # O gate de setup vem ANTES da escrita em Plans.md: sem ele, um repo
+        # que a recompilação vai recusar mesmo assim sai daqui com o contrato
+        # já editado — exatamente o resíduo que o gate existe para evitar.
+        try:
+            require_harness_yaml_installed(target_dir)
+        except GovernanceNotInstalledError as exc:
+            print(f"erro: {exc}", file=sys.stderr)
+            sys.exit(1)
 
         try:
             added = add_task_file(target_dir, slug, args.task_id, args.path)
@@ -701,11 +717,12 @@ def main() -> None:
         )
         from harness.lifecycle import install_lifecycle
         from harness.metrics import record_event
+        from harness.contract import GovernanceNotInstalledError
         from harness.session_permissions import (
             FEATURE_LIST_FILE,
             REPO_PROFILE_FILE,
             compile_session_permissions,
-            missing_harness_yaml_warning,
+            require_harness_yaml_installed,
         )
         from harness.session_start import install_session_start
         from harness.statusline import install_statusline
@@ -715,6 +732,19 @@ def main() -> None:
         target_dir = Path(args.dir)
         resolved_dir = target_dir.resolve()
         feature_list_path = resolved_dir / FEATURE_LIST_FILE
+
+        # Gate de setup (T-02, contrato setup-fail-closed-sem-init): reverte
+        # o aviso de v0.30.0 (issue #72) — sem harness.yaml este repo nunca
+        # rodou /harness-creator:init, e compilar mesmo assim instala
+        # branch/settings/hooks para um contrato que ninguém aplica. Checagem
+        # ANTES de QUALQUER escrita — inclusive antes do posicionamento em
+        # contract/<slug> logo abaixo — para um repo recusado não ficar com
+        # nenhum artefato no disco nem branch criada.
+        try:
+            require_harness_yaml_installed(target_dir)
+        except GovernanceNotInstalledError as exc:
+            print(f"erro: {exc}", file=sys.stderr)
+            sys.exit(1)
 
         # Fluxo branch-first (finding C): posicionar em contract/<slug> ANTES
         # de qualquer escrita — o dirty-check não pode contar artefatos que o
@@ -748,9 +778,10 @@ def main() -> None:
             print(f"erro: {exc}", file=sys.stderr)
             sys.exit(1)
 
-        yaml_warning = missing_harness_yaml_warning(target_dir)
-        if yaml_warning:
-            print(f"aviso: {yaml_warning}", file=sys.stderr)
+        # O aviso de v0.30.0 (missing_harness_yaml_warning) não roda mais
+        # aqui: o gate de setup acima já garante harness.yaml presente neste
+        # ponto (T-02) — a função continua intacta só para
+        # `harness status`/`harness doctor`.
 
         feature_list = json.loads(feature_list_path.read_text(encoding="utf-8-sig"))
         profile_path = resolved_dir / REPO_PROFILE_FILE
@@ -817,6 +848,7 @@ def main() -> None:
 
     if args.command == "verify":
         from harness.contract import FEATURE_LIST_FILE
+        from harness.health import EnforcementNotInstalledError, require_enforcement_installed
         from harness.verify import (
             _VERIFY_TIMEOUT_SECONDS,
             VerifyError,
@@ -824,6 +856,15 @@ def main() -> None:
             mark_feature_passed,
             run_verify,
         )
+
+        # Gate de trabalho (T-03): contrato ativo + enforcement não instalado
+        # nesta máquina para AQUI, antes de rodar verify_cmd nenhum — ver
+        # docstring de `require_enforcement_installed`.
+        try:
+            require_enforcement_installed(Path(args.dir))
+        except EnforcementNotInstalledError as exc:
+            print(f"erro: {exc}", file=sys.stderr)
+            sys.exit(1)
 
         try:
             evidence_path = run_verify(
@@ -1022,7 +1063,16 @@ def main() -> None:
         sys.exit(0)
 
     if args.command == "supervise":
+        from harness.health import EnforcementNotInstalledError, require_enforcement_installed
         from harness.supervisor import dispatch_next
+
+        # Mesmo gate de trabalho do `verify` (T-03) — ver docstring de
+        # `require_enforcement_installed`.
+        try:
+            require_enforcement_installed(Path(args.dir))
+        except EnforcementNotInstalledError as exc:
+            print(f"erro: {exc}", file=sys.stderr)
+            sys.exit(1)
 
         next_feature = dispatch_next(Path(args.dir))
         print(json.dumps({"next": next_feature}, indent=2, ensure_ascii=False))

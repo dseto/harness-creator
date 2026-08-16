@@ -1,0 +1,19 @@
+{
+  "feature_id": "T-02",
+  "contract": "setup-fail-closed-sem-init",
+  "desc": "Compilar a sessão sem `.harness/harness.yaml` deixa de ser um aviso ignorável em stderr e vira recusa explícita apontando `/harness-creator:init`",
+  "files": [
+    "src/harness/session_permissions.py",
+    "src/harness/cli.py",
+    "tests/test_session_permissions.py",
+    "tests/test_cli.py",
+    "tests/test_statusline.py",
+    "tests/e2e/test_fase2_outcomes.py",
+    "tests/e2e/test_fase3_outcomes.py",
+    "tests/e2e/evidence/fase2-outcomes-verification.md"
+  ],
+  "verify_cmd": "pytest tests/test_session_permissions.py tests/test_cli.py -q -k setup_gate",
+  "recorded_at": "2026-08-16T01:49:28.532147+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:b5061b071fa445fdaf01ef70afe0344a12f4da73a53b72daceab7bb42144bcb5"
+}

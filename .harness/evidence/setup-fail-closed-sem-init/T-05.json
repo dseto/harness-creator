@@ -1,0 +1,12 @@
+{
+  "feature_id": "T-05",
+  "contract": "setup-fail-closed-sem-init",
+  "desc": "O cenário real do incidente vira teste de integração: repo .NET sem `harness.yaml` é recusado com a mensagem didática, e o repo governado continua saindo limpo",
+  "files": [
+    "tests/test_integration_minimumapi.py"
+  ],
+  "verify_cmd": "pytest tests/test_integration_minimumapi.py -q",
+  "recorded_at": "2026-08-16T01:27:08.272183+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:55624c8d276c87b881e622b0d6e0d2ca4b8253a7146ca9b13ab78abfd202e0ac"
+}
