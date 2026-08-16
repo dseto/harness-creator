@@ -1,5 +1,67 @@
 ﻿# Changelog
 
+## v0.35.0 — o setup do ciclo vira fail-closed sem `harness init`
+
+Dava para atravessar o ciclo inteiro — plan, contrato, implementação — num
+repositório que nunca rodou `/harness-creator:init`. A governança ficava pela
+metade (sem proteção de testes, sem política de aprovação) e o único sinal era
+um aviso em stderr. Numa sessão real esse aviso passou despercebido: o plano
+executou por completo, alterações fora do escopo entraram, e o harness só
+reportou a ausência do `harness.yaml` no fim. O contrato existia e nada o
+aplicava.
+
+### Os gates de setup
+
+- **`harness compile-contract`** e **`harness compile-session`** recusam
+  (exit 1) quando falta `.harness/harness.yaml`, antes de qualquer escrita —
+  nenhuma branch criada, nenhum hook instalado, nenhum `feature_list.json`
+  deixado para trás. A mensagem diz o que falta, por que importa e que
+  `/harness-creator:init` resolve, uma vez por projeto.
+- **`harness verify`** e **`harness supervise`** recusam quando o repositório é
+  governado e tem contrato ativo, mas o enforcement não está ligado **nesta
+  máquina**: hooks ausentes do settings (o caso do clone novo — o contrato
+  viaja pelo git, os hooks não) manda rodar `harness compile-session`;
+  kill-switch ligado manda rodar `harness enable`.
+- **`harness task add-file`** passou a checar o mesmo gate antes de gravar o
+  `Plans.md`, para o repositório recusado não sair daqui com o contrato já
+  editado.
+- **A skill `plan`** ganhou um **Passo 0**: sem `harness.yaml`, ela para e
+  redireciona para o init antes de entrevistar ou analisar qualquer coisa.
+
+### O que deliberadamente não mudou
+
+O runtime continua barrando o mínimo: `harness task add-file`,
+`.harness/scratch/`, o YAML colável do deny de comando e o runtime floor estão
+exatamente como estavam. `harness status`, `harness doctor` e `harness health`
+seguem read-only e continuam apenas reportando governança parcial — comando de
+diagnóstico que falha não diagnostica nada, e é para eles que a pessoa corre
+quando o resto recusou.
+
+Isso **reverte um não-objetivo explícito** do contrato
+`governanca-parcial-invisivel-sem-init` (v0.30.0), que decidira avisar em vez
+de bloquear. O critério "o harness barra o mínimo" vale para o runtime, onde um
+deny difícil empurra o agente para o kill-switch — desproteção total. O setup
+tem humano presente, roda uma vez por projeto, e o custo de destravar é rodar o
+init. O racional está registrado em D-013 para não ser re-litigado.
+
+### Encerramento pergunta por docs e versão
+
+`harness finish` passa a reportar `docs_version` — versão do pacote, se o
+CHANGELOG tem entrada para ela, e quais marcadores de versão em documentação
+estão defasados. É **informativo por decisão**: nunca vira blocker, nunca muda
+o exit code. O lifecycle passou a instruir o agente a perguntar ao
+desenvolvedor, antes do commit, se a atualização entra na entrega — nunca fazer
+sozinho, nunca pular a pergunta.
+
+### Achados da verificação cega
+
+O verificador independente reprovou a primeira versão por um defeito real:
+`_docs_version_check` capturava `OSError`, mas `UnicodeDecodeError` é
+`ValueError` — um README em latin-1 num projeto consumidor derrubava o
+`harness finish` inteiro por causa de uma checagem informativa. Corrigido,
+junto com a ordem do gate no `task add-file`, e o delta foi re-julgado e
+aprovado.
+
 ## v0.34.0 — o loop fica legível para quem só quer o resultado
 
 Durante a implementação passavam dezenas de tool calls e nenhuma delas
