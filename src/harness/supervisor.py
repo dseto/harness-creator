@@ -34,6 +34,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from harness.blocks import is_blocked
 from harness.contract import FEATURE_LIST_FILE
 from harness.review import submit_for_review
 
@@ -73,10 +74,22 @@ def ready_features(feature_list: dict[str, Any]) -> list[dict[str, Any]]:
 
 def dispatch_next(target_dir: Path) -> dict[str, Any] | None:
     """Lê `.harness/feature_list.json` (via `harness.contract.FEATURE_LIST_FILE`)
-    e devolve a PRIMEIRA feature pronta (ver `ready_features`), ou `None` se
-    não houver nenhuma. Ausência do arquivo (ou JSON inválido) -> `None`, sem
-    levantar exceção. SÓ LEITURA — nunca escreve nada, nunca executa
+    e devolve a PRIMEIRA feature pronta (ver `ready_features`) que NÃO esteja
+    parada esperando uma pessoa (ver `harness.blocks`), ou `None` se não houver
+    nenhuma. Ausência do arquivo (ou JSON inválido) -> `None`, sem levantar
+    exceção. SÓ LEITURA — nunca escreve nada, nunca executa
     `verify_cmd`/git/subprocess de qualquer tipo.
+
+    O filtro de bloqueio mora aqui, e não em `ready_features`, porque bloqueio
+    é estado de SESSÃO (mora em disco, em `.harness/blocks/`) enquanto
+    `ready_features` decide só pelo dicionário que recebe. Misturar os dois
+    faria a função pura passar a depender de disco — e o contrato
+    (`passes`/`depends`) passar a depender de estado que o contrato não
+    declara.
+
+    Por que filtrar aqui importa: até este ponto `passes: false` cobria tanto
+    "ainda não implementei" quanto "estou esperando uma pessoa", e o despacho
+    devolvia a fatia parada de novo e de novo — contra a mesma parede.
     """
     target_dir = Path(target_dir).resolve()
     feature_list_path = target_dir / FEATURE_LIST_FILE
@@ -88,8 +101,11 @@ def dispatch_next(target_dir: Path) -> dict[str, Any] | None:
     except json.JSONDecodeError:
         return None
 
-    candidates = ready_features(data)
-    return candidates[0] if candidates else None
+    contract = data.get("contract")
+    for feature in ready_features(data):
+        if not is_blocked(target_dir, contract, feature.get("id", "")):
+            return feature
+    return None
 
 
 def on_feature_verified(

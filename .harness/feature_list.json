@@ -1,7 +1,7 @@
 {
   "contract": "setup-fail-closed-sem-init",
-  "compiled_at": "2026-08-16T01:27:42.076689+00:00",
-  "compiled_with_version": "0.34.0",
+  "compiled_at": "2026-08-16T02:25:25.299278+00:00",
+  "compiled_with_version": "0.35.0",
   "stop_conditions": {
     "typed": [],
     "advisory": [
@@ -24,7 +24,7 @@
       "verify_cmd": "pytest tests/test_contract.py -q -k setup_gate",
       "depends": [],
       "cwd": null,
-      "passes": true
+      "passes": false
     },
     {
       "id": "T-02",
@@ -42,7 +42,7 @@
       "verify_cmd": "pytest tests/test_session_permissions.py tests/test_cli.py -q -k setup_gate",
       "depends": [],
       "cwd": null,
-      "passes": true
+      "passes": false
     },
     {
       "id": "T-03",
@@ -60,7 +60,7 @@
         "T-02"
       ],
       "cwd": null,
-      "passes": true
+      "passes": false
     },
     {
       "id": "T-04",
@@ -72,7 +72,7 @@
       "verify_cmd": "pytest tests/test_plan_skill_approval_flow.py -q -k setup_gate",
       "depends": [],
       "cwd": null,
-      "passes": true
+      "passes": false
     },
     {
       "id": "T-05",
@@ -86,7 +86,7 @@
         "T-02"
       ],
       "cwd": null,
-      "passes": true
+      "passes": false
     },
     {
       "id": "T-06",
@@ -107,7 +107,7 @@
         "T-04"
       ],
       "cwd": null,
-      "passes": true
+      "passes": false
     },
     {
       "id": "T-07",
@@ -125,7 +125,7 @@
         "T-04"
       ],
       "cwd": null,
-      "passes": true
+      "passes": false
     }
   ]
 }

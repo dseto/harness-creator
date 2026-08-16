@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from harness.blind import record_verdict
+from harness.blocks import record_block
 from harness.finish import FinishError, audit_closure, sweep_disposables
 from harness.killswitch import SENTINEL_RELATIVE_PATH
 from harness.templates import install_templates
@@ -112,6 +113,47 @@ def _clean_closure(target: Path) -> list[str]:
     _write_evidence(target, files=files)
     record_verdict(target, passed=True, evidence="conferi src/modulo.py:1")
     return files
+
+
+# ---------------------------------------------------------------------------
+# Tarefa parada esperando a pessoa (contrato `parei-e-sua-vez`)
+#
+# Encerrar a demanda por cima de uma fatia parada é a mesma mentira de estado
+# que marcar `passes` à mão: a demanda "fecha" e o que faltava continua
+# faltando, agora sem ninguém olhando.
+# ---------------------------------------------------------------------------
+
+NEEDS = "editar test_glob na linha 27 de .harness/harness.yaml e rodar harness compile-session"
+
+
+def test_a_blocked_feature_blocks_the_closure(tmp_path: Path) -> None:
+    _clean_closure(tmp_path)
+    record_block(
+        tmp_path, "demo", "T-01", needs=NEEDS, recorded_at="2026-08-12T01:00:00+00:00"
+    )
+
+    report = audit_closure(tmp_path)
+
+    assert "feature_blocked" in _kinds(report)
+    problem = next(b["problem"] for b in report["blockers"] if b["kind"] == "feature_blocked")
+    assert "T-01" in problem
+    assert NEEDS in problem, "o fecho precisa dizer o que falta, não só que falta algo"
+
+
+def test_a_closure_without_blocks_stays_clean(tmp_path: Path) -> None:
+    """A pendência nova não pode vazar para quem nunca declarou bloqueio."""
+    _clean_closure(tmp_path)
+
+    assert "feature_blocked" not in _kinds(audit_closure(tmp_path))
+
+
+def test_a_block_of_another_contract_does_not_hold_this_closure(tmp_path: Path) -> None:
+    _clean_closure(tmp_path)
+    record_block(
+        tmp_path, "outro-contrato", "T-01", needs=NEEDS, recorded_at="2026-08-12T01:00:00+00:00"
+    )
+
+    assert "feature_blocked" not in _kinds(audit_closure(tmp_path))
 
 
 # ---------------------------------------------------------------------------

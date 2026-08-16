@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-02",
+  "contract": "parei-e-sua-vez",
+  "desc": "Uma tarefa parada esperando a pessoa deixa de ser oferecida como próxima a trabalhar; as demais continuam na mesma ordem",
+  "files": [
+    "src/harness/supervisor.py",
+    "tests/test_supervisor.py"
+  ],
+  "verify_cmd": "pytest tests/test_supervisor.py -q",
+  "recorded_at": "2026-08-12T01:46:42.755216+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:f962db02cc5c50ada96a0af647d98a678a9d8c2d1c049c9111173431a4e7550b"
+}

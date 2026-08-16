@@ -1,0 +1,13 @@
+{
+  "feature_id": "T-06",
+  "contract": "parei-e-sua-vez",
+  "desc": "O encerramento da demanda não acontece enquanto houver tarefa parada esperando a pessoa — a pendência aparece nomeada, com a ação esperada",
+  "files": [
+    "src/harness/finish.py",
+    "tests/test_finish.py"
+  ],
+  "verify_cmd": "pytest tests/test_finish.py -q",
+  "recorded_at": "2026-08-12T02:07:10.090899+00:00",
+  "exit_code": 0,
+  "files_hash": "sha256:5068dde030990ecbb344fd2012bbd577b3033b5f5cbf36b4689aeb46b335f608"
+}

@@ -128,7 +128,7 @@ automática: ele existe para mostrar o estado real, não para corrigi-lo.
 Detalhe completo do preflight (tabela de checks, contrato do JSON, decisões de
 arquitetura): [docs/preflight.md](docs/preflight.md).
 
-## CLI — os 27 subcomandos
+## CLI — os 29 subcomandos
 
 Todos aceitam `--dir <alvo>` (default `.`) e só operam sobre um diretório que
 já existe: um `--dir` com erro de digitação sai com código 2 sem escrever nada.
@@ -147,6 +147,8 @@ já existe: um `--dir` com erro de digitação sai com código 2 sem escrever na
 | `harness reconcile` | Reconcilia estado declarado × real na abertura da sessão: prova velha, tarefa marcada sem prova, sobra na tree, progresso de outra demanda. Só leitura; exit 2 quando há divergência |
 | `harness supervise` | Devolve a próxima feature pronta respeitando `depends[]`. Leitura síncrona, não daemon |
 | `harness budget --feature <id>` | Disjuntor do loop: conta o rastro de tentativas e devolve `continue`/`stop_same_failure`/`stop_iterations`. Só leitura; exit 2 quando manda parar |
+| `harness block <id> --needs "..."` | Declara que a tarefa parou por depender de uma **ação humana** e qual é. Enquanto valer, `supervise` não a oferece, o hook Stop não cobra verificação dela e `finish` não encerra a demanda. `--watch <path>` destrava sozinho quando o arquivo muda |
+| `harness unblock <id>` | Libera a tarefa parada: a ação humana foi feita. Também sai sozinho pelo `--watch` ou por um `harness verify` verde — nunca por tempo |
 | `harness finish` | Encerra a demanda: audita o fecho e, só se aprovado, varre os descartáveis do `.harness/`. **Nunca toca git** |
 | `harness blind package` | Camada 3 — monta `.harness/scratch/blind-package.md` (o que foi prometido, onde olhar, qual era a prova) **sem nada do raciocínio de quem implementou** |
 | `harness blind verdict --pass\|--fail --evidence "..."` | Registra o veredito do verificador em `.harness/blind-review/<contrato>.json`. Append; exit 2 quando reprova |
@@ -469,8 +471,8 @@ harness-creator/
 ├── AGENTS.md                    # 3 blocos gerenciados + prosa humana
 ├── skills/                      # preflight, assess, init, plan, compile, audit
 │                                #   (+ team, dormante)
-├── src/harness/                 # 44 módulos, uma responsabilidade cada
-│   ├── cli.py                   # dispatch dos 27 subcomandos
+├── src/harness/                 # 45 módulos, uma responsabilidade cada
+│   ├── cli.py                   # dispatch dos 29 subcomandos
 │   │
 │   │                            # -- base (fonte única de cada verdade) --
 │   ├── config.py                # HarnessConfig (pydantic) — schema do yaml
@@ -530,7 +532,7 @@ harness-creator/
 │   └── .gitignore               # a regra de ignore é do próprio produto
 ├── docs/plugin/                 # TUTORIAL, GUIDE, ARCHITECTURE, arquitetura-visual.html
 ├── docs/project/                # ROADMAP, PLAN, laudos e handoffs
-└── tests/                       # 1520 casos (sem Docker/API para compile/audit)
+└── tests/                       # 1597 casos (sem Docker/API para compile/audit)
 ```
 
 Quem decide o que entra no git é a **Seção 3** de
@@ -543,7 +545,7 @@ de compilação que carrega dado de máquina é machine-local e regenerada por
 
 ```powershell
 $env:PYTHONPATH = "src"
-python -m pytest tests -q          # unit + E2E — 1520 casos
+python -m pytest tests -q          # unit + E2E — 1597 casos
 ```
 
 A suíte E2E (`tests/e2e/`) roda inteira sobre repos sintéticos criados em
@@ -554,7 +556,7 @@ externo ao plugin.
 **Convenção da suíte (v0.26.0):** um teste = uma REGRA, com tabela de casos
 (`Case` + `_expect`), nunca um `def` por caso. A suíte tinha chegado a 1008
 casos e caiu para 724 sem perder uma asserção — o que sobrou é o piso
-mecânico, não gordura restante. O crescimento desde então — hoje 1520 casos —
+mecânico, não gordura restante. O crescimento desde então — hoje 1597 casos —
 é regra nova coberta, não a gordura voltando.
 
 Achado que a suíte documenta (via `harness.cli` chamado com

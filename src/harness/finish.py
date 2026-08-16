@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from harness import __version__ as _HARNESS_VERSION
+from harness.blocks import read_block
 from harness.branching import is_git_repository, unmanaged_dirty_paths
 from harness.contract import FEATURE_LIST_FILE
 from harness.killswitch import SENTINEL_RELATIVE_PATH, is_disabled
@@ -301,7 +302,25 @@ def audit_closure(target_dir: Path | str) -> dict[str, Any]:
         declared_files.update(files)
         evidence_state = "n/a"
 
-        if feature.get("passes") is not True:
+        block = read_block(target_dir, contract, feature_id)
+        if block is not None:
+            # Vem ANTES de `feature_not_passed` porque diz mais: as duas
+            # descrevem a mesma fatia por fechar, mas só esta nomeia o que
+            # falta e de quem é. Mandar `harness verify` numa fatia parada por
+            # dependência humana é o loop que este bloqueador existe para não
+            # reabrir no fecho.
+            blockers.append(
+                _blocker(
+                    "feature_blocked",
+                    # Sem citar o verbo de destrave, pelo mesmo motivo do hook
+                    # Stop: `unblock` está na superfície do agente, e um gate
+                    # que ensina como sair dele deixa de ser gate. Quem fez a
+                    # ação sabe que a fez.
+                    f"{feature_id} está PARADA esperando uma ação humana e por isso a "
+                    f"demanda não fecha. O que falta, e cabe à pessoa: {block['needs']}",
+                )
+            )
+        elif feature.get("passes") is not True:
             blockers.append(
                 _blocker(
                     "feature_not_passed",
@@ -309,7 +328,7 @@ def audit_closure(target_dir: Path | str) -> dict[str, Any]:
                     f"rode `harness verify {feature_id}` antes de encerrar.",
                 )
             )
-        else:
+        elif feature.get("passes") is True:
             path = evidence_path(target_dir, contract, feature_id)
             if not path.is_file():
                 evidence_state = "missing"

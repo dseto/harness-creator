@@ -53,6 +53,21 @@ o exit code. O lifecycle passou a instruir o agente a perguntar ao
 desenvolvedor, antes do commit, se a atualização entra na entrega — nunca fazer
 sozinho, nunca pular a pergunta.
 
+### Também nesta versão: quando o agente depende de você, ele para e diz o quê
+
+Entregue pelo contrato `parei-e-sua-vez` (PR #90), que entrou na `main` sem
+bump próprio e por isso sai aqui. O agente ganhou `harness block <id> --needs`
+para declarar que uma fatia parou por dependência humana, nomeando em uma frase
+o que a pessoa precisa fazer — declaração sem motivo é recusada. Uma fatia
+parada deixa de ser oferecida como próxima, o aviso de fim de sessão mostra o
+que está na mão da pessoa em vez de cobrar verificação, e o placar e o
+`progress.md` distinguem "parada esperando você" de "por fazer". A fatia volta
+a andar por três caminhos e só por eles: a pessoa libera, o arquivo esperado
+muda, ou a verificação passa. O encerramento da demanda não acontece com fatia
+parada em aberto. Quem declara é sempre o agente — o harness nunca infere
+bloqueio a partir da saída de comando nenhum (D-013), e a liquidação vive na
+CLI para os leitores continuarem sendo só leitura (D-014).
+
 ### Achados da verificação cega
 
 O verificador independente reprovou a primeira versão por um defeito real:

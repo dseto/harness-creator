@@ -58,14 +58,14 @@ contagem de tokens a hooks.
 |---|---|---|---|
 | **0 · Host** | Claude Code | Executa: lê `permissions`, dispara hooks, carrega skills e subagentes | — |
 | **1a · Skills** | `skills/` (7) | Conduz a conversa com o humano | Não escreve nada direto — toda escrita passa pela CLI |
-| **1b · CLI** | `cli.py` | Dispatch dos 27 subcomandos, validação de `--dir` | Não decide `allow`/`deny` em runtime |
+| **1b · CLI** | `cli.py` | Dispatch dos 29 subcomandos, validação de `--dir` | Não decide `allow`/`deny` em runtime |
 | **2 · Compiladores** | `compiler`, `contract`, `analyzer`, `session_permissions`, `lifecycle`, `templates`, `branching`, `profile_edit`, `install_command`, `autoupdate` | Transformam entrada humana em artefato. Determinísticos, zero LLM, zero rede | Não rodam no caminho da tool call |
 | **3 · Enforcement** | `boundary_guard`, `session_start`, `stop_hook`, `statusline` | Só o `boundary_guard` decide a cada tool call (`PreToolUse`); os outros três rodam nos eventos `SessionStart`, `Stop` e na chave `statusLine` | Não importam a biblioteca — stdlib puro. Nenhum emite `ask`: esse bucket é de `permissions`, compilado na camada 2 |
 | **4 · Prova e controle** | `verify`, `attempts`, `budget`, `convergence`, `escalation`, `skips`, `reconcile`, `regression`, `blind`, `supervisor`, `finish`, `pr_draft`, `spine`, `panel`, `review`†, `teams`† | Produzem e consomem evidência; ordenam o trabalho | Nenhum chama git de escrita; `panel` também não escreve nada; `budget`/`escalation` não bloqueiam — respondem |
 | **5 · Diagnóstico** | `preflight`, `audit`, `runtime_audit`, `team_audit`†, `doctor`, `health`, `metrics` | Emitem laudo + o comando exato de correção | Nunca corrigem sozinhos |
 | **Base** | `config`, `governance/approval`, `patterns`, `findings`, `settings_paths`, `hook_launcher`, `killswitch` | Cada um é fonte **única** de uma verdade | — |
 
-A tabela nomeia os 44 módulos de `src/harness/` (sem `__init__.py`), mais o
+A tabela nomeia os 45 módulos de `src/harness/` (sem `__init__.py`), mais o
 pacote `governance/`. Ela é o mapa completo, não uma seleção: módulo que não
 aparece aqui é módulo que ninguém colocou numa camada, e essa é a forma de
 dívida que este documento existe para não acumular.

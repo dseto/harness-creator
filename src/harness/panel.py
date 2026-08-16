@@ -30,6 +30,7 @@ from harness.budget import BudgetError, check_budget
 from harness.contract import FEATURE_LIST_FILE
 from harness.convergence import best_so_far, read_measurements
 from harness.killswitch import is_disabled
+from harness.blocks import read_block
 from harness.supervisor import dispatch_next
 
 #: Células da barra de progresso. Vinte cabe na largura de qualquer terminal
@@ -47,6 +48,12 @@ STATE_DONE = "done"
 STATE_CURRENT = "current"
 STATE_BLOCKED = "blocked"
 STATE_PENDING = "pending"
+#: Parada esperando uma PESSOA (contrato `parei-e-sua-vez`) — deliberadamente
+#: separado de `STATE_BLOCKED`, que quer dizer "dependência de tarefa ainda não
+#: satisfeita". Os dois pedem reações opostas de quem lê o placar: uma espera
+#: resolve sozinha quando a fatia anterior passar, a outra só sai do lugar se
+#: alguém fizer alguma coisa fora do harness.
+STATE_WAITING_HUMAN = "waiting_human"
 
 
 def _load_feature_list(target_dir: Path) -> dict[str, Any] | None:
@@ -59,10 +66,18 @@ def _load_feature_list(target_dir: Path) -> dict[str, Any] | None:
 
 
 def _feature_state(
-    feature: dict[str, Any], current_id: str | None, by_id: dict[str, dict[str, Any]]
+    feature: dict[str, Any],
+    current_id: str | None,
+    by_id: dict[str, dict[str, Any]],
+    needs: str | None = None,
 ) -> str:
     if feature.get("passes") is True:
         return STATE_DONE
+    if needs:
+        # Antes de "atual" e antes de dependência: uma fatia parada esperando
+        # uma pessoa não é a que está sendo trabalhada, e o motivo dela não é
+        # a fila do contrato.
+        return STATE_WAITING_HUMAN
     if feature.get("id") == current_id:
         return STATE_CURRENT
     for dep_id in feature.get("depends") or []:
@@ -122,6 +137,7 @@ def _next_step(
     last_proof: dict[str, Any],
     verdict: str,
     reason: str,
+    waiting: list[dict[str, Any]] | None = None,
 ) -> str:
     """O próximo passo é DERIVADO do estado, nunca narrado.
 
@@ -133,6 +149,13 @@ def _next_step(
         return "o harness está desativado — reative com harness enable --dir . antes de seguir"
     if contract is None or total == 0:
         return "nenhum contrato compilado — aprove um plano e rode harness compile-contract"
+    if current is None and waiting:
+        # Vem ANTES do "todas passaram": com fatia parada esperando alguém, a
+        # demanda não está pronta para encerrar, e mandar `harness finish`
+        # aqui seria o placar convidando a fechar por cima de trabalho parado.
+        first = waiting[0]
+        resto = f" (e mais {len(waiting) - 1} parada(s))" if len(waiting) > 1 else ""
+        return f"parado esperando você em {first['id']}: {first['needs']}{resto}"
     if current is None:
         return "todas as tarefas passaram — encerre a demanda com harness finish --dir ."
     if verdict and verdict != "continue":
@@ -164,12 +187,18 @@ def collect_state(target_dir: Path | str) -> dict[str, Any]:
     current_feature = dispatch_next(target_dir) if feature_list else None
     current_id = str(current_feature["id"]) if current_feature else None
 
+    blocked_needs = {
+        str(f.get("id")): (read_block(target_dir, contract, str(f.get("id"))) or {}).get("needs")
+        for f in raw_features
+    }
+
     features = [
         {
             "id": str(f.get("id")),
             "desc": str(f.get("desc") or ""),
             "passes": f.get("passes") is True,
-            "state": _feature_state(f, current_id, by_id),
+            "state": _feature_state(f, current_id, by_id, blocked_needs.get(str(f.get("id")))),
+            "needs": blocked_needs.get(str(f.get("id"))),
         }
         for f in raw_features
     ]
@@ -223,6 +252,7 @@ def collect_state(target_dir: Path | str) -> dict[str, Any]:
             last_proof=last_proof,
             verdict=verdict,
             reason=reason,
+            waiting=[f for f in features if f["state"] == STATE_WAITING_HUMAN],
         ),
     }
 
@@ -267,6 +297,7 @@ _TASK_MARK = {
     STATE_CURRENT: "[ ]",
     STATE_BLOCKED: "[ ]",
     STATE_PENDING: "[ ]",
+    STATE_WAITING_HUMAN: "[!]",
 }
 
 _TASK_SUFFIX = {
@@ -274,6 +305,10 @@ _TASK_SUFFIX = {
     STATE_BLOCKED: " (esperando dependência)",
     STATE_DONE: "",
     STATE_PENDING: "",
+    # O sufixo genérico existe só para o caso improvável de o `needs` sumir
+    # entre a leitura e o render; o texto real da espera é acrescentado pelos
+    # renders, que têm a frase inteira em mãos.
+    STATE_WAITING_HUMAN: " (parada — esperando você)",
 }
 
 
@@ -296,7 +331,10 @@ def render_brief(state: dict[str, Any]) -> str:
         text = f"{_TASK_MARK[feature['state']]} {feature['id']} — {desc}"
         if feature["state"] == STATE_CURRENT:
             text = f"{_TASK_MARK[feature['state']]} **{feature['id']} — {desc}**"
-        lines.append(f"- {text}{_TASK_SUFFIX[feature['state']]}")
+        suffix = _TASK_SUFFIX[feature["state"]]
+        if feature["state"] == STATE_WAITING_HUMAN and feature.get("needs"):
+            suffix = f" — **parada, esperando você:** {feature['needs']}"
+        lines.append(f"- {text}{suffix}")
 
     if not state["features"]:
         lines.append("- _(nenhuma tarefa compilada)_")
@@ -349,6 +387,7 @@ _TASK_GLYPH = {
     STATE_CURRENT: "▶",
     STATE_BLOCKED: "·",
     STATE_PENDING: "·",
+    STATE_WAITING_HUMAN: "⏸",
 }
 
 _TASK_COLOR = {
@@ -356,6 +395,10 @@ _TASK_COLOR = {
     STATE_CURRENT: _AMBER,
     STATE_BLOCKED: _DIM,
     STATE_PENDING: _DIM,
+    # Âmbar, igual à fatia atual: uma fatia parada esperando alguém é o item
+    # que MAIS pede ação de quem está olhando o placar — apagá-la em cinza,
+    # junto das que só aguardam a fila, seria esconder o pedido.
+    STATE_WAITING_HUMAN: _AMBER,
 }
 
 
@@ -380,10 +423,10 @@ def render_terminal(state: dict[str, Any], *, color: bool = False) -> str:
 
     for feature in state["features"]:
         desc = feature["desc"] or feature["id"]
-        text = (
-            f"{_TASK_GLYPH[feature['state']]} {feature['id']} — {desc}"
-            f"{_TASK_SUFFIX[feature['state']]}"
-        )
+        suffix = _TASK_SUFFIX[feature["state"]]
+        if feature["state"] == STATE_WAITING_HUMAN and feature.get("needs"):
+            suffix = f" — parada, esperando você: {feature['needs']}"
+        text = f"{_TASK_GLYPH[feature['state']]} {feature['id']} — {desc}{suffix}"
         out.append(_paint(text, _TASK_COLOR[feature["state"]], color=color))
 
     if not state["features"]:
